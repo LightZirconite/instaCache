@@ -33,39 +33,51 @@ jobs:
   build:
     name: Build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    # Built inside Debian 12, which is exactly the baseline instaCache claims to
+    # support: Qt 6.4 and glibc 2.36. Both halves matter and pull in opposite
+    # directions, which is why the runner's own distribution is not used.
+    #
+    #   * Too new a glibc and the binary refuses to start on Debian 12.
+    #   * Too old a Qt and it does not build at all -- Ubuntu 22.04 carries Qt
+    #     6.2, below the baseline, and the release built there failed while the
+    #     same commit built fine on 24.04.
+    #
+    # Debian 12 is the one environment where both are right at once.
+    container: debian:12
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu 22.04 carries glibc 2.35; binaries built there also run on
-          # every newer distribution. Building on 24.04 would lock out 22.04.
           - runner: ubuntu-22.04
             arch: x86_64
           - runner: ubuntu-22.04-arm
             arch: aarch64
 
     steps:
-      - name: Check out the tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      # Built against Ubuntu 22.04's Qt 6.2 on purpose. Qt keeps binary
-      # compatibility across the 6.x series, so a binary linked here also runs
-      # against the newer Qt of every later distribution -- while linking
-      # against a newer Qt would not run on an older one. The QML only uses
-      # API present in 6.4, which is what Debian 12 ships.
+      # Before the checkout, because the container starts without git, curl or
+      # certificates and every later step needs them.
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
+          apt-get update
+          apt-get install --no-install-recommends -y \
             build-essential \
             pkg-config \
+            ca-certificates \
+            curl \
+            git \
+            xz-utils \
             qt6-base-dev \
             qt6-declarative-dev \
             qt6-webengine-dev \
             libgl1-mesa-dev \
             librsvg2-bin
+          qmake6 -query QT_VERSION
+
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install the Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -90,8 +102,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # The tail of a failed build is repeated as annotations, which are
+      # readable from the run without administrator rights on the repository.
+      # Job logs are not, and a release that fails where nobody can see why
+      # costs an afternoon.
       - name: Build
-        run: cargo build --release --locked
+        run: |
+          set -o pipefail
+          if ! cargo build --release --locked 2>&1 | tee /tmp/build.log; then
+            tail -n 40 /tmp/build.log | sed 's/^/::error::/'
+            exit 1
+          fi
 
       - name: Verify the binary runs
         run: ./target/release/instacache --version
