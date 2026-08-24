@@ -191,7 +191,11 @@ else
 fi
 [ -n "$COMMITS" ] || COMMITS="- No changes recorded since ${PREVIOUS_TAG:-the first commit}."
 
-if [ "$DRY_RUN" = 1 ]; then
+# A section written by hand ahead of the release is better than one generated
+# from commit subjects, so leave it alone rather than adding a second one.
+if [ -f CHANGELOG.md ] && grep -q "^## \[\?${VERSION}\]\?" CHANGELOG.md; then
+    ok "CHANGELOG.md already documents $VERSION; leaving it as written"
+elif [ "$DRY_RUN" = 1 ]; then
     printf '  %s[dry-run]%s would prepend:\n\n## [%s] - %s\n\n%s\n\n' \
         "$C_YELLOW" "$C_RESET" "$VERSION" "$TODAY" "$COMMITS"
 else
