@@ -36,6 +36,7 @@ adding chrome.
 | `src/shortcuts.rs` | Keyboard navigation. |
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
+| `src/progress.rs` | The loading bar, including in-app navigation. |
 | `examples/snapshot.rs` | Renders a page to PNG through WebKit, for verification. |
 
 The library/binary split exists so `examples/snapshot.rs` exercises the real
@@ -122,8 +123,24 @@ for e in qtdemux souphttpsrc autoaudiosink avdec_h264; do
 done
 ```
 
-`install.sh` runs this check and `packaging/PKGBUILD` declares the packages, so
-neither should be dropped.
+`install.sh` runs this check and installs the packages itself, so it must not
+be dropped.
+
+Hardware decoding matters as much as having a decoder at all. WebKit hands
+video to GStreamer, which ranks `vah264dec` (GPU) barely above `avdec_h264`
+(CPU); `web.rs` raises the GPU decoders to MAX through
+`GST_PLUGIN_FEATURE_RANK` so the choice is deterministic. Names GStreamer does
+not know are ignored, and a decoder that fails to negotiate still falls back,
+so the list is safe to extend.
+
+## The loading bar looks dead
+
+Instagram is a single-page application. Opening a profile or the inbox does not
+trigger a page load, so `load-changed` never fires and
+`estimated-load-progress` never moves — a bar driven only by those lights up
+once at startup and never again. `progress.rs` therefore also starts on a URI
+change and finishes when the network has been quiet for `QUIET_PERIOD`. Test
+both paths: a cold start *and* clicking through the app.
 
 ## A grey, unresponsive page
 
@@ -147,6 +164,6 @@ signing in.
 ## Releasing
 
 `scripts/release.sh <patch|minor|major>` does everything: runs the checks, bumps
-`Cargo.toml`, `Cargo.lock` and `packaging/PKGBUILD`, writes the changelog,
+`Cargo.toml` and `Cargo.lock`, writes the changelog,
 commits, tags and pushes. Pushing the tag is what triggers the release workflow.
 Never tag by hand — the workflow refuses a tag that disagrees with `Cargo.toml`.

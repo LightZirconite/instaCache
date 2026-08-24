@@ -11,7 +11,7 @@ use gtk::glib;
 use gtk::glib::Propagation;
 use gtk::prelude::*;
 use webkit2gtk::{
-    DownloadExt, LoadEvent, NetworkError, NotificationExt, NotificationPermissionRequest,
+    DownloadExt, NetworkError, NotificationExt, NotificationPermissionRequest,
     PermissionRequestExt, PolicyError, WebContextExt, WebProcessTerminationReason, WebViewExt,
     WebsiteDataAccessPermissionRequest,
 };
@@ -188,31 +188,8 @@ fn wire_loading_feedback(
         });
     }
 
-    if !enabled {
-        return;
-    }
-
-    {
-        let progress = progress.clone();
-        view.connect_estimated_load_progress_notify(move |view| {
-            let fraction = view.estimated_load_progress();
-            progress.set_fraction(fraction);
-            if fraction >= 1.0 {
-                progress.hide();
-            }
-        });
-    }
-
-    {
-        let progress = progress.clone();
-        view.connect_load_changed(move |_, event| match event {
-            LoadEvent::Started => {
-                progress.set_fraction(0.05);
-                progress.show();
-            }
-            LoadEvent::Finished => progress.hide(),
-            _ => {}
-        });
+    if enabled {
+        crate::progress::install(view, progress);
     }
 }
 

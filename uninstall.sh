@@ -67,6 +67,7 @@ esac
 
 DESKTOP_DIR="$PREFIX/share/applications"
 ICON_DIR="$PREFIX/share/icons/hicolor"
+SUPPORT_DIR="$PREFIX/share/$APP"
 
 SUDO=""
 if [ ! -w "$PREFIX" ] && [ "$(id -u)" != 0 ]; then
@@ -96,6 +97,10 @@ remove "$ICON_DIR/scalable/apps/$APP.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
     remove "$ICON_DIR/${size}x${size}/apps/$APP.png"
 done
+# The copy of this very script that install.sh left behind. Removing it while
+# it runs is safe: the shell has already read the file.
+remove "$SUPPORT_DIR/uninstall.sh"
+[ -d "$SUPPORT_DIR" ] && rmdir "$SUPPORT_DIR" 2>/dev/null || true
 
 if [ "$REMOVED" = 0 ]; then
     warn "nothing was installed under $PREFIX"

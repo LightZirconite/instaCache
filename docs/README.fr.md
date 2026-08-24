@@ -58,6 +58,14 @@ application web lourde, pas un jouet.
   l'application est arrêtée plutôt que fermée.
 - **Dimensionnée pour ton écran.** Le premier lancement occupe 90 % de la zone
   utile de ton moniteur au lieu d'une taille fixe, pour que rien ne soit coupé.
+- **Une barre de chargement qui suit vraiment Instagram.** Une fine ligne
+  dégradée en haut, comme le fait YouTube. Elle suit les vrais chargements de
+  page *et* la navigation interne, qui ne déclenche aucun chargement de page et
+  laisserait sinon la barre inerte.
+- **Décodage vidéo matériel.** WebKit confie la vidéo à GStreamer, qui par
+  défaut peut choisir le décodeur logiciel plutôt que celui du GPU ; instaCache
+  demande explicitement les décodeurs GPU, ce qui évite les saccades sur les
+  Reels.
 - **Vraie navigation au clavier.** Rechargement, rechargement forcé, précédent,
   suivant, accueil, zoom, plein écran.
 - **Les liens externes sortent.** Tout ce qui n'est pas Instagram — ni l'un des
@@ -72,88 +80,87 @@ application web lourde, pas un jouet.
 
 ## Installation
 
-### N'importe quelle distribution — l'installeur
-
-Télécharge l'archive correspondant à ton architecture depuis la
-[page des versions](https://git.justw.tf/LightZirconite/instaCache/releases),
-puis :
+Une seule commande. Colle-la dans un terminal :
 
 ```sh
-tar -xzf instacache-1.0.0-linux-x86_64.tar.gz
-cd instacache-1.0.0-linux-x86_64
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh
 ```
 
-C'est tout. L'installeur :
+Elle télécharge la version correspondant à ton architecture, vérifie sa somme
+SHA-256 publiée, installe instaCache dans `~/.local` — **aucun accès root
+nécessaire pour l'application elle-même** — et l'ajoute à ton menu.
 
-- installe dans `~/.local` — **aucun accès root nécessaire** ;
-- ajoute instaCache à ton menu d'applications, avec son icône ;
-- vérifie que la bibliothèque WebKitGTK 4.1 est présente et, si elle manque,
-  affiche la commande exacte à lancer pour ta distribution.
+Elle vérifie aussi les deux bibliothèques système dont instaCache a besoin et
+propose d'installer celles qui manquent avec le gestionnaire de paquets de ta
+distribution. Cette étape-là demande ton mot de passe, parce qu'installer des
+paquets système l'exige. Tu réponds `y` et c'est réglé ; la commande exacte
+s'affiche avant d'être lancée, pour que tu voies ce qui va s'exécuter.
 
 Ensuite, lance **instaCache** depuis ton menu d'applications.
 
-Autres possibilités :
+<details>
+<summary>Options</summary>
 
 ```sh
-./install.sh --system            # /usr/local, pour tous les utilisateurs
-./install.sh --prefix ~/apps     # où tu veux
-./install.sh --build             # compiler au lieu d'utiliser le binaire fourni
-./install.sh --help
+# Installer pour tous les utilisateurs
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --system
+
+# Ne rien demander, installer les paquets manquants automatiquement
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --yes
+
+# Installer seulement l'application, sans toucher aux paquets système
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --no-deps
+
+# Une version précise
+INSTACACHE_VERSION=v1.0.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh)"
 ```
 
-Pour désinstaller :
+</details>
+
+<details>
+<summary>Tu préfères ne pas envoyer un script dans un shell ?</summary>
+
+Télécharge l'archive toi-même depuis la
+[page des versions](https://github.com/LightZirconite/instaCache/releases),
+puis :
 
 ```sh
-./uninstall.sh            # retire l'application, garde ta session
-./uninstall.sh --purge    # supprime aussi session, cache et réglages
+tar -xzf instacache-*-linux-x86_64.tar.gz
+cd instacache-*-linux-x86_64
+./install.sh
 ```
 
-### Arch, CachyOS, Manjaro, EndeavourOS
+Même installeur, même résultat. `get.sh` ne fait qu'automatiser le
+téléchargement et vérifier la somme de contrôle à ta place.
+
+</details>
+
+## Désinstallation
+
+L'installeur laisse le désinstalleur à côté de l'application, donc ça marche
+même si tu as utilisé la commande unique et que tu n'as plus l'archive :
 
 ```sh
-git clone https://git.justw.tf/LightZirconite/instaCache.git
-cd instaCache/packaging
-makepkg -si
+~/.local/share/instacache/uninstall.sh            # retire l'app, garde ta session
+~/.local/share/instacache/uninstall.sh --purge    # supprime aussi session, cache et réglages
 ```
 
-`makepkg -si` compile puis installe un vrai paquet système : l'application
-apparaît dans le menu, et `sudo pacman -R instacache` la retire proprement.
-La procédure de publication sur l'AUR est décrite dans
-[docs/publishing.md](publishing.md).
+Pour une installation `--system`, le chemin est
+`/usr/local/share/instacache/uninstall.sh`.
 
-### Dépendance à l'exécution
+## Ce dont l'application a besoin sur ton système
 
-instaCache s'appuie sur les bibliothèques WebKitGTK 4.1 et GTK 3 déjà empaquetées
-par ta distribution. Il n'embarque pas de navigateur.
+instaCache n'embarque pas de navigateur. Il utilise les bibliothèques WebKitGTK
+et GStreamer déjà empaquetées par ta distribution, et l'installeur s'en occupe
+pour toi. Pour référence :
 
-| Distribution | Commande |
-|---|---|
-| Arch, CachyOS, Manjaro | `sudo pacman -S --needed webkit2gtk-4.1 gtk3` |
-| Debian, Ubuntu, Mint | `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0` |
-| Fedora, RHEL | `sudo dnf install webkit2gtk4.1 gtk3` |
-| openSUSE | `sudo zypper install libwebkit2gtk-4_1-0 gtk3` |
-| Alpine | `sudo apk add webkit2gtk-4.1 gtk+3.0` |
-| Void | `sudo xbps-install -S webkit2gtk gtk+3` |
+| | Paquet (Arch) | Paquet (Debian/Ubuntu) | Sans lui |
+|---|---|---|---|
+| Rendu | `webkit2gtk-4.1 gtk3` | `libwebkit2gtk-4.1-0 libgtk-3-0` | Ne démarre pas |
+| Vidéo | `gst-plugins-good gst-plugins-bad gst-libav` | `gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` | Les photos s'affichent, aucune vidéo ne charge |
 
-### La lecture vidéo demande GStreamer
-
-WebKit décode la vidéo via GStreamer, qui est empaqueté séparément. Instagram
-diffuse du H.264 en MP4 : il faut donc le démultiplexeur MP4 (`qtdemux`), la
-source HTTP (`souphttpsrc`) et la sortie audio. **Sans eux les photos
-s'affichent normalement mais tous les Reels, Stories et vidéos restent vides** —
-un symptôme qui ressemble à un bug de l'application alors qu'il s'agit d'un
-paquet manquant.
-
-| Distribution | Commande |
-|---|---|
-| Arch, CachyOS, Manjaro | `sudo pacman -S --needed gst-plugins-good gst-plugins-bad gst-libav` |
-| Debian, Ubuntu, Mint | `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` |
-| Fedora, RHEL | `sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav` |
-| openSUSE | `sudo zypper install gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-libav` |
-
-`install.sh` vérifie à la fois WebKitGTK et les codecs, et affiche la commande
-exacte pour ta distribution s'il manque quelque chose.
+Si les vidéos ne se lancent jamais, c'est presque toujours la deuxième ligne.
+Relance `./install.sh` : il détecte et corrige.
 
 ## Raccourcis clavier
 
@@ -195,7 +202,8 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 |---|---|---|
 | `home_url` | `https://www.instagram.com/` | Page ouverte au démarrage et par `Ctrl+H`. |
 | `user_agent` | une chaîne Safari macOS | Envoyé à Instagram. Une chaîne vide garde celui de WebKitGTK. |
-| `hardware_acceleration` | `auto` | `auto`, `always` ou `never`. Mets `never` en cas de défaut d'affichage. |
+| `hardware_acceleration` | `always` | `always`, `auto` ou `never`. En `auto`, WebKit change de mode de composition en cours de page, ce qui se voit comme des gels d'une image pendant les vidéos. Mets `never` seulement si la fenêtre s'affiche mal. |
+| `hardware_video_decoding` | `true` | Demander à GStreamer de préférer les décodeurs vidéo du GPU. Mets `false` si la vidéo casse complètement après une mise à jour. |
 | `developer_tools` | `false` | Active l'inspecteur web et la sortie console. |
 | `notifications` | `true` | Transmettre les notifications web au bureau. |
 | `open_external_links_in_browser` | `true` | Envoyer les liens non-Instagram au navigateur. |
@@ -273,6 +281,7 @@ src/
   lib.rs         câblage des modules et constantes de l'application
   ui.rs          fenêtre, signaux, notifications, téléchargements
   web.rs         contexte WebKit, stockage persistant, réglages, liens
+  progress.rs    la barre de chargement, navigation interne comprise
   config.rs      config.json et géométrie de la fenêtre
   paths.rs       emplacements XDG et profils
   shortcuts.rs   navigation au clavier

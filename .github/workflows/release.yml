@@ -142,6 +142,7 @@ jobs:
         id: notes
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -168,15 +169,19 @@ jobs:
             echo
             echo "### Install"
             echo
+            echo "One command:"
+            echo
             echo '```sh'
-            echo "tar -xzf instacache-${version}-linux-x86_64.tar.gz"
-            echo "cd instacache-${version}-linux-x86_64"
-            echo "./install.sh"
+            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/get.sh | sh"
             echo '```'
             echo
-            echo "The installer places instaCache in your application menu and checks that"
-            echo "the WebKitGTK 4.1 runtime is present, naming the package to install if it"
-            echo "is not. Run \`./uninstall.sh\` to remove it."
+            echo "It downloads the archive below for your architecture, verifies it against"
+            echo "the checksum, installs instaCache into \`~/.local\` without root, adds it to"
+            echo "your application menu, and offers to install the WebKitGTK and GStreamer"
+            echo "packages it needs."
+            echo
+            echo "Or unpack an archive yourself and run \`./install.sh\` inside it."
+            echo "Uninstall with \`~/.local/share/instacache/uninstall.sh\`."
             echo
             echo "### Checksums"
             echo
