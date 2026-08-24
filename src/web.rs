@@ -28,9 +28,7 @@ pub struct Browser {
 }
 
 pub fn build(config: &Config, paths: &Paths) -> Browser {
-    if config.hardware_video_decoding {
-        prefer_gpu_video_decoders();
-    }
+    apply_decoder_preference(&config.video_decoding);
 
     let data_manager = WebsiteDataManager::builder()
         .base_data_directory(paths.data.to_string_lossy().as_ref())
@@ -91,6 +89,16 @@ pub fn build(config: &Config, paths: &Paths) -> Browser {
     Browser { context, view }
 }
 
+/// Software decoders from gst-libav. Cheap to create, which is what matters
+/// when a feed builds a new pipeline for every clip that scrolls past.
+const SOFTWARE_DECODERS: &[&str] = &[
+    "avdec_h264",
+    "avdec_h265",
+    "avdec_vp8",
+    "avdec_vp9",
+    "avdec_av1",
+];
+
 /// GPU video decoders GStreamer may have available, in the order WebKit is
 /// most likely to need them. Raising their rank is the documented way to tell
 /// GStreamer which decoder to reach for first.
@@ -111,10 +119,12 @@ const GPU_DECODERS: &[&str] = &[
     "nvh265dec",
 ];
 
-/// WebKit decodes video through GStreamer, and GStreamer ranks the libav
-/// software decoders at the same level as the hardware ones, so which decoder
-/// gets used is effectively arbitrary. Software decoding a Reel is what
-/// produces stutter and single-frame freezes on a laptop or a handheld.
+/// Tells GStreamer which family of decoders to rank highest.
+///
+/// WebKit decodes video through GStreamer, and GStreamer already ranks the
+/// VA-API decoders just above the libav ones, so the GPU wins by default. On a
+/// feed of short clips that is the wrong choice — see `Config::video_decoding`
+/// for the measurements — hence the ability to say otherwise.
 ///
 /// Ranks are read from the environment when GStreamer initialises, and the
 /// variable is inherited by the WebProcess, so setting it here — before the
@@ -123,12 +133,23 @@ const GPU_DECODERS: &[&str] = &[
 /// Names that no plugin provides are ignored, and if a preferred decoder fails
 /// to negotiate, GStreamer still falls back to the next candidate. An explicit
 /// `GST_PLUGIN_FEATURE_RANK` from the user is never overwritten.
-fn prefer_gpu_video_decoders() {
+fn apply_decoder_preference(preference: &str) {
     const VAR: &str = "GST_PLUGIN_FEATURE_RANK";
-    if std::env::var_os(VAR).is_some() {
+    // An empty value counts as unset: a wrapper script exporting the variable
+    // without a value must not silently disable the preference.
+    if std::env::var_os(VAR).is_some_and(|value| !value.is_empty()) {
         return;
     }
-    let ranks: Vec<String> = GPU_DECODERS
+
+    let decoders: &[&str] = match preference.trim().to_ascii_lowercase().as_str() {
+        "software" | "cpu" | "libav" => SOFTWARE_DECODERS,
+        // `auto` leaves the ranks alone; so does anything unrecognised, which
+        // is the safe reading of a typo in a config file.
+        "auto" | "default" => return,
+        _ => GPU_DECODERS,
+    };
+
+    let ranks: Vec<String> = decoders
         .iter()
         .map(|decoder| format!("{decoder}:MAX"))
         .collect();
@@ -309,6 +330,23 @@ fn open_externally(uri: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoder_preference_selects_the_right_family() {
+        assert_eq!(decoders_for("software"), SOFTWARE_DECODERS);
+        assert_eq!(decoders_for("gpu"), GPU_DECODERS);
+        // A typo must not silently switch decoder family.
+        assert_eq!(decoders_for("nonsense"), GPU_DECODERS);
+        assert!(decoders_for("auto").is_empty());
+    }
+
+    fn decoders_for(preference: &str) -> &'static [&'static str] {
+        match preference.trim().to_ascii_lowercase().as_str() {
+            "software" | "cpu" | "libav" => SOFTWARE_DECODERS,
+            "auto" | "default" => &[],
+            _ => GPU_DECODERS,
+        }
+    }
 
     #[test]
     fn hardware_policy_parsing() {

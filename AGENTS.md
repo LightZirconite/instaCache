@@ -170,6 +170,33 @@ cargo run --example stress -- 90 https://www.instagram.com/
 Use the real site sparingly. Automated navigation there looks like a bot and
 risks the account.
 
+## Measuring video smoothness
+
+CPU averages do not measure stutter, and a single run against Instagram
+measures whichever clips happened to be in the feed — two samples there
+disagreed by 3x and led to the wrong conclusion once already. Use the
+controlled page instead:
+
+```sh
+cargo run --example stress -- 45 "file:///path/to/churn.html"
+```
+
+It counts frames over 50 ms from inside the page with `requestAnimationFrame`,
+which is the thing a person actually perceives. Repeat each configuration and
+check the numbers agree before believing them.
+
+Established on the reference machine, four 1080x1920 H.264 streams at 30 fps:
+
+| case | CPU | frames over 50 ms | worst |
+|---|---|---|---|
+| gpu decoders, no churn | — | 2 | 120 ms |
+| gpu decoders, a pipeline built every 500 ms | 24% | 27 | 141 ms |
+| software decoders, same churn | 104% | 41 | 203 ms |
+
+The conclusion to keep: stutter on a feed comes from pipeline churn in WebKit's
+MSE, not from the decoder. Changing decoders moves it a little; nothing in this
+codebase removes it.
+
 ## A grey, unresponsive page
 
 That is WebKit's rendering process having died, not a frozen UI. `ui.rs`
