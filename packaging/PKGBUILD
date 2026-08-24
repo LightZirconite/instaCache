@@ -19,10 +19,11 @@ depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3')
 makedepends=('cargo' 'pkgconf')
 optdepends=('librsvg: generate raster icons at install time')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('e0d13d7c61497982ff30340ca8f7616bd757e8d650732a22c07074b8a1ed66c4')
 
-# Gitea unpacks its tag archives into a directory named after the repository.
-_srcdir="instaCache"
+# Gitea unpacks its tag archives into a lowercased directory named after the
+# repository, which is not the same as the repository's display name.
+_srcdir="instacache"
 
 prepare() {
     cd "$_srcdir"
