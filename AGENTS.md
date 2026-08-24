@@ -181,3 +181,11 @@ together.
 `Cargo.toml` and `Cargo.lock`, writes the changelog,
 commits, tags and pushes. Pushing the tag is what triggers the release workflow.
 Never tag by hand — the workflow refuses a tag that disagrees with `Cargo.toml`.
+
+Two traps the script now handles, both found the hard way:
+
+- It rebuilds after bumping. The checks run against the *old* version, so
+  without a rebuild `./install.sh` straight after a release installs a binary
+  that reports the previous number.
+- It leaves a hand-written changelog section alone. Generating one on top of it
+  produced two `## [1.1.0]` headings in the same file.

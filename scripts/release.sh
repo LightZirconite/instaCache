@@ -177,6 +177,21 @@ else
     ok "Cargo.lock"
 fi
 
+# The checks above ran against the previous version number, so target/ still
+# holds a binary that reports it. Rebuilding here means a local `./install.sh`
+# right after a release installs the version that was just tagged, rather than
+# silently installing the old one.
+if [ "$DRY_RUN" = 1 ]; then
+    printf '  %s[dry-run]%s would rebuild so target/release matches %s\n' \
+        "$C_YELLOW" "$C_RESET" "$VERSION"
+elif [ "$SKIP_CHECKS" = 1 ]; then
+    warn "not rebuilding; target/release still reports $CURRENT"
+else
+    step "Rebuilding at $VERSION"
+    cargo build --release --locked >/dev/null || die "the release build failed"
+    ok "target/release/instacache is $VERSION"
+fi
+
 # ------------------------------------------------------------- changelog ----
 
 step "Updating CHANGELOG.md"
