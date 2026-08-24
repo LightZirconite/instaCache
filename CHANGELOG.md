@@ -4,6 +4,17 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-08-24
+
+### Fixed
+- Release builds are produced inside Debian 12 rather than on the runner's own
+  Ubuntu. 2.0.0 was tagged but never published: its build failed on both
+  architectures because the runner carried Qt 6.2, below the Qt 6.4 baseline
+  this project documents. Debian 12 is the one environment with both the right
+  Qt and a glibc old enough for the binary to start there — the newer Ubuntu
+  that has Qt 6.4 would have locked Debian 12 out. Nothing in the application
+  changed between 2.0.0 and 2.0.1.
+
 ## [2.0.0] - 2026-08-24
 
 ### Changed
