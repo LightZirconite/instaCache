@@ -98,7 +98,7 @@ jobs:
 
           cp target/release/instacache      "dist/${name}/"
           cp instacache.desktop             "dist/${name}/"
-          cp install.sh uninstall.sh       "dist/${name}/"
+          cp install.sh uninstall.sh get.sh "dist/${name}/"
           cp assets/instacache.svg          "dist/${name}/assets/"
           cp README.md LICENSE             "dist/${name}/"
           [ -f CHANGELOG.md ] && cp CHANGELOG.md "dist/${name}/" || true

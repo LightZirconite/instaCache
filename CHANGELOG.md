@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [1.1.0] - 2026-08-24
 
 ### Added
+- Self-updating. instaCache is installed from an archive, so nothing else would
+  ever update it. It now asks GitHub once a day for a newer release and, when
+  the install is one the user can write to, downloads it, verifies its SHA-256
+  and installs it in the background, then says to restart. `instacache
+  --update` does it on demand. Controlled by `auto_update` and
+  `update_check_interval_hours`.
 - One-line installer: `curl -fsSL .../get.sh | sh` downloads the release for
   the current architecture, verifies its published SHA-256 and runs the
   installer inside it.

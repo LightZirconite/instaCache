@@ -99,6 +99,8 @@ for size in 16 22 24 32 48 64 128 256 512; do
 done
 # The copy of this very script that install.sh left behind. Removing it while
 # it runs is safe: the shell has already read the file.
+remove "$SUPPORT_DIR/update.sh"
+remove "$PREFIX/share/$APP/update-check.json"
 remove "$SUPPORT_DIR/uninstall.sh"
 [ -d "$SUPPORT_DIR" ] && rmdir "$SUPPORT_DIR" 2>/dev/null || true
 

@@ -108,6 +108,7 @@ pub fn build_window(
     wire_state_persistence(&window, &view, &config, &paths);
 
     crate::shortcuts::install(&window, &view, &config);
+    wire_update_check(app, &config, &paths);
 
     window.show_all();
     progress.hide();
@@ -127,6 +128,32 @@ fn apply_geometry_on_map(window: &gtk::ApplicationWindow, width: i32, height: i3
             window.resize(width, height);
         }
         Propagation::Proceed
+    });
+}
+
+/// Looks for a newer release in the background and reports the result through
+/// the notification daemon. Never blocks startup, and stays quiet when there
+/// is nothing to say.
+fn wire_update_check(app: &gtk::Application, config: &Rc<Config>, paths: &Rc<Paths>) {
+    let app = app.clone();
+    crate::updates::check_in_background(config, paths, move |outcome| {
+        let (title, body) = match outcome {
+            crate::updates::Outcome::Installed { version } => (
+                format!("{APP_NAME} {version} installed"),
+                "Restart instaCache to start using it.".to_string(),
+            ),
+            crate::updates::Outcome::Available { version } => (
+                format!("{APP_NAME} {version} is available"),
+                "Run `instacache --update` in a terminal to install it.".to_string(),
+            ),
+            crate::updates::Outcome::UpToDate => return,
+        };
+
+        let notification = gio::Notification::new(&title);
+        notification.set_body(Some(&body));
+        notification.set_icon(&gio::ThemedIcon::new(ICON_NAME));
+        app.send_notification(Some("instacache-update"), &notification);
+        println!("instacache: {title} — {body}");
     });
 }
 

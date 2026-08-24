@@ -52,6 +52,11 @@ pub struct Config {
     pub show_loading_indicator: bool,
     /// Open maximized the first time, and whenever no geometry has been saved.
     pub start_maximized: bool,
+    /// Check GitHub for a newer release and install it. Nothing else updates
+    /// instaCache: it is installed from an archive, not by a package manager.
+    pub auto_update: bool,
+    /// How long to wait between checks. `0` checks on every launch.
+    pub update_check_interval_hours: u64,
 }
 
 impl Default for Config {
@@ -69,6 +74,8 @@ impl Default for Config {
             remember_window_state: true,
             show_loading_indicator: true,
             start_maximized: false,
+            auto_update: true,
+            update_check_interval_hours: 24,
         }
     }
 }

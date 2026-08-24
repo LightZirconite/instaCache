@@ -11,6 +11,10 @@
 # Missing system libraries are installed for you. WebKitGTK renders the page
 # and GStreamer decodes the video; without the latter, photos load and every
 # Reel stays blank, so both are treated as required.
+#
+# STABLE INTERFACE: `instacache --update` runs a copy of this script and passes
+# `--prefix`, `--yes` and `--no-deps`. Those three must keep working, or an
+# update will fail for everyone already on an older version.
 
 set -eu
 
@@ -62,6 +66,7 @@ WHAT GETS INSTALLED:
     <prefix>/share/icons/hicolor/scalable/apps/$APP.svg
     <prefix>/share/icons/hicolor/<size>/apps/$APP.png   (when a converter exists)
     <prefix>/share/$APP/uninstall.sh
+    <prefix>/share/$APP/update.sh
 EOF
 }
 
@@ -403,6 +408,12 @@ ok "menu entry -> $DESKTOP_DIR/$APP.desktop"
 if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
     run install -Dm755 "$SCRIPT_DIR/uninstall.sh" "$SUPPORT_DIR/uninstall.sh"
     ok "uninstaller -> $SUPPORT_DIR/uninstall.sh"
+fi
+
+# `instacache --update` re-runs this to fetch and install a newer release.
+if [ -f "$SCRIPT_DIR/get.sh" ]; then
+    run install -Dm755 "$SCRIPT_DIR/get.sh" "$SUPPORT_DIR/update.sh"
+    ok "updater -> $SUPPORT_DIR/update.sh"
 fi
 
 install_icons

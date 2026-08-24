@@ -129,6 +129,27 @@ the checksum for you.
 
 </details>
 
+## Updates
+
+Nothing else updates instaCache — it is installed from an archive, not by a
+package manager — so it updates itself.
+
+On startup it asks GitHub once a day whether a newer release exists. If there
+is one, and your install is in `~/.local` where no root is needed, it is
+downloaded, checked against its SHA-256 and installed in the background. You
+get a notification saying to restart. Nothing is ever replaced while you are
+looking at it.
+
+To check right now:
+
+```sh
+instacache --update
+```
+
+A system-wide install cannot update itself without root, so it only tells you
+that a new version exists. Turn the whole thing off with `"auto_update": false`
+in `config.json`.
+
 ## Uninstall
 
 The installer leaves the uninstaller next to the app, so this works even if you
@@ -177,6 +198,7 @@ instacache [OPTIONS] [URL]
 
   <URL>                  Open this Instagram URL instead of your feed.
   -p, --profile <NAME>   Use a separate session, cache and window.
+      --update           Check for a newer release and install it.
       --clear-cache      Delete cached resources, stay signed in.
       --clear-session    Delete cookies and site storage (signs you out).
   -h, --help             Full help.
@@ -205,6 +227,8 @@ its default. Edit it and restart.
 | `remember_window_state` | `true` | Restore size, position and zoom. |
 | `show_loading_indicator` | `true` | The thin gradient bar at the top of the window. |
 | `start_maximized` | `false` | Always open maximized. |
+| `auto_update` | `true` | Check GitHub for a newer release and install it. |
+| `update_check_interval_hours` | `24` | Hours between checks. `0` checks every launch. |
 
 ### Custom styling
 
@@ -273,6 +297,7 @@ src/
   ui.rs          window assembly, signals, notifications, downloads
   web.rs         WebKit context, persistent storage, settings, link routing
   progress.rs    the loading bar, including in-app navigation
+  updates.rs     checking for and installing a newer release
   config.rs      config.json and window geometry
   paths.rs       XDG locations and profiles
   shortcuts.rs   keyboard navigation

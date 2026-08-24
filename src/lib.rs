@@ -13,6 +13,7 @@ pub mod paths;
 pub mod progress;
 pub mod shortcuts;
 pub mod ui;
+pub mod updates;
 pub mod urls;
 pub mod web;
 
