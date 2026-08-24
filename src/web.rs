@@ -10,12 +10,12 @@
 use gtk::gio;
 use gtk::prelude::*;
 use webkit2gtk::{
-    CacheModel, CookieAcceptPolicy, CookieManagerExt, CookiePersistentStorage,
+    AutoplayPolicy, CacheModel, CookieAcceptPolicy, CookieManagerExt, CookiePersistentStorage,
     HardwareAccelerationPolicy, NavigationPolicyDecision, NavigationPolicyDecisionExt,
     PolicyDecision, PolicyDecisionExt, PolicyDecisionType, Settings, SettingsExt, URIRequestExt,
     UserContentInjectedFrames, UserContentManager, UserContentManagerExt, UserStyleLevel,
     UserStyleSheet, WebContext, WebContextExt, WebView, WebViewExt, WebsiteDataManager,
-    WebsiteDataManagerExt,
+    WebsiteDataManagerExt, WebsitePolicies,
 };
 
 use crate::config::Config;
@@ -71,11 +71,20 @@ pub fn build(config: &Config, paths: &Paths) -> Browser {
     let user_content = UserContentManager::new();
     install_user_stylesheet(&user_content, paths);
 
-    let view = WebView::builder()
+    let mut view = WebView::builder()
         .web_context(&context)
         .settings(&settings)
-        .user_content_manager(&user_content)
-        .build();
+        .user_content_manager(&user_content);
+
+    if config.allow_autoplay_with_sound {
+        view = view.website_policies(
+            &WebsitePolicies::builder()
+                .autoplay(AutoplayPolicy::Allow)
+                .build(),
+        );
+    }
+
+    let view = view.build();
 
     connect_link_routing(&view, config.open_external_links_in_browser);
 

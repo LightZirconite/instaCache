@@ -31,6 +31,13 @@ pub struct Config {
     /// accelerated compositing as the page changes, and each switch shows up
     /// as a one-frame freeze during video playback.
     pub hardware_acceleration: String,
+    /// Let videos start with their sound on.
+    ///
+    /// WebKit's default is the web's default: a video that starts playing
+    /// without the user having clicked something is forced to be silent. In a
+    /// dedicated Instagram window that reads as "the app muted itself", since
+    /// Instagram keeps its own mute button anyway.
+    pub allow_autoplay_with_sound: bool,
     /// Ask GStreamer to prefer the GPU video decoders over the software ones.
     /// WebKit plays video through GStreamer, which otherwise ranks the libav
     /// software decoders alongside the hardware ones and may pick either.
@@ -66,6 +73,7 @@ impl Default for Config {
             user_agent: DEFAULT_USER_AGENT.to_string(),
             hardware_acceleration: "always".to_string(),
             hardware_video_decoding: true,
+            allow_autoplay_with_sound: true,
             developer_tools: false,
             notifications: true,
             open_external_links_in_browser: true,

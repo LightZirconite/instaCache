@@ -4,6 +4,30 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-08-24
+
+### Fixed
+- The app aborted while browsing. The loading bar cancelled a one-shot GLib
+  timeout that had already fired and removed itself, so `SourceId::remove`
+  panicked on an id GLib had since handed to somebody else — and with
+  `panic = "abort"` the panic took the whole process down. No timeout source is
+  cancelled any more; a generation counter decides whether a pending action is
+  still wanted. Reproduced with `cargo run --example stress` before the fix and
+  survived 83 navigations after it.
+- Clicking a desktop notification could abort the same way. The handler held a
+  `RefCell` borrow while running page JavaScript that can post another
+  notification, which writes to that same cell.
+
+### Added
+- `allow_autoplay_with_sound`, on by default. WebKit follows the web's rule
+  that a video starting without a click must be silent, which in a dedicated
+  Instagram window reads as the app muting itself.
+- `cargo run --example stress`, a harness that drives the browser from
+  JavaScript. It reproduces crashes that only appear while scrolling, on
+  machines where injected input and screenshots do not work — a remote desktop,
+  for instance. It drives a local page by default and never touches a real site
+  unless asked.
+
 ## [1.1.0] - 2026-08-24
 
 ### Added

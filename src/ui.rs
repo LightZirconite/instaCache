@@ -315,7 +315,13 @@ fn wire_notifications(
             window.present();
             // Tells the page the notification was clicked, so Instagram opens
             // the relevant thread or post.
-            if let Some(notification) = latest.borrow().as_ref() {
+            //
+            // The clone matters: `clicked()` runs page JavaScript, which can
+            // post another notification, which writes to this same cell. With
+            // a borrow still held that is a panic, and a panic in a GTK
+            // callback aborts the process.
+            let notification = latest.borrow().clone();
+            if let Some(notification) = notification {
                 notification.clicked();
             }
         });
