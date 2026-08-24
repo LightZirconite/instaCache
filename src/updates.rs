@@ -11,7 +11,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::Receiver;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -46,17 +47,19 @@ struct CheckRecord {
     last_seen_version: String,
 }
 
-/// Starts a check if one is due. `finished` is called on the main thread,
-/// exactly once, unless no check was started.
-pub fn check_in_background<F>(config: &Config, paths: &Paths, finished: F)
-where
-    F: Fn(Outcome) + 'static,
-{
+/// Starts a check if one is due, and hands back the channel its result will
+/// arrive on. `None` means no check was started and nothing will arrive.
+///
+/// The caller polls the receiver from wherever its own event loop makes UI
+/// calls legal. Delivering the result was once a GLib timer living here, which
+/// tied this module — plain HTTP and file work — to a particular toolkit for
+/// no reason.
+pub fn check_in_background(config: &Config, paths: &Paths) -> Option<Receiver<Outcome>> {
     if !config.auto_update {
-        return;
+        return None;
     }
     if !check_is_due(paths, config.update_check_interval_hours) {
-        return;
+        return None;
     }
     // Record the attempt before making it, so a failing network or a crash
     // cannot turn into a request on every single launch.
@@ -68,23 +71,10 @@ where
     let (sender, receiver) = std::sync::mpsc::channel::<Outcome>();
     std::thread::spawn(move || {
         let outcome = run_check(&paths, auto_install);
-        // The receiver lives until the idle callback runs; a send failure only
-        // means the app is shutting down.
+        // A send failure only means the app is shutting down.
         let _ = sender.send(outcome);
     });
-
-    // Poll the channel from the main loop so `finished` runs where GTK calls
-    // are legal.
-    gtk::glib::timeout_add_local(Duration::from_millis(250), move || {
-        match receiver.try_recv() {
-            Ok(outcome) => {
-                finished(outcome);
-                gtk::glib::ControlFlow::Break
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => gtk::glib::ControlFlow::Break,
-        }
-    });
+    Some(receiver)
 }
 
 fn run_check(paths: &Paths, auto_install: bool) -> Outcome {

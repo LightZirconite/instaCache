@@ -8,9 +8,11 @@
 # Works from a release archive (an `instacache` binary sits next to this
 # script) and from a source checkout (the binary is built with cargo).
 #
-# Missing system libraries are installed for you. WebKitGTK renders the page
-# and GStreamer decodes the video; without the latter, photos load and every
-# Reel stays blank, so both are treated as required.
+# Missing system libraries are installed for you. Qt 6 WebEngine renders the
+# page -- the distribution's Chromium, shared with every other Qt application,
+# never a copy of our own. It decodes video itself, so unlike the WebKitGTK
+# builds of instaCache there is no separate codec stack to install, except on
+# Fedora which leaves H.264 out of its build on purpose.
 #
 # STABLE INTERFACE: `instacache --update` runs a copy of this script and passes
 # `--prefix`, `--yes` and `--no-deps`. Those three must keep working, or an
@@ -171,30 +173,29 @@ distro_family() {
     esac
 }
 
-# Packages providing WebKitGTK 4.1 and GTK 3.
+# Packages providing Qt 6 WebEngine, which is the Chromium instaCache renders
+# with. Never vendored: this is the distribution's copy, shared with every
+# other Qt application on the machine.
 engine_packages() {
     case "$(distro_family)" in
-        arch)   echo "webkit2gtk-4.1 gtk3" ;;
-        debian) echo "libwebkit2gtk-4.1-0 libgtk-3-0" ;;
-        fedora) echo "webkit2gtk4.1 gtk3" ;;
-        suse)   echo "libwebkit2gtk-4_1-0 gtk3" ;;
-        alpine) echo "webkit2gtk-4.1 gtk+3.0" ;;
-        void)   echo "webkit2gtk gtk+3" ;;
-        gentoo) echo "net-libs/webkit-gtk:4.1 x11-libs/gtk+:3" ;;
+        arch)   echo "qt6-webengine qt6-declarative" ;;
+        debian) echo "libqt6webenginequick6 qml6-module-qtwebengine qml6-module-qtquick-window" ;;
+        fedora) echo "qt6-qtwebengine qt6-qtdeclarative" ;;
+        suse)   echo "libQt6WebEngineQuick6 qt6-webengine-imports qt6-declarative-imports" ;;
+        alpine) echo "qt6-qtwebengine qt6-qtdeclarative" ;;
+        void)   echo "qt6-webengine qt6-declarative" ;;
+        gentoo) echo "dev-qt/qtwebengine:6 dev-qt/qtdeclarative:6" ;;
         *)      echo "" ;;
     esac
 }
 
-# Packages providing the GStreamer elements WebKit needs to play video.
+# Chromium carries its own H.264 decoder, so there is no GStreamer plugin set
+# to install any more -- with one exception. Fedora builds Qt WebEngine without
+# the patent-encumbered codecs; Instagram is H.264, so on Fedora the video is
+# blank until the RPM Fusion rebuild is installed alongside it.
 codec_packages() {
     case "$(distro_family)" in
-        arch)   echo "gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav" ;;
-        debian) echo "gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav" ;;
-        fedora) echo "gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav" ;;
-        suse)   echo "gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-libav" ;;
-        alpine) echo "gst-plugins-base gst-plugins-good gst-plugins-bad gst-libav" ;;
-        void)   echo "gst-plugins-base1 gst-plugins-good1 gst-plugins-bad1 gst-libav" ;;
-        gentoo) echo "media-plugins/gst-plugins-meta" ;;
+        fedora) echo "qt6-qtwebengine-freeworld" ;;
         *)      echo "" ;;
     esac
 }
@@ -217,31 +218,28 @@ install_command() {
 
 engine_present() {
     if command -v ldconfig >/dev/null 2>&1 &&
-       ldconfig -p 2>/dev/null | grep -q 'libwebkit2gtk-4\.1\.so'; then
+       ldconfig -p 2>/dev/null | grep -q 'libQt6WebEngineQuick\.so'; then
         return 0
     fi
     for dir in /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu \
                /usr/lib/aarch64-linux-gnu /usr/local/lib; do
-        [ -e "$dir/libwebkit2gtk-4.1.so.0" ] && return 0
+        [ -e "$dir/libQt6WebEngineQuick.so.6" ] && return 0
     done
     return 1
 }
 
-# qtdemux unpacks MP4, souphttpsrc fetches the stream, autoaudiosink plays the
-# sound; all three ship in the "good" plugin set. avdec_h264 or openh264dec
-# decodes the picture. Instagram needs every one of them.
+# Instagram is H.264 throughout. Chromium decodes it itself, so on nearly every
+# distribution there is nothing to check -- except where the Qt WebEngine build
+# deliberately leaves the codec out, which is Fedora. The symptom there is very
+# specific: photos and avatars render, every video stays blank.
 missing_codecs() {
-    command -v gst-inspect-1.0 >/dev/null 2>&1 || { echo "gstreamer"; return; }
+    [ "$(distro_family)" = "fedora" ] || return 0
 
-    missing=""
-    for element in qtdemux souphttpsrc autoaudiosink; do
-        gst-inspect-1.0 "$element" >/dev/null 2>&1 || missing="$missing $element"
+    for dir in /usr/lib64 /usr/lib; do
+        [ -e "$dir/qt6/qtwebengine-freeworld" ] && return 0
+        [ -e "$dir/libavcodec-freeworld.so" ] && return 0
     done
-    if ! gst-inspect-1.0 avdec_h264 >/dev/null 2>&1 &&
-       ! gst-inspect-1.0 openh264dec >/dev/null 2>&1; then
-        missing="$missing h264-decoder"
-    fi
-    printf '%s' "${missing# }"
+    printf 'h264-decoder'
 }
 
 # Installs $1 (a package list) after explaining what it is for. Never fatal:
@@ -290,11 +288,11 @@ install_packages() {
 
 check_dependencies() {
     if engine_present; then
-        ok "WebKitGTK 4.1 runtime found"
+        ok "Qt 6 WebEngine runtime found"
     else
-        install_packages "the WebKitGTK 4.1 runtime" "$(engine_packages)" || true
-        engine_present && ok "WebKitGTK 4.1 runtime found" || \
-            warn "$APP_NAME will not start until WebKitGTK 4.1 is installed"
+        install_packages "the Qt 6 WebEngine runtime" "$(engine_packages)" || true
+        engine_present && ok "Qt 6 WebEngine runtime found" || \
+            warn "$APP_NAME will not start until Qt 6 WebEngine is installed"
     fi
 
     missing=$(missing_codecs)
@@ -303,9 +301,9 @@ check_dependencies() {
         return 0
     fi
 
-    printf '     Missing GStreamer parts:%s%s%s\n' "$C_BOLD" " $missing" "$C_RESET"
-    printf '     Without them photos load but every Reel, Story and video stays blank.\n'
-    install_packages "video support" "$(codec_packages)" || true
+    printf '     Missing video support:%s%s%s\n' "$C_BOLD" " $missing" "$C_RESET"
+    printf '     Without it photos load but every Reel, Story and video stays blank.\n'
+    install_packages "H.264 video support" "$(codec_packages)" || true
 
     still_missing=$(missing_codecs)
     if [ -z "$still_missing" ]; then

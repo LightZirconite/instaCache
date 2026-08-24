@@ -1,14 +1,23 @@
 //! instaCache — command-line entry point.
 //!
 //! Everything of substance lives in the library crate; this file only parses
-//! arguments and starts the GTK application.
+//! arguments and starts the Qt application.
 
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 
-use gtk::prelude::*;
+use qmetaobject::qtcore::core_application::QCoreApplication;
+use qmetaobject::{QObjectPinned, QmlEngine};
 
-use instacache::{config, paths, ui, updates, urls, APP_ID, APP_NAME, PROGRAM_NAME, VERSION};
+use instacache::bridge::{Shell, SHUTDOWN};
+use instacache::{chromium, config, instance, paths, updates, urls};
+use instacache::{APP_NAME, PROGRAM_NAME, VERSION};
+
+/// The scene is compiled into the binary rather than installed beside it, so
+/// there is still exactly one file to ship and no way for the two to drift
+/// apart across an update.
+const SCENE: &str = include_str!("qml/main.qml");
 
 fn main() -> ExitCode {
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -51,48 +60,71 @@ fn main() -> ExitCode {
         return clear(&paths, what);
     }
 
+    // A second launch of the same profile focuses the window that exists
+    // instead of starting a duplicate browser process tree over one cookie
+    // jar. A failure here is not worth refusing to start over: the worst case
+    // is two windows.
+    let listener = match instance::claim(&paths.profile, options.url.as_deref()) {
+        Ok(instance::Claim::Handed) => return ExitCode::SUCCESS,
+        Ok(instance::Claim::Owner(listener)) => Some(listener),
+        Err(error) => {
+            eprintln!("instacache: could not claim the profile: {error}");
+            None
+        }
+    };
+
     let config = Rc::new(config::Config::load_or_create(&paths));
+    let profile = paths.profile.clone();
     let paths = Rc::new(paths);
 
-    gtk::glib::set_prgname(Some(PROGRAM_NAME));
-    gtk::glib::set_application_name(APP_NAME);
+    install_termination_handlers();
 
-    let app = gtk::Application::builder()
-        .application_id(application_id(&paths.profile))
-        .build();
+    // Both of these must run before any QGuiApplication exists, which is why
+    // neither can wait until the engine is built: Qt WebEngine reads the flags
+    // as it initialises, and initialising afterwards is not allowed at all.
+    chromium::apply(&config);
+    qmetaobject::webengine::initialize();
 
-    {
-        let config = config.clone();
-        let paths = paths.clone();
-        let start_url = options.url.clone();
-        app.connect_activate(move |app| {
-            // A second launch of the same profile focuses the existing window
-            // instead of starting a duplicate WebKit process tree.
-            if let Some(existing) = app.active_window() {
-                existing.present();
-                return;
-            }
-            ui::build_window(app, config.clone(), paths.clone(), start_url.clone());
-        });
-    }
+    let mut engine = QmlEngine::new();
+    // What Wayland turns into the `app_id` and X11 into `WM_CLASS`; it has to
+    // match `StartupWMClass` in the desktop entry or the dock shows a generic
+    // icon. See the three-constants rule in AGENTS.md.
+    QCoreApplication::set_application_name(PROGRAM_NAME.into());
 
-    // GTK must not try to parse our own flags.
-    let argv: [&str; 1] = [PROGRAM_NAME];
-    let status = app.run_with_args(&argv);
-    if status == gtk::glib::ExitCode::SUCCESS {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    let shell = std::cell::RefCell::new(Shell::new(config, paths, listener, options.url.clone()));
+    let pinned = unsafe { QObjectPinned::new(&shell) };
+    engine.set_object_property("shell".into(), pinned);
+    engine.load_data(SCENE.into());
+    engine.exec();
+
+    instance::release(&profile);
+    ExitCode::SUCCESS
 }
 
-/// Non-default profiles get their own D-Bus name so several accounts can run
-/// side by side, each with an independent session.
-fn application_id(profile: &str) -> String {
-    if profile == paths::DEFAULT_PROFILE {
-        APP_ID.to_string()
-    } else {
-        format!("{APP_ID}.{}", paths::dbus_segment(profile))
+/// libc constants and the one libc call this needs, declared here rather than
+/// pulled in as a dependency. Both signal numbers are the same on every Linux
+/// architecture instaCache targets.
+const SIGINT: i32 = 2;
+const SIGTERM: i32 = 15;
+
+extern "C" {
+    fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+}
+
+/// Only sets a flag: a signal handler may call almost nothing safely, and
+/// saving the window geometry from inside one would be writing a file from
+/// an interrupted allocation. The scene's own timer notices the flag on its
+/// next tick and shuts down through the ordinary path.
+extern "C" fn on_terminate(_signum: i32) {
+    SHUTDOWN.store(true, Ordering::SeqCst);
+}
+
+/// A desktop session ending, `systemctl --user stop` or a plain `kill` never
+/// delivers a window close, so the geometry would be lost without this.
+fn install_termination_handlers() {
+    unsafe {
+        signal(SIGINT, on_terminate);
+        signal(SIGTERM, on_terminate);
     }
 }
 
@@ -276,11 +308,5 @@ mod tests {
             parse(&["--clear-session", "-p", "alt"]).unwrap().profile,
             "alt"
         );
-    }
-
-    #[test]
-    fn application_ids_stay_valid_dbus_names() {
-        assert_eq!(application_id("default"), APP_ID);
-        assert_eq!(application_id("work-2"), format!("{APP_ID}.work_2"));
     }
 }
