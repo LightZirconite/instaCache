@@ -38,11 +38,17 @@ de rendu déjà présent sur ton système qui travaille.
 | Session conservée entre deux lancements | oui | oui | oui |
 | Cache disque réutilisé au redémarrage | oui, agressivement | en général | oui |
 
-Mesuré sur la machine de référence : **433 Mo** de mémoire proportionnelle avec
-le fil ouvert, répartis sur les trois processus WebKit. C'est à peu près ce que
-coûte un seul onglet Instagram dans Chrome, et nettement moins qu'un wrapper
-Electron — mais cela reste un moteur de navigateur complet qui affiche une
-application web lourde, pas un jouet.
+Mesuré sur la machine de référence, en additionnant la mémoire proportionnelle
+de tous les processus : environ **300 Mo** sur une fenêtre fraîche, et **800 Mo**
+sur un fil connecté après une minute de défilement avec des vidéos. C'est le
+second chiffre qui compte au quotidien.
+
+C'est le prix d'un moteur de navigateur affichant une application web lourde :
+instaCache est petit, l'application web ne l'est pas. Ce que tu gagnes, c'est un
+téléchargement de 517 Ko, l'absence d'un second moteur de navigateur sur ton
+disque, et un cache qui rend le lancement suivant instantané. Ce n'est pas une
+façon légère de *regarder* Instagram — c'est une enveloppe légère *autour*
+d'Instagram.
 
 ## Fonctionnalités
 

@@ -37,10 +37,16 @@ already on your system does the rendering.
 | Session kept between runs | yes | yes | yes |
 | Disk cache reused on restart | yes, aggressively | usually | yes |
 
-Measured on the reference machine: **433 MB** of proportional memory with the
-feed open, across the three WebKit processes. That is roughly what a single
-Instagram tab costs in Chrome, and well under a typical Electron wrapper — but
-it is still a full browser engine rendering a heavy web app, not a toy.
+Measured on the reference machine, adding up proportional memory across every
+process: about **300 MB** on a fresh window, and **800 MB** on a signed-in feed
+after a minute of scrolling through video. The second number is the honest one
+for daily use.
+
+That is what a browser engine costs to render a heavy web app; instaCache is
+small, the web app is not. Where it wins is the 517 KB download, the absence of
+a second browser engine on your disk, and a cache that makes the next launch
+instant. It is not a lightweight way to *view* Instagram — it is a lightweight
+*wrapper* around it.
 
 ## Features
 
