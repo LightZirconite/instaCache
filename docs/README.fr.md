@@ -290,6 +290,18 @@ pages.
 main[role="main"] { max-width: 1100px; }
 ```
 
+### Mise à jour depuis une version WebKitGTK
+
+instaCache utilisait WebKitGTK jusqu'à la 1.2.0 et Qt WebEngine à partir de la
+2.0.0. Un moteur Chromium ne sait pas lire le pot à cookies de WebKit : **le
+premier lancement après cette mise à jour te redemande donc de te connecter**.
+Rien d'autre n'est perdu — réglages, géométrie de la fenêtre et profils sont
+conservés.
+
+Les fichiers de l'ancien moteur restent en place, inutilisés, dans
+`~/.local/share/instacache` : `cookies.sqlite`, `localstorage/`,
+`serviceworkers/`, `storage/` et `mediakeys/`. Les supprimer est sans risque.
+
 ### Où sont tes données
 
 | Chemin | Contenu | Suppression sans risque |
