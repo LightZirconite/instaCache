@@ -1,6 +1,6 @@
 //! Window assembly and signal wiring.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -66,9 +66,19 @@ pub fn build_window(
 
     if state.maximized || config.start_maximized {
         window.maximize();
-    } else if let (Some(x), Some(y)) = (state.x, state.y) {
-        // No-op under Wayland, where clients cannot place their own windows.
-        window.move_(x, y);
+    } else {
+        // `default_width`/`default_height` are only a hint, and some window
+        // managers substitute a remembered or heuristic geometry instead. An
+        // explicit resize marks the size as user-specified, which they do
+        // honour, and it is repeated once the window is mapped because that is
+        // the point at which the manager has committed to a geometry.
+        window.resize(state.width, state.height);
+        apply_geometry_on_map(&window, state.width, state.height);
+
+        if let (Some(x), Some(y)) = (state.x, state.y) {
+            // No-op under Wayland, where clients cannot place their own windows.
+            window.move_(x, y);
+        }
     }
 
     let browser = web::build(&config, &paths);
@@ -105,6 +115,17 @@ pub fn build_window(
     view.grab_focus();
 
     window
+}
+
+/// Re-applies the requested size the first time the window is mapped.
+fn apply_geometry_on_map(window: &gtk::ApplicationWindow, width: i32, height: i32) {
+    let applied = Cell::new(false);
+    window.connect_map_event(move |window, _| {
+        if !applied.replace(true) && !window.is_maximized() {
+            window.resize(width, height);
+        }
+        Propagation::Proceed
+    });
 }
 
 /// Usable area of the primary monitor (the screen minus panels and docks).
