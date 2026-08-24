@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../assets/gramcache.svg" width="112" alt="GramCache">
+<img src="../assets/instacache.svg" width="112" alt="instaCache">
 
-# GramCache
+# instaCache
 
 **Un client Instagram natif et ultra-léger pour Linux.**
 
@@ -18,7 +18,7 @@ Un seul binaire de 517 Ko. Pas d'Electron, pas de Node, pas de Python.
 
 ## Ce que c'est
 
-GramCache met Instagram dans une vraie fenêtre de bureau : l'application
+instaCache met Instagram dans une vraie fenêtre de bureau : l'application
 apparaît dans ta barre des tâches, retient où tu l'avais laissée, te garde
 connecté, et ne te dérange pas.
 
@@ -29,7 +29,7 @@ de rendu déjà présent sur ton système qui travaille.
 
 ## Pourquoi
 
-| | GramCache | Un wrapper Electron | Un onglet de navigateur |
+| | instaCache | Un wrapper Electron | Un onglet de navigateur |
 |---|---|---|---|
 | Taille du téléchargement | **517 Ko** | 80 à 150 Mo | — |
 | Moteur de navigateur embarqué | aucun (utilise WebKitGTK) | un Chromium complet | — |
@@ -48,10 +48,10 @@ application web lourde, pas un jouet.
 
 - **Cache disque agressif et persistant.** Le plus gros budget de cache de
   WebKit (`CacheModel::WebBrowser`) plus le cache de page avant/arrière, écrit
-  dans `~/.cache/gramcache` et réutilisé à chaque lancement. Un démarrage à
+  dans `~/.cache/instacache` et réutilisé à chaque lancement. Un démarrage à
   chaud ne retélécharge pas l'interface.
 - **Tu restes connecté.** Cookies, stockage local, IndexedDB et service workers
-  vivent dans `~/.local/share/gramcache` et survivent aux redémarrages et aux
+  vivent dans `~/.local/share/instacache` et survivent aux redémarrages et aux
   vidages de cache.
 - **La fenêtre se souvient d'elle-même.** Taille, position, état maximisé et
   zoom sont restaurés — y compris quand la session de bureau se termine et que
@@ -65,7 +65,7 @@ application web lourde, pas un jouet.
 - **Notifications de bureau.** Les notifications web deviennent de vraies
   notifications ; un clic met la fenêtre au premier plan et prévient la page,
   qui ouvre alors la bonne conversation.
-- **Plusieurs comptes en même temps.** `gramcache --profile perso` obtient sa
+- **Plusieurs comptes en même temps.** `instacache --profile perso` obtient sa
   propre session, son propre cache et sa propre fenêtre, en parallèle du compte
   principal.
 - **Une vraie page hors-ligne** au lieu de l'écran d'erreur par défaut de WebKit.
@@ -79,19 +79,19 @@ Télécharge l'archive correspondant à ton architecture depuis la
 puis :
 
 ```sh
-tar -xzf gramcache-1.0.0-linux-x86_64.tar.gz
-cd gramcache-1.0.0-linux-x86_64
+tar -xzf instacache-1.0.0-linux-x86_64.tar.gz
+cd instacache-1.0.0-linux-x86_64
 ./install.sh
 ```
 
 C'est tout. L'installeur :
 
 - installe dans `~/.local` — **aucun accès root nécessaire** ;
-- ajoute GramCache à ton menu d'applications, avec son icône ;
+- ajoute instaCache à ton menu d'applications, avec son icône ;
 - vérifie que la bibliothèque WebKitGTK 4.1 est présente et, si elle manque,
   affiche la commande exacte à lancer pour ta distribution.
 
-Ensuite, lance **GramCache** depuis ton menu d'applications.
+Ensuite, lance **instaCache** depuis ton menu d'applications.
 
 Autres possibilités :
 
@@ -118,13 +118,13 @@ makepkg -si
 ```
 
 `makepkg -si` compile puis installe un vrai paquet système : l'application
-apparaît dans le menu, et `sudo pacman -R gramcache` la retire proprement.
+apparaît dans le menu, et `sudo pacman -R instacache` la retire proprement.
 La procédure de publication sur l'AUR est décrite dans
 [docs/publishing.md](publishing.md).
 
 ### Dépendance à l'exécution
 
-GramCache s'appuie sur les bibliothèques WebKitGTK 4.1 et GTK 3 déjà empaquetées
+instaCache s'appuie sur les bibliothèques WebKitGTK 4.1 et GTK 3 déjà empaquetées
 par ta distribution. Il n'embarque pas de navigateur.
 
 | Distribution | Commande |
@@ -136,7 +136,24 @@ par ta distribution. Il n'embarque pas de navigateur.
 | Alpine | `sudo apk add webkit2gtk-4.1 gtk+3.0` |
 | Void | `sudo xbps-install -S webkit2gtk gtk+3` |
 
-`install.sh` détecte tout ça et te prévient s'il manque quelque chose.
+### La lecture vidéo demande GStreamer
+
+WebKit décode la vidéo via GStreamer, qui est empaqueté séparément. Instagram
+diffuse du H.264 en MP4 : il faut donc le démultiplexeur MP4 (`qtdemux`), la
+source HTTP (`souphttpsrc`) et la sortie audio. **Sans eux les photos
+s'affichent normalement mais tous les Reels, Stories et vidéos restent vides** —
+un symptôme qui ressemble à un bug de l'application alors qu'il s'agit d'un
+paquet manquant.
+
+| Distribution | Commande |
+|---|---|
+| Arch, CachyOS, Manjaro | `sudo pacman -S --needed gst-plugins-good gst-plugins-bad gst-libav` |
+| Debian, Ubuntu, Mint | `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` |
+| Fedora, RHEL | `sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav` |
+| openSUSE | `sudo zypper install gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-libav` |
+
+`install.sh` vérifie à la fois WebKitGTK et les codecs, et affiche la commande
+exacte pour ta distribution s'il manque quelque chose.
 
 ## Raccourcis clavier
 
@@ -156,7 +173,7 @@ Le balayage à deux doigts sur un pavé tactile fait aussi précédent/suivant.
 ## Ligne de commande
 
 ```
-gramcache [OPTIONS] [URL]
+instacache [OPTIONS] [URL]
 
   <URL>                  Ouvrir cette adresse Instagram au lieu de ton fil.
   -p, --profile <NOM>    Utiliser une session, un cache et une fenêtre séparés.
@@ -166,12 +183,12 @@ gramcache [OPTIONS] [URL]
   -V, --version          Version.
 ```
 
-Lancer GramCache deux fois avec le même profil met la fenêtre existante au
+Lancer instaCache deux fois avec le même profil met la fenêtre existante au
 premier plan au lieu d'ouvrir une seconde copie.
 
 ## Configuration
 
-`~/.config/gramcache/config.json` est créé au premier lancement avec toutes les
+`~/.config/instacache/config.json` est créé au premier lancement avec toutes les
 options à leur valeur par défaut. Modifie-le puis relance l'application.
 
 | Clé | Défaut | Rôle |
@@ -190,7 +207,7 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 
 ### Style personnalisé
 
-Dépose du CSS dans `~/.config/gramcache/user.css`, il est appliqué à toutes les
+Dépose du CSS dans `~/.config/instacache/user.css`, il est appliqué à toutes les
 pages.
 
 ```css
@@ -202,13 +219,13 @@ main[role="main"] { max-width: 1100px; }
 
 | Chemin | Contenu | Suppression sans risque |
 |---|---|---|
-| `~/.config/gramcache/` | `config.json`, `user.css`, géométrie de fenêtre | oui, remet les réglages à zéro |
-| `~/.local/share/gramcache/` | cookies, stockage local, IndexedDB — ta session | oui, te déconnecte |
-| `~/.cache/gramcache/` | le cache des ressources | oui, toujours |
+| `~/.config/instacache/` | `config.json`, `user.css`, géométrie de fenêtre | oui, remet les réglages à zéro |
+| `~/.local/share/instacache/` | cookies, stockage local, IndexedDB — ta session | oui, te déconnecte |
+| `~/.cache/instacache/` | le cache des ressources | oui, toujours |
 
 Tous ces chemins respectent les variables `XDG_*_HOME`, et peuvent être
-redirigés avec `GRAMCACHE_DATA_HOME`, `GRAMCACHE_CACHE_HOME` et
-`GRAMCACHE_CONFIG_HOME` pour une installation portable.
+redirigés avec `INSTACACHE_DATA_HOME`, `INSTACACHE_CACHE_HOME` et
+`INSTACACHE_CONFIG_HOME` pour une installation portable.
 
 ## Compiler depuis les sources
 
@@ -270,8 +287,8 @@ l'utilitaire de capture exerce exactement la configuration livrée.
 
 ## État du projet et limites
 
-- GramCache affiche le site d'Instagram lui-même. Si Instagram change quelque
-  chose, GramCache suit automatiquement — mais il hérite aussi de ce
+- instaCache affiche le site d'Instagram lui-même. Si Instagram change quelque
+  chose, instaCache suit automatiquement — mais il hérite aussi de ce
   qu'Instagram ne propose pas sur le web.
 - Les demandes d'accès caméra, micro, géolocalisation et verrouillage du
   pointeur sont refusées d'office. L'application web n'en a pas besoin.

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to GramCache are documented here.
+All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
@@ -11,7 +11,7 @@ First release.
 ### Added
 - Native GTK 3 + WebKitGTK 4.1 window hosting Instagram, in a 517 KB binary.
 - Persistent, aggressive disk cache (`CacheModel::WebBrowser`) rooted in
-  `~/.cache/gramcache`, so a warm start reuses everything already downloaded.
+  `~/.cache/instacache`, so a warm start reuses everything already downloaded.
 - Persistent session: cookies in SQLite, local storage, IndexedDB and service
   workers all survive a restart, so you stay signed in.
 - Window geometry, maximized state and zoom level remembered between runs,
@@ -27,7 +27,7 @@ First release.
 - Downloads saved to the XDG download directory under a non-colliding name.
 - Branded offline page shown instead of WebKit's default error page.
 - Named profiles (`--profile work`) for running several accounts side by side.
-- Optional user stylesheet at `~/.config/gramcache/user.css`.
+- Optional user stylesheet at `~/.config/instacache/user.css`.
 - `install.sh` / `uninstall.sh` for any distribution, and a `PKGBUILD` for
   Arch-based systems.
 - Tag-triggered GitHub/Gitea Actions workflow producing x86_64 and aarch64

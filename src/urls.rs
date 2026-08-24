@@ -1,6 +1,6 @@
 //! Minimal URI inspection.
 //!
-//! Deliberately dependency-free: GramCache only needs the scheme and the host
+//! Deliberately dependency-free: instaCache only needs the scheme and the host
 //! to decide whether a navigation stays in the app or is handed to the system
 //! browser, which does not justify pulling in a full URL parser.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cut a GramCache release.
+# Cut a instaCache release.
 #
 # Bumps the version everywhere it appears, updates the changelog, commits,
 # tags and pushes. The push of the tag is what triggers
@@ -166,15 +166,15 @@ fi
 
 bump_file packaging/PKGBUILD '^pkgver=.*$' "pkgver=$VERSION"
 bump_file packaging/PKGBUILD '^pkgrel=.*$' "pkgrel=1"
-# gramcache.desktop carries the Desktop Entry Specification version, not the
+# instacache.desktop carries the Desktop Entry Specification version, not the
 # application version, so it is deliberately left alone.
 
 # Keeps Cargo.lock's own record of the package version in step.
 if [ "$DRY_RUN" = 1 ]; then
-    printf '  %s[dry-run]%s Cargo.lock (via cargo update -p gramcache)\n' "$C_YELLOW" "$C_RESET"
+    printf '  %s[dry-run]%s Cargo.lock (via cargo update -p instacache)\n' "$C_YELLOW" "$C_RESET"
 else
-    cargo update --offline -p gramcache >/dev/null 2>&1 \
-        || cargo update -p gramcache >/dev/null 2>&1 \
+    cargo update --offline -p instacache >/dev/null 2>&1 \
+        || cargo update -p instacache >/dev/null 2>&1 \
         || warn "could not refresh Cargo.lock; it will update on the next build"
     ok "Cargo.lock"
 fi
@@ -201,7 +201,7 @@ else
         cat > CHANGELOG.md <<'HEADER'
 # Changelog
 
-All notable changes to GramCache are documented here.
+All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
@@ -224,7 +224,7 @@ step "Committing and tagging"
 
 run git add -A
 run git commit -m "release: $VERSION"
-run git tag -a "$TAG" -m "GramCache $VERSION"
+run git tag -a "$TAG" -m "instaCache $VERSION"
 
 step "Pushing to '$REMOTE'"
 run git push "$REMOTE" "$BRANCH"

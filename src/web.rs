@@ -1,6 +1,6 @@
 //! WebKit context, persistent storage and the web view itself.
 //!
-//! The two properties that make GramCache feel fast are configured here:
+//! The two properties that make instaCache feel fast are configured here:
 //!   * `CacheModel::WebBrowser` — WebKit's most generous memory/disk cache
 //!     budget, plus the back/forward page cache.
 //!   * a `WebsiteDataManager` rooted in the profile directories, so the HTTP
@@ -132,7 +132,7 @@ fn hardware_policy(value: &str) -> HardwareAccelerationPolicy {
     }
 }
 
-/// Loads `~/.config/gramcache/user.css` if present, so users can restyle the
+/// Loads `~/.config/instacache/user.css` if present, so users can restyle the
 /// site without rebuilding.
 fn install_user_stylesheet(manager: &UserContentManager, paths: &Paths) {
     let path = paths.user_stylesheet();
@@ -242,7 +242,7 @@ fn navigation_uri(decision: &PolicyDecision, decision_type: PolicyDecisionType) 
 
 fn open_externally(uri: &str) {
     if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, gio::AppLaunchContext::NONE) {
-        eprintln!("gramcache: could not open {uri} externally: {err}");
+        eprintln!("instacache: could not open {uri} externally: {err}");
     }
 }
 

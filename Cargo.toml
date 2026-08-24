@@ -1,10 +1,10 @@
 [package]
-name = "gramcache"
+name = "instacache"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Ultra-light native Instagram desktop client for Linux, with aggressive persistent caching"
-authors = ["GramCache contributors"]
+authors = ["instaCache contributors"]
 license = "MIT"
 repository = "https://git.justw.tf/LightZirconite/instaCache"
 readme = "README.md"

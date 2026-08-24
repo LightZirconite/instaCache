@@ -1,17 +1,17 @@
 #!/bin/sh
-# GramCache installer.
+# instaCache installer.
 #
 #   ./install.sh              install for the current user (no root needed)
 #   ./install.sh --system     install for every user (needs root)
 #   ./install.sh --help       full option list
 #
-# Works both from a release archive (a `gramcache` binary sits next to this
+# Works both from a release archive (a `instacache` binary sits next to this
 # script) and from a source checkout (the binary is built with cargo).
 
 set -eu
 
-APP=gramcache
-APP_NAME="GramCache"
+APP=instacache
+APP_NAME="instaCache"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 PREFIX=""
@@ -109,15 +109,20 @@ run() { if [ -n "$SUDO" ]; then $SUDO "$@"; else "$@"; fi; }
 
 # ---------------------------------------------------- runtime dependency ----
 
-# The package that provides libwebkit2gtk-4.1.so.0, per distribution family.
-runtime_packages() {
-    id=""; like=""
+# Reads ID and ID_LIKE from /etc/os-release into $distro_id / $distro_like.
+read_os_release() {
+    distro_id=""; distro_like=""
     if [ -r /etc/os-release ]; then
         # shellcheck disable=SC1091
         . /etc/os-release
-        id="${ID:-}"; like="${ID_LIKE:-}"
+        distro_id="${ID:-}"; distro_like="${ID_LIKE:-}"
     fi
-    case " $id $like " in
+}
+
+# The package that provides libwebkit2gtk-4.1.so.0, per distribution family.
+runtime_packages() {
+    read_os_release
+    case " $distro_id $distro_like " in
         *" arch "*|*" archlinux "*|*" cachyos "*|*" manjaro "*|*" endeavouros "*)
             echo "sudo pacman -S --needed webkit2gtk-4.1 gtk3" ;;
         *" debian "*|*" ubuntu "*)
@@ -135,6 +140,65 @@ runtime_packages() {
         *)
             echo "" ;;
     esac
+}
+
+# GStreamer packages WebKit needs to play video. Instagram is mostly H.264 in
+# MP4, which needs the MP4 demuxer from the "good" plugin set plus a decoder
+# from libav — without them images load fine and every video stays blank.
+codec_packages() {
+    read_os_release
+    case " $distro_id $distro_like " in
+        *" arch "*|*" archlinux "*|*" cachyos "*|*" manjaro "*|*" endeavouros "*)
+            echo "sudo pacman -S --needed gst-plugins-good gst-plugins-bad gst-libav" ;;
+        *" debian "*|*" ubuntu "*)
+            echo "sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav" ;;
+        *" fedora "*|*" rhel "*|*" centos "*)
+            echo "sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav" ;;
+        *" suse "*|*" opensuse "*)
+            echo "sudo zypper install gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-libav" ;;
+        *" alpine "*)
+            echo "sudo apk add gst-plugins-good gst-plugins-bad gst-libav" ;;
+        *" void "*)
+            echo "sudo xbps-install -S gst-plugins-good1 gst-plugins-bad1 gst-libav" ;;
+        *" gentoo "*)
+            echo "sudo emerge media-plugins/gst-plugins-meta" ;;
+        *)
+            echo "" ;;
+    esac
+}
+
+check_video_support() {
+    [ "$SKIP_DEP_CHECK" = 1 ] && return 0
+
+    # Without gst-inspect-1.0 there is nothing reliable to test, and guessing
+    # would only produce a false alarm.
+    command -v gst-inspect-1.0 >/dev/null 2>&1 || return 0
+
+    missing=""
+    # qtdemux unpacks MP4, souphttpsrc fetches the stream, autoaudiosink plays
+    # the audio. All three ship in the "good" plugin set.
+    for element in qtdemux souphttpsrc autoaudiosink; do
+        gst-inspect-1.0 "$element" >/dev/null 2>&1 || missing="$missing $element"
+    done
+    # A decoder for H.264, which is what Instagram serves.
+    if ! gst-inspect-1.0 avdec_h264 >/dev/null 2>&1 \
+        && ! gst-inspect-1.0 openh264dec >/dev/null 2>&1; then
+        missing="$missing h264-decoder"
+    fi
+
+    if [ -z "$missing" ]; then
+        ok "video codecs found"
+        return 0
+    fi
+
+    warn "GStreamer is missing:$missing"
+    printf '     Reels, Stories and every other video will stay blank without them.\n' >&2
+    cmd=$(codec_packages)
+    if [ -n "$cmd" ]; then
+        printf '     Install them with:\n       %s%s%s\n' "$C_BOLD" "$cmd" "$C_RESET" >&2
+    else
+        printf '     Install your distribution'\''s GStreamer "good" and "libav" plugin packages.\n' >&2
+    fi
 }
 
 check_runtime_dependency() {
@@ -239,8 +303,9 @@ check_path() {
 
 printf '\n%s%s installer%s\n\n' "$C_BOLD" "$APP_NAME" "$C_RESET"
 
-step "Checking the runtime dependency"
+step "Checking the runtime dependencies"
 check_runtime_dependency
+check_video_support
 
 step "Locating the binary"
 BINARY=$(resolve_binary)

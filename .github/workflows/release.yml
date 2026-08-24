@@ -84,7 +84,7 @@ jobs:
         run: cargo build --release --locked
 
       - name: Verify the binary runs
-        run: ./target/release/gramcache --version
+        run: ./target/release/instacache --version
 
       - name: Assemble the archive
         id: package
@@ -93,16 +93,16 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          name="gramcache-${VERSION}-linux-${ARCH}"
+          name="instacache-${VERSION}-linux-${ARCH}"
           mkdir -p "dist/${name}/assets"
 
-          cp target/release/gramcache      "dist/${name}/"
-          cp gramcache.desktop             "dist/${name}/"
+          cp target/release/instacache      "dist/${name}/"
+          cp instacache.desktop             "dist/${name}/"
           cp install.sh uninstall.sh       "dist/${name}/"
-          cp assets/gramcache.svg          "dist/${name}/assets/"
+          cp assets/instacache.svg          "dist/${name}/assets/"
           cp README.md LICENSE             "dist/${name}/"
           [ -f CHANGELOG.md ] && cp CHANGELOG.md "dist/${name}/" || true
-          chmod +x "dist/${name}/gramcache" "dist/${name}"/*.sh
+          chmod +x "dist/${name}/instacache" "dist/${name}"/*.sh
 
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
@@ -169,12 +169,12 @@ jobs:
             echo "### Install"
             echo
             echo '```sh'
-            echo "tar -xzf gramcache-${version}-linux-x86_64.tar.gz"
-            echo "cd gramcache-${version}-linux-x86_64"
+            echo "tar -xzf instacache-${version}-linux-x86_64.tar.gz"
+            echo "cd instacache-${version}-linux-x86_64"
             echo "./install.sh"
             echo '```'
             echo
-            echo "The installer places GramCache in your application menu and checks that"
+            echo "The installer places instaCache in your application menu and checks that"
             echo "the WebKitGTK 4.1 runtime is present, naming the package to install if it"
             echo "is not. Run \`./uninstall.sh\` to remove it."
             echo
@@ -191,7 +191,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          name: GramCache ${{ inputs.tag || github.ref_name }}
+          name: instaCache ${{ inputs.tag || github.ref_name }}
           body_path: release-notes.md
           files: |
             artifacts/*.tar.gz
