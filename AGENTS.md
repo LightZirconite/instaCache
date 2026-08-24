@@ -37,6 +37,7 @@ adding chrome.
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
 | `src/progress.rs` | The loading bar, including in-app navigation. |
+| `src/updates.rs` | Checking for and installing a newer release. |
 | `examples/snapshot.rs` | Renders a page to PNG through WebKit, for verification. |
 
 The library/binary split exists so `examples/snapshot.rs` exercises the real
@@ -160,6 +161,19 @@ the lookalike form too.
 `facebook.com` and `meta.com` are in that list on purpose: Instagram's login,
 two-factor and Accounts Center flows redirect through them. Removing them breaks
 signing in.
+
+## The installer's option contract
+
+`instacache --update` downloads the newest archive and runs the `install.sh`
+*inside it*, which is a script this version has never seen. `--prefix`, `--yes`
+and `--no-deps` are therefore a stable interface: rename or remove one and
+every existing install fails to update. `updates.rs` retries once with no
+options at all as a safety net, but do not spend it.
+
+Test an update by lowering the version in `Cargo.toml`, building, installing to
+a scratch prefix and running `--update` against the real published release. It
+is the only way to exercise the download, the checksum and the hand-off
+together.
 
 ## Releasing
 

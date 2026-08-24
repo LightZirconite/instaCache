@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 
-use instacache::{config, paths, ui, urls, APP_ID, APP_NAME, PROGRAM_NAME, VERSION};
+use instacache::{config, paths, ui, updates, urls, APP_ID, APP_NAME, PROGRAM_NAME, VERSION};
 
 fn main() -> ExitCode {
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -28,6 +28,15 @@ fn main() -> ExitCode {
         Mode::Version => {
             println!("{APP_NAME} {VERSION}");
             return ExitCode::SUCCESS;
+        }
+        Mode::Update => {
+            return match updates::update_now() {
+                Ok(_) => ExitCode::SUCCESS,
+                Err(message) => {
+                    eprintln!("instacache: {message}");
+                    ExitCode::FAILURE
+                }
+            };
         }
         Mode::Run | Mode::Clear(_) => {}
     }
@@ -99,6 +108,7 @@ enum Mode {
     Help,
     Version,
     Clear(Clearable),
+    Update,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +146,7 @@ impl Options {
                         .next()
                         .ok_or_else(|| "--profile requires a name".to_string())?;
                 }
+                "--update" => options.mode = Mode::Update,
                 "--clear-cache" => options.mode = Mode::Clear(Clearable::Cache),
                 "--clear-session" => options.mode = Mode::Clear(Clearable::Session),
                 other if other.starts_with("--profile=") => {
@@ -191,6 +202,7 @@ ARGS:
 OPTIONS:
     -p, --profile <NAME>   Use an isolated session, cache and config directory.
                            Lets several accounts run at the same time.
+        --update           Check for a newer release and install it.
         --clear-cache      Delete the cached resources, keep the session.
         --clear-session    Delete cookies and site storage (signs you out).
     -h, --help             Show this message.
@@ -247,6 +259,11 @@ mod tests {
     fn rejects_unknown_flags_and_stray_words() {
         assert!(parse(&["--nope"]).is_err());
         assert!(parse(&["banana"]).is_err());
+    }
+
+    #[test]
+    fn update_mode_is_recognised() {
+        assert_eq!(parse(&["--update"]).unwrap().mode, Mode::Update);
     }
 
     #[test]

@@ -135,6 +135,27 @@ téléchargement et vérifier la somme de contrôle à ta place.
 
 </details>
 
+## Mises à jour
+
+Rien d'autre ne met instaCache à jour — il est installé depuis une archive, pas
+par un gestionnaire de paquets — donc il se met à jour lui-même.
+
+Au démarrage, il demande une fois par jour à GitHub s'il existe une version plus
+récente. Si oui, et que ton installation est dans `~/.local` où aucun accès root
+n'est nécessaire, elle est téléchargée, vérifiée par sa somme SHA-256 et
+installée en arrière-plan. Tu reçois une notification t'invitant à relancer.
+Rien n'est jamais remplacé pendant que tu l'utilises.
+
+Pour vérifier tout de suite :
+
+```sh
+instacache --update
+```
+
+Une installation système ne peut pas se mettre à jour sans root : elle se
+contente alors de te signaler qu'une nouvelle version existe. Pour tout
+désactiver, mets `"auto_update": false` dans `config.json`.
+
 ## Désinstallation
 
 L'installeur laisse le désinstalleur à côté de l'application, donc ça marche
@@ -184,6 +205,7 @@ instacache [OPTIONS] [URL]
 
   <URL>                  Ouvrir cette adresse Instagram au lieu de ton fil.
   -p, --profile <NOM>    Utiliser une session, un cache et une fenêtre séparés.
+      --update           Chercher une version plus récente et l'installer.
       --clear-cache      Supprimer le cache, rester connecté.
       --clear-session    Supprimer cookies et stockage (te déconnecte).
   -h, --help             Aide complète.
@@ -212,6 +234,8 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 | `remember_window_state` | `true` | Restaurer taille, position et zoom. |
 | `show_loading_indicator` | `true` | La fine barre dégradée en haut de la fenêtre. |
 | `start_maximized` | `false` | Toujours ouvrir en plein écran fenêtré. |
+| `auto_update` | `true` | Chercher une nouvelle version sur GitHub et l'installer. |
+| `update_check_interval_hours` | `24` | Heures entre deux vérifications. `0` = à chaque lancement. |
 
 ### Style personnalisé
 
@@ -282,6 +306,7 @@ src/
   ui.rs          fenêtre, signaux, notifications, téléchargements
   web.rs         contexte WebKit, stockage persistant, réglages, liens
   progress.rs    la barre de chargement, navigation interne comprise
+  updates.rs     recherche et installation d'une nouvelle version
   config.rs      config.json et géométrie de la fenêtre
   paths.rs       emplacements XDG et profils
   shortcuts.rs   navigation au clavier
