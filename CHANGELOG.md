@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.1.0] - 2026-08-24
 
+- feat: update instaCache from within instaCache
+- feat: one-line install, a loading bar that tracks Instagram, smoother video
+- ci: quote the empty CDPATH assignment so shellcheck passes
+
+## [1.1.0] - 2026-08-24
+
 ### Added
 - Self-updating. instaCache is installed from an archive, so nothing else would
   ever update it. It now asks GitHub once a day for a newer release and, when
