@@ -113,12 +113,18 @@ fn main() {
     let elapsed = Cell::new(0u64);
     let driver_view = view.clone();
 
-    // Every 900 ms, do something that makes the page load resources or change
-    // its URL without a page load.
-    gtk::glib::timeout_add_local(Duration::from_millis(900), move || {
+    // The interval is deliberately unhurried: a page needs a couple of seconds
+    // to settle before the next action means anything, and a faster cadence
+    // measures the harness rather than the browser.
+    let interval_ms: u64 = std::env::var("STRESS_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
+
+    gtk::glib::timeout_add_local(Duration::from_millis(interval_ms), move || {
         let index = step.get();
         step.set(index + 1);
-        elapsed.set(elapsed.get() + 900);
+        elapsed.set(elapsed.get() + interval_ms);
 
         let script = ACTIONS[index % ACTIONS.len()];
         driver_view.evaluate_javascript(
@@ -132,6 +138,25 @@ fn main() {
                 }
             },
         );
+
+        // Read the page's own jank counter, when it exposes one.
+        if std::env::var_os("JANK_REPORT").is_some() {
+            driver_view.evaluate_javascript(
+                "JSON.stringify(window.__jank || {})",
+                None,
+                None,
+                None::<&gtk::gio::Cancellable>,
+                |result| {
+                    if let Ok(value) = result {
+                        use javascriptcore::ValueExt;
+                        let text = value.to_str();
+                        if text.len() > 2 {
+                            println!("jank: {text}");
+                        }
+                    }
+                },
+            );
+        }
 
         if elapsed.get() >= seconds * 1000 {
             println!("stress: survived {seconds}s and {index} actions");

@@ -182,6 +182,30 @@ for you. For reference:
 If videos never play, that second row is almost always the reason. Run
 `./install.sh` again and it will detect and fix it.
 
+## Video performance
+
+Video decodes on the GPU by default. Measured here on four 1080x1920 H.264
+streams at 30 fps, summed across every WebKit process:
+
+| `video_decoding` | CPU | frames over 50 ms | worst frame |
+|---|---|---|---|
+| `gpu` | 24% | 27 | 141 ms |
+| `software` | 104% | 41 | 203 ms |
+
+`auto` leaves GStreamer's ranking alone. It already prefers the GPU, but only
+by one point, so the outcome is not guaranteed — which is why `gpu` states the
+preference outright.
+
+**A Reels feed still stutters, and the decoder is not why.** WebKit gives every
+`<video>` element its own GStreamer pipeline, and a feed builds and destroys
+one roughly twice a second. The same four streams playing without that churn
+produce **2** late frames instead of 27. That cost lives in WebKit's Media
+Source implementation, not in anything this app controls, and it is the reason
+Firefox — which pools its decoders — feels smoother on the same machine.
+
+If playback misbehaves in some other way, `software` and `auto` are there to
+try. Neither will remove the churn.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -224,7 +248,8 @@ its default. Edit it and restart.
 | `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
 | `user_agent` | a macOS Safari string | Sent to Instagram. Empty string keeps WebKitGTK's own. |
 | `hardware_acceleration` | `always` | `always`, `auto` or `never`. `auto` lets WebKit switch compositing modes mid-page, which shows up as one-frame freezes during video. Set `never` only if the window renders wrong. |
-| `hardware_video_decoding` | `true` | Ask GStreamer to prefer the GPU video decoders. Set `false` if video breaks entirely after an update. |
+| `video_decoding` | `gpu` | `gpu`, `software` or `auto`. See [Video performance](#video-performance). |
+| `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. WebKit otherwise silences anything that plays without a click, which reads as the app muting itself. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |

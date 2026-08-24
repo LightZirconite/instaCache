@@ -4,6 +4,33 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-08-24
+
+### Changed
+- The user agent reports Linux instead of macOS. Instagram puts the user
+  agent's operating system in its login-alert emails, so a Linux machine
+  announcing macOS made those alerts read as though somebody else had signed
+  in. A config still holding the old macOS string is migrated; a
+  hand-picked one is left alone.
+- `hardware_video_decoding` becomes `video_decoding`, with `gpu`, `software`
+  and `auto`. `gpu` stays the default and is now backed by measurement rather
+  than by reading GStreamer's rank table.
+
+### Added
+- `allow_autoplay_with_sound`, on by default. WebKit silences any video that
+  starts without a click, which in a dedicated Instagram window reads as the
+  app muting itself.
+- A jank meter in the stress harness. It counts frames over 50 ms from inside
+  the page, which is what a person perceives; CPU averages do not measure
+  stutter at all.
+
+### Known
+- A Reels feed stutters, and the decoder is not the cause. WebKit gives every
+  `<video>` its own GStreamer pipeline and a feed builds one about twice a
+  second; the same streams playing without that churn produce 2 late frames
+  instead of 27. The cost is in WebKit's Media Source implementation. See
+  "Video performance" in the README for the numbers.
+
 ## [1.1.1] - 2026-08-24
 
 ### Fixed

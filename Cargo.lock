@@ -429,6 +429,7 @@ dependencies = [
  "cairo-rs",
  "dirs",
  "gtk",
+ "javascriptcore-rs",
  "serde",
  "serde_json",
  "webkit2gtk",

@@ -11,11 +11,24 @@ use crate::paths::Paths;
 
 pub const DEFAULT_HOME_URL: &str = "https://www.instagram.com/";
 
-/// Safari on macOS. instaCache renders with WebKit, so a Safari user agent is
-/// the honest match for the engine actually in use and lands on the code path
-/// Instagram tests against WebKit. Override it in `config.json` if you prefer
-/// to be served the Chrome/Blink variant.
-pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+/// Safari on Linux.
+///
+/// instaCache renders with WebKit, so claiming Safari puts Instagram on the
+/// code path it tests against this engine. The platform is reported honestly:
+/// Instagram shows the user agent's operating system in its login-alert
+/// emails, and a Linux machine announcing macOS makes those alerts read like
+/// somebody else signed in.
+///
+/// The Safari version is stated as a real one. WebKitGTK's own default says
+/// `Version/60.5`, a number Safari has never shipped, which invites
+/// "unsupported browser" banners.
+pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) \
+AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
+
+/// The macOS string shipped as the default up to 1.1.1. A config file still
+/// carrying it was never a deliberate choice by the user, only the old
+/// default written out on first run, so it is migrated rather than preserved.
+const SUPERSEDED_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,10 +51,26 @@ pub struct Config {
     /// dedicated Instagram window that reads as "the app muted itself", since
     /// Instagram keeps its own mute button anyway.
     pub allow_autoplay_with_sound: bool,
-    /// Ask GStreamer to prefer the GPU video decoders over the software ones.
-    /// WebKit plays video through GStreamer, which otherwise ranks the libav
-    /// software decoders alongside the hardware ones and may pick either.
-    pub hardware_video_decoding: bool,
+    /// Which video decoders GStreamer should reach for: `gpu`, `software` or
+    /// `auto`.
+    ///
+    /// `gpu` is the default and is what the measurements support. Four
+    /// 1080x1920 H.264 streams at 30 fps, on the reference machine:
+    ///
+    /// | decoders | CPU | frames over 50 ms | worst frame |
+    /// |---|---|---|---|
+    /// | gpu | 24% | 27 | 141 ms |
+    /// | software | 104% | 41 | 203 ms |
+    ///
+    /// `auto` leaves GStreamer's own ranks alone, which already favour the GPU
+    /// by one point — close enough that the choice is not guaranteed, which is
+    /// why the preference is stated explicitly rather than left to chance.
+    ///
+    /// Note what this setting does *not* fix. The stutter on a Reels feed comes
+    /// from building and tearing down a pipeline per clip, not from decoding:
+    /// the same four streams playing without that churn produce 2 late frames
+    /// instead of 27.
+    pub video_decoding: String,
     /// Enables the Web Inspector (Ctrl+Shift+I / right-click → Inspect).
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
@@ -72,7 +101,7 @@ impl Default for Config {
             home_url: DEFAULT_HOME_URL.to_string(),
             user_agent: DEFAULT_USER_AGENT.to_string(),
             hardware_acceleration: "always".to_string(),
-            hardware_video_decoding: true,
+            video_decoding: "gpu".to_string(),
             allow_autoplay_with_sound: true,
             developer_tools: false,
             notifications: true,
@@ -121,6 +150,9 @@ impl Config {
     fn normalized(mut self) -> Self {
         if self.home_url.trim().is_empty() {
             self.home_url = DEFAULT_HOME_URL.to_string();
+        }
+        if self.user_agent == SUPERSEDED_USER_AGENT {
+            self.user_agent = DEFAULT_USER_AGENT.to_string();
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
         self
@@ -257,6 +289,37 @@ mod tests {
     fn unknown_fields_are_ignored() {
         let cfg: Config = serde_json::from_str(r#"{"from_a_future_version": 42}"#).unwrap();
         assert_eq!(cfg.home_url, DEFAULT_HOME_URL);
+    }
+
+    #[test]
+    fn video_decoding_defaults_to_the_gpu() {
+        assert_eq!(Config::default().video_decoding, "gpu");
+    }
+
+    #[test]
+    fn the_superseded_decoding_key_is_ignored() {
+        // 1.1.x wrote `hardware_video_decoding`; the replacement key wins.
+        let cfg: Config = serde_json::from_str(r#"{"hardware_video_decoding": false}"#).unwrap();
+        assert_eq!(cfg.video_decoding, "gpu");
+    }
+
+    #[test]
+    fn the_default_user_agent_reports_linux() {
+        assert!(DEFAULT_USER_AGENT.contains("X11; Linux x86_64"));
+        assert!(!DEFAULT_USER_AGENT.contains("Mac OS X"));
+    }
+
+    #[test]
+    fn the_old_macos_default_is_migrated() {
+        let raw = format!(r#"{{"user_agent": "{SUPERSEDED_USER_AGENT}"}}"#);
+        let cfg: Config = serde_json::from_str(&raw).unwrap();
+        assert_eq!(cfg.normalized().user_agent, DEFAULT_USER_AGENT);
+    }
+
+    #[test]
+    fn a_user_chosen_agent_is_left_alone() {
+        let cfg: Config = serde_json::from_str(r#"{"user_agent": "MyBrowser/1.0"}"#).unwrap();
+        assert_eq!(cfg.normalized().user_agent, "MyBrowser/1.0");
     }
 
     #[test]

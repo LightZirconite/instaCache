@@ -30,3 +30,5 @@ incremental = false
 # helper. Keeping it here leaves the shipped binary free of PNG encoding.
 [dev-dependencies]
 cairo-rs = { version = "0.18", features = ["png"] }
+# Reading values back out of the page, used only by `cargo run --example stress`.
+javascriptcore-rs = "1.1"

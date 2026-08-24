@@ -189,6 +189,31 @@ pour toi. Pour référence :
 Si les vidéos ne se lancent jamais, c'est presque toujours la deuxième ligne.
 Relance `./install.sh` : il détecte et corrige.
 
+## Performance vidéo
+
+La vidéo est décodée par le GPU par défaut. Mesuré ici sur quatre flux H.264
+1080×1920 à 30 i/s, en additionnant tous les processus WebKit :
+
+| `video_decoding` | CPU | images > 50 ms | pire image |
+|---|---|---|---|
+| `gpu` | 24 % | 27 | 141 ms |
+| `software` | 104 % | 41 | 203 ms |
+
+`auto` laisse les rangs de GStreamer tels quels. Ils favorisent déjà le GPU,
+mais d'un seul point : le résultat n'est donc pas garanti, d'où le choix
+explicite de `gpu`.
+
+**Un fil de Reels saccade quand même, et ce n'est pas le décodeur.** WebKit
+donne à chaque élément `<video>` son propre pipeline GStreamer, et un fil en
+crée puis en détruit un environ deux fois par seconde. Les mêmes quatre flux
+joués sans ce renouvellement produisent **2** images en retard au lieu de 27.
+Ce coût appartient à l'implémentation Media Source de WebKit, pas à cette
+application, et c'est la raison pour laquelle Firefox — qui réutilise ses
+décodeurs — paraît plus fluide sur la même machine.
+
+Si la lecture se comporte mal autrement, `software` et `auto` sont là pour
+essayer. Aucun des deux ne supprimera ce renouvellement.
+
 ## Raccourcis clavier
 
 | Raccourci | Action |
@@ -231,7 +256,8 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 | `home_url` | `https://www.instagram.com/` | Page ouverte au démarrage et par `Ctrl+H`. |
 | `user_agent` | une chaîne Safari macOS | Envoyé à Instagram. Une chaîne vide garde celui de WebKitGTK. |
 | `hardware_acceleration` | `always` | `always`, `auto` ou `never`. En `auto`, WebKit change de mode de composition en cours de page, ce qui se voit comme des gels d'une image pendant les vidéos. Mets `never` seulement si la fenêtre s'affiche mal. |
-| `hardware_video_decoding` | `true` | Demander à GStreamer de préférer les décodeurs vidéo du GPU. Mets `false` si la vidéo casse complètement après une mise à jour. |
+| `video_decoding` | `gpu` | `gpu`, `software` ou `auto`. Voir [Performance vidéo](#performance-vidéo). |
+| `allow_autoplay_with_sound` | `true` | Autoriser une vidéo à démarrer avec le son. Sinon WebKit coupe le son de tout ce qui démarre sans clic, ce qui se lit comme « l'app se mute toute seule ». |
 | `developer_tools` | `false` | Active l'inspecteur web et la sortie console. |
 | `notifications` | `true` | Transmettre les notifications web au bureau. |
 | `open_external_links_in_browser` | `true` | Envoyer les liens non-Instagram au navigateur. |
