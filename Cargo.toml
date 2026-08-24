@@ -1,0 +1,32 @@
+[package]
+name = "gramcache"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Ultra-light native Instagram desktop client for Linux, with aggressive persistent caching"
+authors = ["GramCache contributors"]
+license = "MIT"
+repository = "https://git.justw.tf/LightZirconite/instaCache"
+readme = "README.md"
+keywords = ["instagram", "webkit", "gtk", "desktop", "linux"]
+categories = ["gui"]
+
+[dependencies]
+dirs = "6"
+gtk = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
+
+# Only used by `cargo run --example snapshot`, the rendering-verification
+# helper. Keeping it here leaves the shipped binary free of PNG encoding.
+[dev-dependencies]
+cairo-rs = { version = "0.18", features = ["png"] }

@@ -1,0 +1,201 @@
+name: Release
+
+# Publishing is driven entirely by the tag: pushing `v1.2.3` builds the
+# binaries, packages them and creates the matching GitHub Release.
+# `scripts/release.sh` is what creates and pushes that tag.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build and publish, e.g. v1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 carries glibc 2.35; binaries built there also run on
+          # every newer distribution. Building on 24.04 would lock out 22.04.
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            pkg-config \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-bin
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+
+      - name: Resolve the version
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$version" != "$manifest" ]; then
+            echo "::error::Tag $tag does not match the version in Cargo.toml ($manifest)."
+            echo "::error::Run scripts/release.sh instead of tagging by hand."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Verify the binary runs
+        run: ./target/release/gramcache --version
+
+      - name: Assemble the archive
+        id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          name="gramcache-${VERSION}-linux-${ARCH}"
+          mkdir -p "dist/${name}/assets"
+
+          cp target/release/gramcache      "dist/${name}/"
+          cp gramcache.desktop             "dist/${name}/"
+          cp install.sh uninstall.sh       "dist/${name}/"
+          cp assets/gramcache.svg          "dist/${name}/assets/"
+          cp README.md LICENSE             "dist/${name}/"
+          [ -f CHANGELOG.md ] && cp CHANGELOG.md "dist/${name}/" || true
+          chmod +x "dist/${name}/gramcache" "dist/${name}"/*.sh
+
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish the GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Download every architecture
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Build the release notes
+        id: notes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          {
+            # Prefer the hand-written section from CHANGELOG.md when it exists;
+            # fall back to the commit log since the previous tag.
+            if [ -f CHANGELOG.md ] && grep -q "^## \[\?${version}\]\?" CHANGELOG.md; then
+              awk -v v="${version}" '
+                $0 ~ "^## \\[?" v "\\]?" { found = 1; next }
+                found && /^## / { exit }
+                found { print }
+              ' CHANGELOG.md
+            else
+              previous=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+              echo "### Changes"
+              echo
+              if [ -n "$previous" ]; then
+                git log --no-merges --pretty='- %s (%h)' "${previous}..${TAG}"
+              else
+                git log --no-merges --pretty='- %s (%h)' "${TAG}"
+              fi
+            fi
+
+            echo
+            echo "### Install"
+            echo
+            echo '```sh'
+            echo "tar -xzf gramcache-${version}-linux-x86_64.tar.gz"
+            echo "cd gramcache-${version}-linux-x86_64"
+            echo "./install.sh"
+            echo '```'
+            echo
+            echo "The installer places GramCache in your application menu and checks that"
+            echo "the WebKitGTK 4.1 runtime is present, naming the package to install if it"
+            echo "is not. Run \`./uninstall.sh\` to remove it."
+            echo
+            echo "### Checksums"
+            echo
+            echo '```'
+            cat artifacts/*.sha256 2>/dev/null || true
+            echo '```'
+          } > release-notes.md
+
+          cat release-notes.md
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: GramCache ${{ inputs.tag || github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+          draft: false
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}
+          fail_on_unmatched_files: true

@@ -1,0 +1,55 @@
+# Maintainer: LightZirconite <nevinmelvi619@gmail.com>
+#
+# Arch Linux / CachyOS / Manjaro / EndeavourOS package.
+#
+# Build and install locally:
+#     cd packaging && makepkg -si
+#
+# After tagging a new release, refresh the checksum with:
+#     updpkgsums
+
+pkgname=gramcache
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Native, ultra-light Instagram desktop client with a persistent cache"
+arch=('x86_64' 'aarch64')
+url="https://git.justw.tf/LightZirconite/instaCache"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3')
+makedepends=('cargo' 'pkgconf')
+optdepends=('librsvg: generate raster icons at install time')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+# Gitea unpacks its tag archives into a directory named after the repository.
+_srcdir="instaCache"
+
+prepare() {
+    cd "$_srcdir"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$_srcdir"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release
+}
+
+check() {
+    cd "$_srcdir"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo test --frozen --release --lib --bins
+}
+
+package() {
+    cd "$_srcdir"
+
+    install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 "$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+    install -Dm644 "assets/$pkgname.svg" \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/$pkgname.svg"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
