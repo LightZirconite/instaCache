@@ -1,5 +1,5 @@
 #!/bin/sh
-# GramCache uninstaller.
+# instaCache uninstaller.
 #
 #   ./uninstall.sh            remove the application, keep your session and settings
 #   ./uninstall.sh --purge    also delete the session, cache and configuration
@@ -7,8 +7,8 @@
 
 set -eu
 
-APP=gramcache
-APP_NAME="GramCache"
+APP=instacache
+APP_NAME="instaCache"
 
 PREFIX=""
 MODE=user

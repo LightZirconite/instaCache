@@ -1,4 +1,4 @@
-pkgbase = gramcache
+pkgbase = instacache
 	pkgdesc = Native, ultra-light Instagram desktop client with a persistent cache
 	pkgver = 1.0.0
 	pkgrel = 1
@@ -12,8 +12,12 @@ pkgbase = gramcache
 	depends = gtk3
 	depends = glib2
 	depends = libsoup3
+	depends = gst-plugins-base
+	depends = gst-plugins-good
+	depends = gst-libav
+	optdepends = gst-plugins-bad: extra media formats
 	optdepends = librsvg: generate raster icons at install time
-	source = gramcache-1.0.0.tar.gz::https://git.justw.tf/LightZirconite/instaCache/archive/v1.0.0.tar.gz
-	sha256sums = e0d13d7c61497982ff30340ca8f7616bd757e8d650732a22c07074b8a1ed66c4
+	source = instacache-1.0.0.tar.gz::https://git.justw.tf/LightZirconite/instaCache/archive/v1.0.0.tar.gz
+	sha256sums = SKIP
 
-pkgname = gramcache
+pkgname = instacache

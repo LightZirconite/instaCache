@@ -1,11 +1,11 @@
 //! XDG-compliant location resolution, with optional named profiles.
 //!
-//! Everything GramCache persists lives under three roots:
+//! Everything instaCache persists lives under three roots:
 //!   * data  — cookies, localStorage, IndexedDB, service workers (the session)
 //!   * cache — the aggressive on-disk HTTP/resource cache (safe to delete)
 //!   * config — user-editable settings and window geometry
 //!
-//! Each root can be overridden with `GRAMCACHE_{DATA,CACHE,CONFIG}_HOME`, which
+//! Each root can be overridden with `INSTACACHE_{DATA,CACHE,CONFIG}_HOME`, which
 //! makes fully portable installs possible without touching the code.
 
 use std::path::{Path, PathBuf};
@@ -24,9 +24,9 @@ impl Paths {
     pub fn for_profile(profile: &str) -> Self {
         let profile = sanitize_profile(profile);
 
-        let data = root("GRAMCACHE_DATA_HOME", dirs::data_dir(), ".local/share");
-        let cache = root("GRAMCACHE_CACHE_HOME", dirs::cache_dir(), ".cache");
-        let config = root("GRAMCACHE_CONFIG_HOME", dirs::config_dir(), ".config");
+        let data = root("INSTACACHE_DATA_HOME", dirs::data_dir(), ".local/share");
+        let cache = root("INSTACACHE_CACHE_HOME", dirs::cache_dir(), ".cache");
+        let config = root("INSTACACHE_CONFIG_HOME", dirs::config_dir(), ".config");
 
         Self {
             data: scoped(data, &profile),
@@ -77,7 +77,7 @@ fn root(env_var: &str, xdg: Option<PathBuf>, home_fallback: &str) -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
             .join(home_fallback)
     });
-    base.join("gramcache")
+    base.join("instacache")
 }
 
 fn scoped(base: PathBuf, profile: &str) -> PathBuf {

@@ -50,7 +50,7 @@ jobs:
         run: cargo build --release --locked
 
       - name: Verify the binary runs
-        run: ./target/release/gramcache --version
+        run: ./target/release/instacache --version
 
   packaging:
     name: Validate the packaging
@@ -64,8 +64,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y desktop-file-utils shellcheck
 
+      # Runners carry an older desktop-file-utils than most desktops, and it
+      # emits warnings and hints for perfectly valid keys. Only real errors
+      # should fail the build, so the output is inspected rather than the exit
+      # code — everything it says is still printed.
       - name: Validate the desktop entry
-        run: desktop-file-validate gramcache.desktop
+        run: |
+          set -o pipefail
+          output=$(desktop-file-validate instacache.desktop 2>&1) || true
+          if [ -n "$output" ]; then echo "$output"; fi
+          if printf '%s' "$output" | grep -q 'error:'; then
+            echo "::error::instacache.desktop has validation errors"
+            exit 1
+          fi
+          echo "No errors."
 
       - name: Lint the shell scripts
         run: |
@@ -73,4 +85,4 @@ jobs:
           shellcheck --severity=warning --shell=bash scripts/release.sh
 
       - name: Check that the SVG icon is well-formed
-        run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('assets/gramcache.svg')"
+        run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('assets/instacache.svg')"

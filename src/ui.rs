@@ -3,6 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gtk::gdk;
 use gtk::gio;
@@ -11,7 +12,7 @@ use gtk::glib::Propagation;
 use gtk::prelude::*;
 use webkit2gtk::{
     DownloadExt, LoadEvent, NetworkError, NotificationExt, NotificationPermissionRequest,
-    PermissionRequestExt, PolicyError, WebContextExt, WebViewExt,
+    PermissionRequestExt, PolicyError, WebContextExt, WebProcessTerminationReason, WebViewExt,
     WebsiteDataAccessPermissionRequest,
 };
 
@@ -21,13 +22,13 @@ use crate::paths::Paths;
 use crate::web;
 use crate::{APP_NAME, ICON_NAME};
 
-const EMBEDDED_ICON: &[u8] = include_bytes!("../assets/gramcache.svg");
+const EMBEDDED_ICON: &[u8] = include_bytes!("../assets/instacache.svg");
 
 /// A 3px gradient bar pinned to the top of the window; the only chrome
-/// GramCache adds to the page.
+/// instaCache adds to the page.
 const LOADING_BAR_CSS: &str = "
-progressbar.gramcache-loading,
-progressbar.gramcache-loading trough {
+progressbar.instacache-loading,
+progressbar.instacache-loading trough {
     min-height: 3px;
     background-color: transparent;
     background-image: none;
@@ -35,7 +36,7 @@ progressbar.gramcache-loading trough {
     padding: 0;
     box-shadow: none;
 }
-progressbar.gramcache-loading progress {
+progressbar.instacache-loading progress {
     min-height: 3px;
     border: 0;
     border-radius: 0;
@@ -101,6 +102,7 @@ pub fn build_window(
 
     wire_loading_feedback(&view, &window, &progress, config.show_loading_indicator);
     wire_error_page(&view);
+    wire_crash_recovery(&view);
     wire_notifications(app, &window, &view, &config);
     wire_downloads(app, &browser.context);
     wire_state_persistence(&window, &view, &config, &paths);
@@ -162,7 +164,7 @@ fn build_loading_bar() -> gtk::ProgressBar {
     }
 
     let progress = gtk::ProgressBar::new();
-    progress.style_context().add_class("gramcache-loading");
+    progress.style_context().add_class("instacache-loading");
     progress.set_valign(gtk::Align::Start);
     progress.set_halign(gtk::Align::Fill);
     progress.set_show_text(false);
@@ -229,6 +231,66 @@ fn wire_error_page(view: &webkit2gtk::WebView) {
         );
         true
     });
+}
+
+/// WebKit runs the page in a separate process. When that process dies the view
+/// is left showing a blank grey area with no way back, so it is reloaded
+/// automatically — but only a few times, because a page that crashes on every
+/// load would otherwise reload forever.
+fn wire_crash_recovery(view: &webkit2gtk::WebView) {
+    let attempts = Cell::new(0u32);
+    let window_started = Cell::new(Instant::now());
+
+    view.connect_web_process_terminated(move |view, reason| {
+        // A termination we asked for ourselves is not a crash.
+        if matches!(reason, WebProcessTerminationReason::TerminatedByApi) {
+            return;
+        }
+
+        let uri = view.uri().map(Into::into).unwrap_or_else(String::new);
+
+        if window_started.get().elapsed() > CRASH_WINDOW {
+            window_started.set(Instant::now());
+            attempts.set(0);
+        }
+
+        let attempt = attempts.get() + 1;
+        attempts.set(attempt);
+
+        if attempt > MAX_CRASH_RELOADS {
+            eprintln!("instacache: rendering process died {attempt} times; giving up on reloading");
+            view.load_alternate_html(
+                &errorpage::render_crash(&uri, &describe(reason)),
+                &uri,
+                None,
+            );
+            return;
+        }
+
+        eprintln!(
+            "instacache: rendering process {} — reloading ({attempt}/{MAX_CRASH_RELOADS})",
+            describe(reason)
+        );
+        if uri.is_empty() {
+            view.reload();
+        } else {
+            view.load_uri(&uri);
+        }
+    });
+}
+
+const MAX_CRASH_RELOADS: u32 = 3;
+const CRASH_WINDOW: Duration = Duration::from_secs(120);
+
+fn describe(reason: WebProcessTerminationReason) -> String {
+    match reason {
+        WebProcessTerminationReason::Crashed => "crashed".to_string(),
+        WebProcessTerminationReason::ExceededMemoryLimit => "ran out of memory".to_string(),
+        WebProcessTerminationReason::TerminatedByApi => {
+            "was stopped by the application".to_string()
+        }
+        other => format!("stopped unexpectedly ({other:?})"),
+    }
 }
 
 /// Bridges web notifications to the desktop notification daemon, and routes a
@@ -303,7 +365,7 @@ fn wire_notifications(
         desktop.set_default_action("app.present");
 
         latest.replace(Some(notification.clone()));
-        app.send_notification(Some(&format!("gramcache-{}", notification.id())), &desktop);
+        app.send_notification(Some(&format!("instacache-{}", notification.id())), &desktop);
         // Tell WebKit we displayed it, so it does not draw its own.
         true
     });
@@ -340,7 +402,7 @@ fn wire_downloads(app: &gtk::Application, context: &webkit2gtk::WebContext) {
         });
 
         download.connect_failed(|_, error| {
-            eprintln!("gramcache: download failed: {error}");
+            eprintln!("instacache: download failed: {error}");
         });
     });
 }
@@ -389,7 +451,7 @@ fn wire_state_persistence(
 }
 
 /// libc constants, inlined to avoid a dependency for two integers. Both values
-/// are the same on every Linux architecture GramCache targets.
+/// are the same on every Linux architecture instaCache targets.
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 
@@ -497,7 +559,7 @@ mod tests {
 
     #[test]
     fn deduplicates_download_names() {
-        let dir = std::env::temp_dir().join(format!("gramcache-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("instacache-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("photo.jpg"), b"x").unwrap();
 

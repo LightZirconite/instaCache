@@ -11,7 +11,7 @@ use crate::paths::Paths;
 
 pub const DEFAULT_HOME_URL: &str = "https://www.instagram.com/";
 
-/// Safari on macOS. GramCache renders with WebKit, so a Safari user agent is
+/// Safari on macOS. instaCache renders with WebKit, so a Safari user agent is
 /// the honest match for the engine actually in use and lands on the code path
 /// Instagram tests against WebKit. Override it in `config.json` if you prefer
 /// to be served the Chrome/Blink variant.
@@ -74,7 +74,7 @@ impl Config {
                 Ok(cfg) => cfg.normalized(),
                 Err(err) => {
                     eprintln!(
-                        "gramcache: {} is not valid JSON ({err}); using defaults",
+                        "instacache: {} is not valid JSON ({err}); using defaults",
                         file.display()
                     );
                     Config::default()
@@ -83,12 +83,12 @@ impl Config {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 let cfg = Config::default();
                 if let Err(err) = write_json(&file, &cfg) {
-                    eprintln!("gramcache: could not write {}: {err}", file.display());
+                    eprintln!("instacache: could not write {}: {err}", file.display());
                 }
                 cfg
             }
             Err(err) => {
-                eprintln!("gramcache: could not read {}: {err}", file.display());
+                eprintln!("instacache: could not read {}: {err}", file.display());
                 Config::default()
             }
         }
@@ -183,7 +183,7 @@ impl WindowState {
 
     pub fn save(&self, paths: &Paths) {
         if let Err(err) = write_json(&paths.state_file(), self) {
-            eprintln!("gramcache: could not save window state: {err}");
+            eprintln!("instacache: could not save window state: {err}");
         }
     }
 

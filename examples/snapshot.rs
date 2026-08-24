@@ -5,7 +5,7 @@
 //! (headless CI, XWayland, screenshot portals), because the snapshot is
 //! produced inside the WebProcess and never touches the compositor.
 //!
-//! It builds the web view through `gramcache::web::build`, so what it captures
+//! It builds the web view through `instacache::web::build`, so what it captures
 //! is the real application configuration — user agent, cache model, settings
 //! and all.
 //!
@@ -13,10 +13,10 @@
 
 use std::rc::Rc;
 
-use gramcache::config::Config;
-use gramcache::paths::Paths;
 use gtk::cairo;
 use gtk::prelude::*;
+use instacache::config::Config;
+use instacache::paths::Paths;
 use webkit2gtk::{LoadEvent, SnapshotOptions, SnapshotRegion, WebViewExt};
 
 fn main() {
@@ -29,11 +29,11 @@ fn main() {
 
     // Redirect every storage root into a temporary directory so the
     // developer's real session is never touched.
-    let sandbox = std::env::temp_dir().join(format!("gramcache-snapshot-{}", std::process::id()));
+    let sandbox = std::env::temp_dir().join(format!("instacache-snapshot-{}", std::process::id()));
     for key in [
-        "GRAMCACHE_DATA_HOME",
-        "GRAMCACHE_CACHE_HOME",
-        "GRAMCACHE_CONFIG_HOME",
+        "INSTACACHE_DATA_HOME",
+        "INSTACACHE_CACHE_HOME",
+        "INSTACACHE_CONFIG_HOME",
     ] {
         std::env::set_var(key, &sandbox);
     }
@@ -48,7 +48,7 @@ fn main() {
 
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_default_size(1180, 820);
-    let view = gramcache::web::build(&config, &paths).view;
+    let view = instacache::web::build(&config, &paths).view;
     window.add(&view);
     window.show_all();
 

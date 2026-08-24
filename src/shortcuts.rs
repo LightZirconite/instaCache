@@ -31,7 +31,7 @@ pub fn install(window: &gtk::ApplicationWindow, view: &WebView, config: &Config)
 
         match (ctrl, shift, alt, key) {
             // Reload. Shift bypasses the disk cache; plain reload is allowed to
-            // serve from it, which is the whole point of GramCache.
+            // serve from it, which is the whole point of instaCache.
             (true, true, false, key) if key == *k::r => view.reload_bypass_cache(),
             (true, false, false, key) if key == *k::r => view.reload(),
             (false, false, false, key) if key == *k::F5 => view.reload(),

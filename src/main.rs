@@ -1,4 +1,4 @@
-//! GramCache — command-line entry point.
+//! instaCache — command-line entry point.
 //!
 //! Everything of substance lives in the library crate; this file only parses
 //! arguments and starts the GTK application.
@@ -8,14 +8,14 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 
-use gramcache::{config, paths, ui, urls, APP_ID, APP_NAME, PROGRAM_NAME, VERSION};
+use instacache::{config, paths, ui, urls, APP_ID, APP_NAME, PROGRAM_NAME, VERSION};
 
 fn main() -> ExitCode {
     let options = match Options::parse(std::env::args().skip(1)) {
         Ok(options) => options,
         Err(message) => {
-            eprintln!("gramcache: {message}");
-            eprintln!("Try `gramcache --help` for the list of options.");
+            eprintln!("instacache: {message}");
+            eprintln!("Try `instacache --help` for the list of options.");
             return ExitCode::from(2);
         }
     };
@@ -34,7 +34,7 @@ fn main() -> ExitCode {
 
     let paths = paths::Paths::for_profile(&options.profile);
     if let Err(err) = paths.ensure() {
-        eprintln!("gramcache: cannot create {}: {err}", paths.data.display());
+        eprintln!("instacache: cannot create {}: {err}", paths.data.display());
         return ExitCode::FAILURE;
     }
 
@@ -171,7 +171,7 @@ fn clear(paths: &paths::Paths, what: Clearable) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprintln!("gramcache: could not clear {label}: {err}");
+            eprintln!("instacache: could not clear {label}: {err}");
             ExitCode::FAILURE
         }
     }
@@ -183,7 +183,7 @@ fn usage() -> String {
 {APP_NAME} {VERSION} — a native, ultra-light Instagram client for Linux.
 
 USAGE:
-    gramcache [OPTIONS] [URL]
+    instacache [OPTIONS] [URL]
 
 ARGS:
     <URL>    Open this Instagram URL instead of the configured home page.
@@ -197,10 +197,10 @@ OPTIONS:
     -V, --version          Show the version.
 
 FILES:
-    ~/.config/gramcache/config.json   Settings (created on first run).
-    ~/.config/gramcache/user.css      Optional user stylesheet.
-    ~/.local/share/gramcache/         Session: cookies, local storage.
-    ~/.cache/gramcache/               Resource cache (safe to delete).
+    ~/.config/instacache/config.json   Settings (created on first run).
+    ~/.config/instacache/user.css      Optional user stylesheet.
+    ~/.local/share/instacache/         Session: cookies, local storage.
+    ~/.cache/instacache/               Resource cache (safe to delete).
 
 SHORTCUTS:
     Ctrl+R / F5            Reload            Alt+Left / Alt+Right   Back / Forward

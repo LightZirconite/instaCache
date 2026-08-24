@@ -1,0 +1,30 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=instaCache
+GenericName=Instagram Client
+Comment=Fast, lightweight Instagram client with a persistent cache
+Comment[fr]=Client Instagram rapide et léger avec cache persistant
+Exec=instacache %u
+TryExec=instacache
+Icon=instacache
+Terminal=false
+Categories=Network;InstantMessaging;
+Keywords=Instagram;Social;Photos;Reels;Stories;Messages;
+StartupNotify=true
+StartupWMClass=instacache
+Actions=Inbox;Explore;Reels;
+
+[Desktop Action Inbox]
+Name=Direct Messages
+Name[fr]=Messages
+Exec=instacache https://www.instagram.com/direct/inbox/
+
+[Desktop Action Explore]
+Name=Explore
+Name[fr]=Explorer
+Exec=instacache https://www.instagram.com/explore/
+
+[Desktop Action Reels]
+Name=Reels
+Exec=instacache https://www.instagram.com/reels/

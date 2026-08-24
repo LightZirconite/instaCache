@@ -3,14 +3,36 @@
 //! Rendered in place of WebKit's default error page so a dropped connection
 //! looks like part of the app instead of a browser error.
 
+/// Shown when the page could not be loaded.
 pub fn render(failing_uri: &str, message: &str) -> String {
+    page(
+        "Instagram is unreachable",
+        message,
+        "Cached pages you already visited stay available once the connection is back.",
+        failing_uri,
+    )
+}
+
+/// Shown when WebKit's rendering process died repeatedly and reloading it
+/// automatically is no longer helping.
+pub fn render_crash(failing_uri: &str, detail: &str) -> String {
+    page(
+        "The page stopped responding",
+        detail,
+        "This is usually a missing media codec or a page that ran out of memory. \
+         Check the GStreamer packages listed in the README if videos never play.",
+        failing_uri,
+    )
+}
+
+fn page(heading: &str, message: &str, hint: &str, failing_uri: &str) -> String {
     format!(
         r##"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GramCache — offline</title>
+<title>instaCache — offline</title>
 <style>
   :root {{ color-scheme: light dark; }}
   * {{ box-sizing: border-box; }}
@@ -59,15 +81,17 @@ pub fn render(failing_uri: &str, message: &str) -> String {
         <path d="M22 8.8a16 16 0 0 0-8.7-3.7"/><path d="M12 21h.01"/>
       </svg>
     </div>
-    <h1>Instagram is unreachable</h1>
+    <h1>{heading}</h1>
     <p>{message}</p>
-    <p>Cached pages you already visited stay available once the connection is back.</p>
+    <p>{hint}</p>
     <code>{uri}</code>
     <button onclick="location.reload()" autofocus>Try again</button>
   </main>
 </body>
 </html>"##,
+        heading = escape(heading),
         message = escape(message),
+        hint = escape(hint),
         uri = escape(failing_uri),
     )
 }

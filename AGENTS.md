@@ -1,4 +1,4 @@
-# Working on GramCache
+# Working on instaCache
 
 Conventions and hard-won facts for anyone — human or agent — changing this
 repository. Keep it short; if a rule can be enforced by CI instead, enforce it
@@ -43,8 +43,8 @@ The library/binary split exists so `examples/snapshot.rs` exercises the real
 
 ## Three constants that must stay in sync
 
-`PROGRAM_NAME` in `src/lib.rs`, `StartupWMClass` in `gramcache.desktop`, and the
-installed icon name `gramcache`. GTK 3 derives both the Wayland `app_id` and the
+`PROGRAM_NAME` in `src/lib.rs`, `StartupWMClass` in `instacache.desktop`, and
+the installed icon name `instacache`. GTK 3 derives both the Wayland `app_id` and the
 X11 `WM_CLASS` from `g_set_prgname()`. Break the chain and the app shows a
 generic icon in the dock — which looks like a packaging bug and is not.
 
@@ -58,6 +58,11 @@ cargo test --locked
 
 CI runs exactly these, plus `desktop-file-validate`, `shellcheck` on the three
 shell scripts, and an XML well-formedness check on the SVG.
+
+The runners carry an older `desktop-file-utils` than a current desktop does, and
+it emits warnings for valid keys. The CI step therefore fails on `error:` lines
+only. Keep `Version=1.0` in the desktop entry: newer spec versions are rejected
+outright by the version on the runners.
 
 ## Verifying that something actually renders
 
@@ -77,8 +82,8 @@ Other checks that need no screenshot at all:
 
 - `xdotool getwindowname <id>` — if it reports the page title, the page loaded
   and its JavaScript ran.
-- `du -sh ~/.cache/gramcache` — proves the disk cache is being written.
-- `ls ~/.local/share/gramcache/` — `cookies.sqlite` and `localstorage/` prove
+- `du -sh ~/.cache/instacache` — proves the disk cache is being written.
+- `ls ~/.local/share/instacache/` — `cookies.sqlite` and `localstorage/` prove
   the session is persisting.
 - `/usr/lib/webkit2gtk-4.1/MiniBrowser <url>` — vanilla WebKitGTK, the reference
   for "is this our bug or the engine's?".
@@ -102,6 +107,31 @@ grep -rn webkit_settings_set_your_thing /usr/include/webkitgtk-4.1/webkit/
 `webkit_settings_set_enable_dns_prefetching` is the cautionary example: it
 compiles, it links, and it prints a deprecation warning at every startup while
 doing nothing. It was removed for that reason.
+
+## Video does not play
+
+WebKit decodes media through GStreamer, not through anything this project
+controls. `gst-plugins-good` supplies `qtdemux` (MP4), `souphttpsrc` and
+`autoaudiosink`; `gst-libav` supplies `avdec_h264`. Miss either and Instagram
+looks broken in a very specific way: photos and avatars render, every video
+stays blank. Check before assuming a bug in the app:
+
+```sh
+for e in qtdemux souphttpsrc autoaudiosink avdec_h264; do
+    printf '%-16s ' "$e"; gst-inspect-1.0 "$e" >/dev/null 2>&1 && echo ok || echo MISSING
+done
+```
+
+`install.sh` runs this check and `packaging/PKGBUILD` declares the packages, so
+neither should be dropped.
+
+## A grey, unresponsive page
+
+That is WebKit's rendering process having died, not a frozen UI. `ui.rs`
+handles `web-process-terminated` and reloads, at most `MAX_CRASH_RELOADS` times
+inside `CRASH_WINDOW`, then shows the crash page instead of looping forever.
+Anything that makes the process die on every load must not be "fixed" by
+raising that limit.
 
 ## Touching `urls.rs`
 
