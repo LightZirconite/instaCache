@@ -45,6 +45,14 @@ jobs:
     # Debian 12 is the one environment where both are right at once.
     container: debian:12
 
+    # Stated rather than left to the default. Inside a container the default
+    # shell falls back to `sh` when bash is not found, and `set -o pipefail`
+    # is a bash-ism: under dash it fails with "Illegal option", which exits 2
+    # and looks nothing like a shell problem from the outside.
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +101,14 @@ jobs:
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           version="${tag#v}"
+          # Said out loud, because a missing checkout used to surface only as
+          # grep's exit code -- which is 2 for an unreadable file and reads as
+          # a shell error, not a missing repository.
+          if [ ! -f Cargo.toml ]; then
+            echo "::error::Cargo.toml is not in $PWD; the checkout did not land here"
+            ls -a | sed 's/^/::error::  /'
+            exit 1
+          fi
           manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
           if [ "$version" != "$manifest" ]; then
             echo "::error::Tag $tag does not match the version in Cargo.toml ($manifest)."
