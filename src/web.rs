@@ -28,6 +28,10 @@ pub struct Browser {
 }
 
 pub fn build(config: &Config, paths: &Paths) -> Browser {
+    if config.hardware_video_decoding {
+        prefer_gpu_video_decoders();
+    }
+
     let data_manager = WebsiteDataManager::builder()
         .base_data_directory(paths.data.to_string_lossy().as_ref())
         .base_cache_directory(paths.cache.to_string_lossy().as_ref())
@@ -78,6 +82,50 @@ pub fn build(config: &Config, paths: &Paths) -> Browser {
     Browser { context, view }
 }
 
+/// GPU video decoders GStreamer may have available, in the order WebKit is
+/// most likely to need them. Raising their rank is the documented way to tell
+/// GStreamer which decoder to reach for first.
+const GPU_DECODERS: &[&str] = &[
+    // Mesa / Intel / AMD through VA-API, from gst-plugins-bad.
+    "vah264dec",
+    "vah265dec",
+    "vavp8dec",
+    "vavp9dec",
+    "vaav1dec",
+    // The older VA-API plugin, still shipped by some distributions.
+    "vaapih264dec",
+    "vaapih265dec",
+    "vaapivp9dec",
+    // Intel Media SDK and NVIDIA, for the machines that have them.
+    "msdkh264dec",
+    "nvh264dec",
+    "nvh265dec",
+];
+
+/// WebKit decodes video through GStreamer, and GStreamer ranks the libav
+/// software decoders at the same level as the hardware ones, so which decoder
+/// gets used is effectively arbitrary. Software decoding a Reel is what
+/// produces stutter and single-frame freezes on a laptop or a handheld.
+///
+/// Ranks are read from the environment when GStreamer initialises, and the
+/// variable is inherited by the WebProcess, so setting it here — before the
+/// WebKit context exists — reaches the process that actually decodes.
+///
+/// Names that no plugin provides are ignored, and if a preferred decoder fails
+/// to negotiate, GStreamer still falls back to the next candidate. An explicit
+/// `GST_PLUGIN_FEATURE_RANK` from the user is never overwritten.
+fn prefer_gpu_video_decoders() {
+    const VAR: &str = "GST_PLUGIN_FEATURE_RANK";
+    if std::env::var_os(VAR).is_some() {
+        return;
+    }
+    let ranks: Vec<String> = GPU_DECODERS
+        .iter()
+        .map(|decoder| format!("{decoder}:MAX"))
+        .collect();
+    std::env::set_var(VAR, ranks.join(","));
+}
+
 fn build_settings(config: &Config) -> Settings {
     let settings = Settings::new();
 
@@ -101,6 +149,9 @@ fn build_settings(config: &Config) -> Settings {
     // Feed, Stories and Reels playback.
     settings.set_enable_media(true);
     settings.set_enable_mediasource(true);
+    // Lets the page ask which codecs and resolutions decode smoothly here, so
+    // Instagram can pick a stream this machine can actually sustain.
+    settings.set_enable_media_capabilities(true);
     settings.set_enable_encrypted_media(true);
     settings.set_enable_webaudio(true);
     settings.set_media_playback_requires_user_gesture(false);

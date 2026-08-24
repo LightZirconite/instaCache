@@ -164,8 +164,6 @@ else
     ok "Cargo.toml"
 fi
 
-bump_file packaging/PKGBUILD '^pkgver=.*$' "pkgver=$VERSION"
-bump_file packaging/PKGBUILD '^pkgrel=.*$' "pkgrel=1"
 # instacache.desktop carries the Desktop Entry Specification version, not the
 # application version, so it is deliberately left alone.
 

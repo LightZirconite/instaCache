@@ -26,7 +26,15 @@ pub struct Config {
     /// Empty string keeps WebKitGTK's built-in user agent.
     pub user_agent: String,
     /// `auto` | `always` | `never`.
+    ///
+    /// Defaults to `always`. Under `auto` WebKit switches between software and
+    /// accelerated compositing as the page changes, and each switch shows up
+    /// as a one-frame freeze during video playback.
     pub hardware_acceleration: String,
+    /// Ask GStreamer to prefer the GPU video decoders over the software ones.
+    /// WebKit plays video through GStreamer, which otherwise ranks the libav
+    /// software decoders alongside the hardware ones and may pick either.
+    pub hardware_video_decoding: bool,
     /// Enables the Web Inspector (Ctrl+Shift+I / right-click → Inspect).
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
@@ -51,7 +59,8 @@ impl Default for Config {
         Self {
             home_url: DEFAULT_HOME_URL.to_string(),
             user_agent: DEFAULT_USER_AGENT.to_string(),
-            hardware_acceleration: "auto".to_string(),
+            hardware_acceleration: "always".to_string(),
+            hardware_video_decoding: true,
             developer_tools: false,
             notifications: true,
             open_external_links_in_browser: true,

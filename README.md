@@ -56,6 +56,13 @@ it is still a full browser engine rendering a heavy web app, not a toy.
   rather than closed.
 - **Sized for your screen.** The first launch takes 90% of your monitor's usable
   area instead of a fixed default, so nothing is cut off.
+- **A loading bar that actually tracks Instagram.** A thin gradient line across
+  the top, the way YouTube does it. It follows real page loads *and* in-app
+  navigation, which produces no page load at all and would otherwise leave the
+  bar dead.
+- **Hardware video decoding.** WebKit hands video to GStreamer, which by
+  default may pick the CPU decoder over the GPU one; instaCache asks for the
+  GPU decoders explicitly, which is what stops Reels from stuttering.
 - **Real keyboard navigation.** Reload, hard reload, back, forward, home, zoom,
   fullscreen.
 - **External links leave.** Anything that is not Instagram — or one of the Meta
@@ -69,86 +76,84 @@ it is still a full browser engine rendering a heavy web app, not a toy.
 
 ## Install
 
-### Any distribution — the installer
-
-Download the archive for your architecture from the
-[releases page](https://git.justw.tf/LightZirconite/instaCache/releases),
-then:
+One command. Paste it into a terminal:
 
 ```sh
-tar -xzf instacache-1.0.0-linux-x86_64.tar.gz
-cd instacache-1.0.0-linux-x86_64
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh
 ```
 
-That is the whole thing. The installer:
+It downloads the release for your architecture, checks it against the published
+SHA-256, installs instaCache into `~/.local` — **no root needed for the app
+itself** — and adds it to your application menu.
 
-- installs into `~/.local` — **no root required**;
-- adds instaCache to your application menu with its icon;
-- checks that the WebKitGTK 4.1 runtime is present and, if it is not, prints the
-  exact package to install for your distribution.
+It also checks the two system libraries instaCache needs and offers to install
+the missing ones with your distribution's package manager. That step asks for
+your password, because installing system packages requires it. Answer `y` and
+it is done; the exact command is printed first so you can see what will run.
 
 Then launch **instaCache** from your application menu.
 
-Other options:
+<details>
+<summary>Options</summary>
 
 ```sh
-./install.sh --system            # /usr/local, for every user
-./install.sh --prefix ~/apps     # anywhere you like
-./install.sh --build             # build from source instead of using the binary
-./install.sh --help
+# Install for every user instead of just yours
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --system
+
+# Never ask anything, install missing packages automatically
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --yes
+
+# Only install the app, never touch system packages
+curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --no-deps
+
+# A specific version
+INSTACACHE_VERSION=v1.0.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh)"
 ```
 
-To remove it:
+</details>
+
+<details>
+<summary>Prefer not to pipe a script into a shell?</summary>
+
+Download the archive yourself from the
+[releases page](https://github.com/LightZirconite/instaCache/releases), then:
 
 ```sh
-./uninstall.sh            # removes the app, keeps your session
-./uninstall.sh --purge    # also deletes session, cache and settings
+tar -xzf instacache-*-linux-x86_64.tar.gz
+cd instacache-*-linux-x86_64
+./install.sh
 ```
 
-### Arch, CachyOS, Manjaro, EndeavourOS
+Same installer, same result. `get.sh` only automates the download and verifies
+the checksum for you.
+
+</details>
+
+## Uninstall
+
+The installer leaves the uninstaller next to the app, so this works even if you
+installed with the one-liner and no longer have the archive:
 
 ```sh
-git clone https://git.justw.tf/LightZirconite/instaCache.git
-cd instaCache/packaging
-makepkg -si
+~/.local/share/instacache/uninstall.sh            # removes the app, keeps your session
+~/.local/share/instacache/uninstall.sh --purge    # also deletes session, cache and settings
 ```
 
-This builds and installs a real pacman package, so `pacman -Qi instacache` lists
-it and `pacman -R instacache` removes it cleanly. See
-[docs/publishing.md](docs/publishing.md) for the AUR submission procedure.
+For a `--system` install the path is `/usr/local/share/instacache/uninstall.sh`.
 
-### Runtime requirement
+## What it needs on your system
 
-instaCache links against the WebKitGTK 4.1 and GTK 3 libraries already packaged
-by your distribution. It does not bundle a browser.
+instaCache does not bundle a browser. It uses the WebKitGTK and GStreamer
+libraries your distribution already packages, and the installer sets them up
+for you. For reference:
 
-| Distribution | Command |
-|---|---|
-| Arch, CachyOS, Manjaro | `sudo pacman -S --needed webkit2gtk-4.1 gtk3` |
-| Debian, Ubuntu, Mint | `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0` |
-| Fedora, RHEL | `sudo dnf install webkit2gtk4.1 gtk3` |
-| openSUSE | `sudo zypper install libwebkit2gtk-4_1-0 gtk3` |
-| Alpine | `sudo apk add webkit2gtk-4.1 gtk+3.0` |
-| Void | `sudo xbps-install -S webkit2gtk gtk+3` |
+| | Package (Arch) | Package (Debian/Ubuntu) | Without it |
+|---|---|---|---|
+| Rendering | `webkit2gtk-4.1 gtk3` | `libwebkit2gtk-4.1-0 libgtk-3-0` | Does not start |
+| Video | `gst-plugins-good gst-plugins-bad gst-libav` | `gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` | Photos load, every video stays blank |
 
-### Video playback needs GStreamer
-
-WebKit decodes video through GStreamer, which is packaged separately. Instagram
-serves H.264 in MP4, so the MP4 demuxer (`qtdemux`), the HTTP source
-(`souphttpsrc`) and the audio sink all have to be present. **Without them
-photos load normally and every Reel, Story and video stays blank** — a symptom
-that looks like a bug in the app but is a missing package.
-
-| Distribution | Command |
-|---|---|
-| Arch, CachyOS, Manjaro | `sudo pacman -S --needed gst-plugins-good gst-plugins-bad gst-libav` |
-| Debian, Ubuntu, Mint | `sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` |
-| Fedora, RHEL | `sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav` |
-| openSUSE | `sudo zypper install gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-libav` |
-
-`install.sh` checks both the WebKitGTK runtime and the codecs, and prints the
-exact command for your distribution if anything is missing.
+If videos never play, that second row is almost always the reason. Run
+`./install.sh` again and it will detect and fix it.
 
 ## Keyboard shortcuts
 
@@ -190,7 +195,8 @@ its default. Edit it and restart.
 |---|---|---|
 | `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
 | `user_agent` | a macOS Safari string | Sent to Instagram. Empty string keeps WebKitGTK's own. |
-| `hardware_acceleration` | `auto` | `auto`, `always` or `never`. Set `never` if you see rendering glitches. |
+| `hardware_acceleration` | `always` | `always`, `auto` or `never`. `auto` lets WebKit switch compositing modes mid-page, which shows up as one-frame freezes during video. Set `never` only if the window renders wrong. |
+| `hardware_video_decoding` | `true` | Ask GStreamer to prefer the GPU video decoders. Set `false` if video breaks entirely after an update. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
@@ -254,8 +260,9 @@ scripts/release.sh patch             # bump, changelog, commit, tag, push
 ```
 
 Pushing the tag triggers `.github/workflows/release.yml`, which builds x86_64
-and aarch64 archives and publishes the release with notes and checksums. The
-workflow runs on GitHub Actions and on Gitea Actions.
+and aarch64 archives and publishes the release with notes and checksums — which
+is what the one-line installer downloads. The workflow runs on GitHub Actions
+and on Gitea Actions.
 
 ## Architecture
 
@@ -265,6 +272,7 @@ src/
   lib.rs         module wiring and the application constants
   ui.rs          window assembly, signals, notifications, downloads
   web.rs         WebKit context, persistent storage, settings, link routing
+  progress.rs    the loading bar, including in-app navigation
   config.rs      config.json and window geometry
   paths.rs       XDG locations and profiles
   shortcuts.rs   keyboard navigation
