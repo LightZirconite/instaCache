@@ -1,6 +1,6 @@
 [package]
 name = "instacache"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 rust-version = "1.82"
 description = "Ultra-light native Instagram desktop client for Linux, with aggressive persistent caching"
