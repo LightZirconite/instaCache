@@ -58,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   behind by a process that died is cleaned up rather than treated as a running
   instance.
 
+### Migration
+- **You will be signed in again on the first launch.** A Chromium engine cannot
+  read WebKit's cookie jar or local storage, so the session does not carry
+  across. This is the one thing the update cannot do for you.
+- The old engine's files stay behind, unused, in
+  `~/.local/share/instacache`: `cookies.sqlite`, `localstorage/`,
+  `serviceworkers/`, `storage/` and `mediakeys/`. Deleting them is safe and
+  frees a few hundred kilobytes; keeping them costs nothing either.
+
 ### Added
 - `bench/`, the measurement harness itself: the churn page, a collector, a
   runner for six engines and every number established so far. It used to live

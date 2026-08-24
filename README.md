@@ -279,6 +279,17 @@ Drop CSS into `~/.config/instacache/user.css` and it is applied to every page.
 main[role="main"] { max-width: 1100px; }
 ```
 
+### Updating from a WebKitGTK version
+
+instaCache rendered with WebKitGTK up to 1.2.0 and with Qt WebEngine from 2.0.0
+on. A Chromium engine cannot read WebKit's cookie jar, so **the first launch
+after that update asks you to sign in again**. Nothing else is lost: settings,
+window geometry and profiles all carry across.
+
+The old engine's files stay behind, unused, in `~/.local/share/instacache`:
+`cookies.sqlite`, `localstorage/`, `serviceworkers/`, `storage/` and
+`mediakeys/`. Deleting them is safe.
+
 ### Where your data lives
 
 | Path | Contents | Safe to delete |
