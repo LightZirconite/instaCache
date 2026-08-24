@@ -1,0 +1,20 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Release artifacts
+/dist/
+*.tar.gz
+*.sha256
+
+# Arch packaging leftovers
+packaging/pkg/
+packaging/src/
+packaging/*.pkg.tar.*
+packaging/*.tar.gz
+
+# Editors and desktops
+.vscode/
+.idea/
+*.swp
+.DS_Store

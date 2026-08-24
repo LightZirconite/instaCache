@@ -1,0 +1,33 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=GramCache
+GenericName=Instagram Client
+Comment=Fast, lightweight Instagram client with a persistent cache
+Comment[fr]=Client Instagram rapide et léger avec cache persistant
+Exec=gramcache %u
+TryExec=gramcache
+Icon=gramcache
+Terminal=false
+Categories=Network;Chat;InstantMessaging;
+Keywords=Instagram;Social;Photos;Reels;Stories;Messages;
+Keywords[fr]=Instagram;Social;Photos;Reels;Stories;Messages;
+StartupNotify=true
+# Must match g_set_prgname() in the application, or the window will not be
+# matched to this entry and the dock shows a generic icon.
+StartupWMClass=gramcache
+Actions=Inbox;Explore;Reels;
+
+[Desktop Action Inbox]
+Name=Direct Messages
+Name[fr]=Messages
+Exec=gramcache https://www.instagram.com/direct/inbox/
+
+[Desktop Action Explore]
+Name=Explore
+Name[fr]=Explorer
+Exec=gramcache https://www.instagram.com/explore/
+
+[Desktop Action Reels]
+Name=Reels
+Exec=gramcache https://www.instagram.com/reels/

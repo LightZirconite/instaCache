@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-label="GramCache">
+  <title>GramCache</title>
+  <defs>
+    <radialGradient id="gc-brand" cx="0.28" cy="1.02" r="1.25">
+      <stop offset="0%"   stop-color="#FFDD55"/>
+      <stop offset="18%"  stop-color="#FFB13D"/>
+      <stop offset="42%"  stop-color="#F5563C"/>
+      <stop offset="62%"  stop-color="#E1306C"/>
+      <stop offset="82%"  stop-color="#A32EA8"/>
+      <stop offset="100%" stop-color="#5B4BE0"/>
+    </radialGradient>
+    <linearGradient id="gc-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="55%"  stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.10"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle body -->
+  <rect x="8" y="8" width="240" height="240" rx="66" ry="66" fill="url(#gc-brand)"/>
+  <rect x="8" y="8" width="240" height="240" rx="66" ry="66" fill="url(#gc-sheen)"/>
+
+  <!-- Camera frame -->
+  <rect x="56" y="56" width="144" height="144" rx="42" ry="42"
+        fill="none" stroke="#ffffff" stroke-width="14"/>
+
+  <!-- Viewfinder dot -->
+  <circle cx="171.5" cy="84.5" r="9.5" fill="#ffffff"/>
+
+  <!-- Lens ring -->
+  <circle cx="128" cy="128" r="40" fill="none" stroke="#ffffff" stroke-width="14"/>
+
+  <!-- Speed bolt: the cache -->
+  <path d="M136 102 108 133h16l-6 21 30-33h-17z"
+        fill="#ffffff" stroke-linejoin="round"/>
+</svg>
