@@ -143,6 +143,33 @@ once at startup and never again. `progress.rs` therefore also starts on a URI
 change and finishes when the network has been quiet for `QUIET_PERIOD`. Test
 both paths: a cold start *and* clicking through the app.
 
+## Never cancel a GLib source by id
+
+`SourceId::remove` panics if the id is gone, and a panic inside a GTK callback
+aborts the process because the release profile sets `panic = "abort"`. A
+one-shot timeout removes itself when it fires, so any id kept from
+`timeout_add_local_once` is stale the moment it runs — and GLib recycles ids,
+so cancelling later can destroy an unrelated source, including one of WebKit's.
+
+This is not hypothetical: it is what made 1.1.0 abort while scrolling.
+`progress.rs` now cancels nothing and uses a generation counter instead; a
+pending callback checks whether it is still the current generation and returns
+if not. Do the same for anything new.
+
+## Reproducing a crash you cannot click your way to
+
+The reference machine is reached over a remote desktop: injected keyboard and
+mouse events never arrive and screenshots come back entirely white. Driving the
+page from inside is the way around both.
+
+```sh
+cargo run --example stress            # local page, touches no server
+cargo run --example stress -- 90 https://www.instagram.com/
+```
+
+Use the real site sparingly. Automated navigation there looks like a bot and
+risks the account.
+
 ## A grey, unresponsive page
 
 That is WebKit's rendering process having died, not a frozen UI. `ui.rs`

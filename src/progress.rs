@@ -39,6 +39,14 @@ const HOLD_AFTER_FINISH: Duration = Duration::from_millis(220);
 /// for this long.
 const QUIET_PERIOD: Duration = Duration::from_millis(400);
 
+/// What one frame of the animation decided.
+enum Step {
+    /// Keep animating.
+    Continue,
+    /// The navigation is over; complete the bar.
+    Done,
+}
+
 struct State {
     bar: gtk::ProgressBar,
     /// Highest fraction shown so far in this navigation. The bar must never
@@ -52,8 +60,18 @@ struct State {
     /// Ticks with nothing in flight, used to detect the end of an in-app
     /// navigation.
     quiet_ticks: u32,
-    ticker: Option<glib::SourceId>,
-    finisher: Option<glib::SourceId>,
+    /// Whether a tick source is currently installed.
+    ticking: bool,
+    /// Bumped on every begin and every finish. A pending "hide the bar" call
+    /// checks it and does nothing if a new navigation started in the meantime.
+    ///
+    /// This is what replaces cancelling the timeout. Removing a GLib source by
+    /// id is only safe while that source is alive and not currently
+    /// dispatching; a one-shot timeout removes itself when it fires, so the id
+    /// held here goes stale and GLib may well have handed it to somebody else
+    /// by the time we would use it. Cancelling then destroys an unrelated
+    /// source — including, on a busy page, one of WebKit's.
+    generation: u64,
 }
 
 impl State {
@@ -62,7 +80,7 @@ impl State {
     }
 
     fn begin(&mut self) {
-        self.cancel_finisher();
+        self.generation = self.generation.wrapping_add(1);
         if !self.running {
             self.running = true;
             self.fraction = INITIAL;
@@ -74,10 +92,10 @@ impl State {
         }
     }
 
-    /// Advances one frame. Returns `true` while the bar should keep ticking.
-    fn tick(&mut self) -> bool {
+    /// Advances one frame.
+    fn tick(&mut self) -> Step {
         if !self.running {
-            return false;
+            return Step::Done;
         }
 
         // Creep toward the ceiling, and let real progress overrule it whenever
@@ -98,44 +116,40 @@ impl State {
             if self.in_flight == 0 {
                 self.quiet_ticks += 1;
                 if self.quiet_ticks >= Self::quiet_ticks_needed() {
-                    self.finish();
-                    return false;
+                    return Step::Done;
                 }
             } else {
                 self.quiet_ticks = 0;
             }
         }
 
-        true
+        Step::Continue
     }
+}
 
-    fn finish(&mut self) {
-        if !self.running {
+/// Fills the bar, then hides it a moment later — unless a new navigation has
+/// started by then.
+fn finish(state: &Rc<RefCell<State>>) {
+    let generation = {
+        let mut state = state.borrow_mut();
+        if !state.running {
             return;
         }
-        self.running = false;
-        self.fraction = 1.0;
-        self.bar.set_fraction(1.0);
-        self.cancel_ticker();
+        state.running = false;
+        state.fraction = 1.0;
+        state.bar.set_fraction(1.0);
+        state.generation = state.generation.wrapping_add(1);
+        state.generation
+    };
 
-        let bar = self.bar.clone();
-        self.finisher = Some(glib::timeout_add_local_once(HOLD_AFTER_FINISH, move || {
-            bar.hide();
-            bar.set_fraction(0.0);
-        }));
-    }
-
-    fn cancel_ticker(&mut self) {
-        if let Some(source) = self.ticker.take() {
-            source.remove();
+    let state = state.clone();
+    glib::timeout_add_local_once(HOLD_AFTER_FINISH, move || {
+        let state = state.borrow();
+        if state.generation == generation {
+            state.bar.hide();
+            state.bar.set_fraction(0.0);
         }
-    }
-
-    fn cancel_finisher(&mut self) {
-        if let Some(source) = self.finisher.take() {
-            source.remove();
-        }
-    }
+    });
 }
 
 /// Connects `bar` to `view`. The bar is expected to be an overlay child that
@@ -148,8 +162,8 @@ pub fn install(view: &webkit2gtk::WebView, bar: &gtk::ProgressBar) {
         running: false,
         in_flight: 0,
         quiet_ticks: 0,
-        ticker: None,
-        finisher: None,
+        ticking: false,
+        generation: 0,
     }));
 
     // A real page load: WebKit reports genuine progress.
@@ -158,13 +172,13 @@ pub fn install(view: &webkit2gtk::WebView, bar: &gtk::ProgressBar) {
         view.connect_load_changed(move |_, event| match event {
             LoadEvent::Started => {
                 {
-                    let mut state = state.borrow_mut();
-                    state.begin();
-                    state.reported = Some(0.0);
+                    let mut borrowed = state.borrow_mut();
+                    borrowed.begin();
+                    borrowed.reported = Some(0.0);
                 }
                 start_ticking(&state);
             }
-            LoadEvent::Finished => state.borrow_mut().finish(),
+            LoadEvent::Finished => finish(&state),
             _ => {}
         });
     }
@@ -172,9 +186,10 @@ pub fn install(view: &webkit2gtk::WebView, bar: &gtk::ProgressBar) {
     {
         let state = state.clone();
         view.connect_estimated_load_progress_notify(move |view| {
+            let progress = view.estimated_load_progress();
             let mut state = state.borrow_mut();
             if state.running {
-                state.reported = Some(view.estimated_load_progress());
+                state.reported = Some(progress);
             }
         });
     }
@@ -184,11 +199,11 @@ pub fn install(view: &webkit2gtk::WebView, bar: &gtk::ProgressBar) {
         let state = state.clone();
         view.connect_uri_notify(move |_| {
             {
-                let mut state = state.borrow_mut();
-                if state.running {
+                let mut borrowed = state.borrow_mut();
+                if borrowed.running {
                     return;
                 }
-                state.begin();
+                borrowed.begin();
             }
             start_ticking(&state);
         });
@@ -215,20 +230,29 @@ pub fn install(view: &webkit2gtk::WebView, bar: &gtk::ProgressBar) {
 }
 
 fn start_ticking(state: &Rc<RefCell<State>>) {
-    let mut borrowed = state.borrow_mut();
-    if borrowed.ticker.is_some() {
-        return;
-    }
-    let ticking = state.clone();
-    borrowed.ticker = Some(glib::timeout_add_local(TICK, move || {
-        let keep_going = ticking.borrow_mut().tick();
-        if keep_going {
-            glib::ControlFlow::Continue
-        } else {
-            ticking.borrow_mut().ticker = None;
-            glib::ControlFlow::Break
+    {
+        let mut borrowed = state.borrow_mut();
+        if borrowed.ticking {
+            return;
         }
-    }));
+        borrowed.ticking = true;
+    }
+
+    let ticking = state.clone();
+    // The source is never cancelled from outside; it retires itself by
+    // returning `Break`, which is the only way that is safe from within a
+    // dispatch.
+    glib::timeout_add_local(TICK, move || {
+        let step = ticking.borrow_mut().tick();
+        match step {
+            Step::Continue => glib::ControlFlow::Continue,
+            Step::Done => {
+                ticking.borrow_mut().ticking = false;
+                finish(&ticking);
+                glib::ControlFlow::Break
+            }
+        }
+    });
 }
 
 #[cfg(test)]
