@@ -119,6 +119,8 @@ makepkg -si
 
 `makepkg -si` compile puis installe un vrai paquet système : l'application
 apparaît dans le menu, et `sudo pacman -R gramcache` la retire proprement.
+La procédure de publication sur l'AUR est décrite dans
+[docs/publishing.md](publishing.md).
 
 ### Dépendance à l'exécution
 

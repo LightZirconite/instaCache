@@ -114,6 +114,10 @@ cd instaCache/packaging
 makepkg -si
 ```
 
+This builds and installs a real pacman package, so `pacman -Qi gramcache` lists
+it and `pacman -R gramcache` removes it cleanly. See
+[docs/publishing.md](docs/publishing.md) for the AUR submission procedure.
+
 ### Runtime requirement
 
 GramCache links against the WebKitGTK 4.1 and GTK 3 libraries already packaged
