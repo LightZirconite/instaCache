@@ -1,6 +1,6 @@
 //! Offline / load-failure page.
 //!
-//! Rendered in place of WebKit's default error page so a dropped connection
+//! Rendered in place of Chromium's default error page so a dropped connection
 //! looks like part of the app instead of a browser error.
 
 /// Shown when the page could not be loaded.

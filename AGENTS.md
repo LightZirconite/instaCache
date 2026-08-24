@@ -6,49 +6,77 @@ there.
 
 ## What this project is
 
-One GTK 3 window hosting one WebKitGTK 4.1 view that displays Instagram, with
-the cache and session pinned to persistent XDG directories. The value is in the
-persistence and the desktop integration, not in any UI of our own. Resist
-adding chrome.
+One Qt Quick window hosting one Qt WebEngine view that displays Instagram,
+with the cache and session pinned to persistent XDG directories. The value is
+in the persistence and the desktop integration, not in any UI of our own.
+Resist adding chrome.
 
 ## Non-negotiables
 
 - **No Electron, no Node, no Python, no bundled browser engine.** The whole
-  point is a small binary that uses the system WebKitGTK.
-- **WebKitGTK 4.1 (GTK 3), not 6.0 (GTK 4).** The 4.1 API is what Debian 12,
-  Ubuntu 22.04 and every current distribution actually ship. Note that
-  `WebKitNetworkSession` does *not* exist in 4.1 — `WebKitWebsiteDataManager`
-  is the supported API there, not a deprecated one.
-- **The release binary must stay dynamically linked** against the distribution's
-  WebKitGTK. Never vendor it.
+  point is a small binary that uses the system's Chromium through
+  `qt6-webengine`, shared with every other Qt application on the machine.
+- **The release binary must stay dynamically linked** against the
+  distribution's Qt. Never vendor it.
+- **Qt 6.4 is the baseline**, because it is what Debian 12 ships. Newer API is
+  tempting and mostly off limits: `permissionRequested` and
+  `persistentPermissionsPolicy` are 6.8, and using them would lock out the
+  distributions this is meant to run on. This is the same reasoning that once
+  pinned the project to WebKitGTK 4.1 rather than 6.0.
+- **Policy lives in Rust, widgets live in QML.** Which URL stays in the window,
+  where a download goes, whether a dead renderer is reloaded again — all of it
+  is decided in `bridge.rs`, where it is unit tested. QML that decides
+  something cannot be tested at all.
 - **Nothing may write outside the XDG directories** resolved in `paths.rs`.
+
+## Why not WebKitGTK
+
+It was the engine until 1.2.0, and it was replaced for one measured reason:
+WebKit builds a GStreamer pipeline per `<video>` element, on the thread that
+also runs the page, and a feed builds one about twice a second. On the
+reference machine that cost 78 frames over 50 ms in a 40-second run where
+Chromium cost 2. Nothing in WebKit's settings closed the gap — the full list of
+what was tried and rejected, with numbers, is in `bench/README.md`. Do not
+reopen this without a measurement.
+
+The engine change also cost something, and it is fair to say so: the binary
+grew from 522 KB to a few megabytes of Rust-to-Qt glue, and `config.json` keys
+that named GStreamer concepts now mean Chromium ones.
 
 ## Layout
 
 | File | Responsibility |
 |---|---|
-| `src/main.rs` | Argument parsing, process startup. Nothing else. |
+| `src/main.rs` | Argument parsing, process startup, termination signals. |
 | `src/lib.rs` | Module list and application constants. |
-| `src/ui.rs` | Window, signals, notifications, downloads, state persistence. |
-| `src/web.rs` | WebKit context, storage, settings, external-link routing. |
+| `src/bridge.rs` | Everything QML may ask Rust. The policy lives here. |
+| `src/qml/main.qml` | The window, the view, the loading bar, the shortcuts. |
+| `src/chromium.rs` | Config settings translated into Chromium flags. |
 | `src/config.rs` | `config.json` and window geometry, both fault-tolerant. |
 | `src/paths.rs` | XDG locations and named profiles. |
-| `src/shortcuts.rs` | Keyboard navigation. |
+| `src/downloads.rs` | Where a download goes and under what name. |
+| `src/instance.rs` | One window per profile, over a Unix socket. |
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
-| `src/progress.rs` | The loading bar, including in-app navigation. |
 | `src/updates.rs` | Checking for and installing a newer release. |
-| `examples/snapshot.rs` | Renders a page to PNG through WebKit, for verification. |
+| `examples/snapshot.rs` | Renders a page to PNG, for verification. |
+| `examples/stress.rs` | Drives a page from inside, for reproducing crashes. |
+| `bench/` | The video-smoothness harness. Read its README first. |
 
-The library/binary split exists so `examples/snapshot.rs` exercises the real
-`web::build` configuration. Do not collapse it.
+The library/binary split exists so the examples exercise the real `Shell`
+configuration. Do not collapse it.
+
+The QML scene is compiled into the binary with `include_str!` rather than
+installed beside it, so there is still one file to ship and no way for the two
+to drift apart across an update.
 
 ## Three constants that must stay in sync
 
 `PROGRAM_NAME` in `src/lib.rs`, `StartupWMClass` in `instacache.desktop`, and
-the installed icon name `instacache`. GTK 3 derives both the Wayland `app_id` and the
-X11 `WM_CLASS` from `g_set_prgname()`. Break the chain and the app shows a
-generic icon in the dock — which looks like a packaging bug and is not.
+the installed icon name `instacache`. Qt derives the Wayland `app_id` and the
+X11 `WM_CLASS` from the application name, which `main.rs` sets from
+`PROGRAM_NAME` before the first window exists. Break the chain and the app
+shows a generic icon in the dock — which looks like a packaging bug and is not.
 
 ## Before you commit
 
@@ -73,8 +101,8 @@ Do not trust a display-server screenshot. On this project's reference machine,
 including unrelated applications — a broken capture pipeline, not a broken app.
 Two blank captures in a row cost an hour before that was established.
 
-Use the snapshot helper instead; it renders inside the WebProcess and never
-touches the compositor:
+Use the snapshot helper instead; it grabs the view from inside the engine and
+never touches the compositor:
 
 ```sh
 cargo run --example snapshot -- https://www.instagram.com/ shot.png
@@ -87,74 +115,95 @@ Other checks that need no screenshot at all:
 - `du -sh ~/.cache/instacache` — proves the disk cache is being written.
 - `ls ~/.local/share/instacache/` — `cookies.sqlite` and `localstorage/` prove
   the session is persisting.
-- `/usr/lib/webkit2gtk-4.1/MiniBrowser <url>` — vanilla WebKitGTK, the reference
-  for "is this our bug or the engine's?".
+- `qml6 bench/runners/bench.qml -- <url>` — a bare Qt WebEngine view with none
+  of our configuration, the reference for "is this our bug or the engine's?".
 
 ## Testing shortcuts and window closing
 
-`xdotool windowclose` destroys the X window outright; GTK never emits
-`delete-event` and you get `BadDrawable` instead of a graceful shutdown. Test the
-state-saving path with `kill -TERM` instead — `ui.rs` handles `SIGINT`/`SIGTERM`
-precisely so this path is both robust and testable.
+`xdotool windowclose` destroys the window outright, so `onClosing` never runs
+and the geometry is never written. Test the state-saving path with `kill -TERM`
+instead.
 
-## Adding a WebKit setting
+That path is deliberately indirect. The signal handler in `main.rs` sets an
+atomic flag and does nothing else, because a signal handler may safely do
+almost nothing — writing a JSON file from inside one means allocating on a
+thread it interrupted mid-allocation. The scene's own 250 ms timer notices the
+flag and shuts down through the ordinary close path.
 
-Check the installed headers first, because the Rust bindings expose calls that
-the underlying library has since turned into no-ops:
+## Adding a setting
+
+A setting reaches the engine by one of three routes, and picking the wrong one
+is the usual way a change compiles and does nothing:
+
+| what it affects | where it goes |
+|---|---|
+| the page or the view | `settings.*` on `WebEngineView` in the QML scene |
+| the session or storage | a `WebEngineProfile` property in the same scene |
+| Chromium itself | `src/chromium.rs`, as a command-line flag |
+
+Chromium flags are the trap. They are read from `QTWEBENGINE_CHROMIUM_FLAGS`
+exactly once, when Qt WebEngine initialises, which happens before any Qt
+application object exists — so `chromium::apply()` has to run before
+`webengine::initialize()` in `main.rs`, and a flag set anywhere later is
+silently ignored. That is why the flags are a pure function of the config, with
+tests: it is the only part of the wiring that can be checked without starting a
+browser.
+
+Check the QML side against the installed types rather than against
+documentation for a newer Qt:
 
 ```sh
-grep -rn webkit_settings_set_your_thing /usr/include/webkitgtk-4.1/webkit/
+grep -n '"yourProperty"' /usr/lib/qt6/qml/QtWebEngine/plugins.qmltypes
 ```
 
-`webkit_settings_set_enable_dns_prefetching` is the cautionary example: it
-compiles, it links, and it prints a deprecation warning at every startup while
-doing nothing. It was removed for that reason.
+That file also tells you which Qt version introduced a signal — the baseline is
+6.4, and anything newer is off limits. See the non-negotiables.
 
 ## Video does not play
 
-WebKit decodes media through GStreamer, not through anything this project
-controls. `gst-plugins-good` supplies `qtdemux` (MP4), `souphttpsrc` and
-`autoaudiosink`; `gst-libav` supplies `avdec_h264`. Miss either and Instagram
-looks broken in a very specific way: photos and avatars render, every video
-stays blank. Check before assuming a bug in the app:
+Chromium decodes video itself, so unlike the WebKitGTK builds of instaCache
+there is no GStreamer plugin set to get wrong. There is one exception, and it
+produces the same very specific symptom: photos and avatars render, every video
+stays blank.
 
-```sh
-for e in qtdemux souphttpsrc autoaudiosink avdec_h264; do
-    printf '%-16s ' "$e"; gst-inspect-1.0 "$e" >/dev/null 2>&1 && echo ok || echo MISSING
-done
-```
+Fedora builds Qt WebEngine without the patent-encumbered codecs. Instagram is
+H.264 throughout, so on Fedora the video is blank until
+`qt6-qtwebengine-freeworld` is installed alongside it. `install.sh` checks for
+this and installs it, so that check must not be dropped.
 
-`install.sh` runs this check and installs the packages itself, so it must not
-be dropped.
-
-Hardware decoding matters as much as having a decoder at all. WebKit hands
-video to GStreamer, which ranks `vah264dec` (GPU) barely above `avdec_h264`
-(CPU); `web.rs` raises the GPU decoders to MAX through
-`GST_PLUGIN_FEATURE_RANK` so the choice is deterministic. Names GStreamer does
-not know are ignored, and a decoder that fails to negotiate still falls back,
-so the list is safe to extend.
+Hardware decoding is a separate question from having a decoder at all.
+Chromium disables VA-API on Linux by default; `chromium.rs` turns it back on
+for `video_decoding: "gpu"`, which is the default. It is worth roughly nothing
+in stutter on the reference machine — 2 or 3 late frames either way — and is
+kept because it does reduce the CPU cost, and because `software` has to mean
+something.
 
 ## The loading bar looks dead
 
 Instagram is a single-page application. Opening a profile or the inbox does not
-trigger a page load, so `load-changed` never fires and
-`estimated-load-progress` never moves — a bar driven only by those lights up
-once at startup and never again. `progress.rs` therefore also starts on a URI
-change and finishes when the network has been quiet for `QUIET_PERIOD`. Test
-both paths: a cold start *and* clicking through the app.
+trigger a page load, so `loadingChanged` never fires and `loadProgress` never
+moves — a bar driven only by those lights up once at startup and never again.
+The scene therefore also reacts to `onUrlChanged` while the view is not
+loading, with a short sweep rather than real progress, because an in-app
+navigation has no progress to report. Test both paths: a cold start *and*
+clicking through the app.
 
-## Never cancel a GLib source by id
+## Timers, and the hazard that is now gone
 
-`SourceId::remove` panics if the id is gone, and a panic inside a GTK callback
-aborts the process because the release profile sets `panic = "abort"`. A
-one-shot timeout removes itself when it fires, so any id kept from
-`timeout_add_local_once` is stale the moment it runs — and GLib recycles ids,
-so cancelling later can destroy an unrelated source, including one of WebKit's.
+The WebKitGTK build had a rule here: never cancel a GLib source by id.
+`SourceId::remove` panics if the id is gone, a panic inside a GTK callback
+aborts the process because the release profile sets `panic = "abort"`, and
+GLib recycles ids — so cancelling late could destroy an unrelated source,
+including one of WebKit's. It is what made 1.1.0 abort while scrolling.
 
-This is not hypothetical: it is what made 1.1.0 abort while scrolling.
-`progress.rs` now cancels nothing and uses a generation counter instead; a
-pending callback checks whether it is still the current generation and returns
-if not. Do the same for anything new.
+QML `Timer` has no such hazard: `stop()` and `restart()` on an already-stopped
+timer are both defined and harmless, and the loading bar uses them freely. The
+rule is recorded because the class of bug is worth remembering, not because it
+still applies.
+
+What does still apply: `panic = "abort"` is still set, and a panic inside a
+method QML calls still takes the process with it. Nothing in `bridge.rs` may
+unwrap something a page can influence.
 
 ## Reproducing a crash you cannot click your way to
 
@@ -174,36 +223,57 @@ risks the account.
 
 CPU averages do not measure stutter, and a single run against Instagram
 measures whichever clips happened to be in the feed — two samples there
-disagreed by 3x and led to the wrong conclusion once already. Use the
-controlled page instead:
+disagreed by 3x and led to the wrong conclusion once already. Use `bench/`,
+which is in this repository for exactly that reason, and read
+[`bench/README.md`](bench/README.md) before trusting any number it prints.
 
 ```sh
-cargo run --example stress -- 45 "file:///path/to/churn.html"
+./bench/make-clips.sh && cargo build
+python3 bench/serve.py &
+./bench/run.sh mine app 50 churn file
 ```
 
-It counts frames over 50 ms from inside the page with `requestAnimationFrame`,
-which is the thing a person actually perceives. Repeat each configuration and
-check the numbers agree before believing them.
+Every configuration needs **two runs that agree**. Four counters in the report
+exist because each of them once turned an apparent win into a measured loss:
+`presented` (frames actually shown, engine-independent), `playedSec` (smooth
+because nothing was playing), `ttffMed` (smooth because every video started
+late) and `errors` (a fix that was really a breakage).
 
-Established on the reference machine, four 1080x1920 H.264 streams at 30 fps:
+Where it stands, on the reference machine, churning progressive video:
 
-| case | CPU | frames over 50 ms | worst |
+| | frames over 50 ms | p99 | first frame |
 |---|---|---|---|
-| gpu decoders, no churn | — | 2 | 120 ms |
-| gpu decoders, a pipeline built every 500 ms | 24% | 27 | 141 ms |
-| software decoders, same churn | 104% | 41 | 203 ms |
+| WebKitGTK 4.1, as shipped in 1.2.0 | 78 | 70 ms | 264 ms |
+| Qt WebEngine, as shipped now | 1-6 over five runs | 33-50 ms | 48-64 ms |
 
-The conclusion to keep: stutter on a feed comes from pipeline churn in WebKit's
-MSE, not from the decoder. Changing decoders moves it a little; nothing in this
-codebase removes it.
+Two conclusions worth keeping, both of which correct what this project
+believed before the bench could tell the two video paths apart:
+
+- **MediaSource was never the problem.** WebKit handled the `mse` path at 4
+  late frames, near Chromium. The path that stalled was the plain
+  `<video src="…mp4">` one, which is what a Reels feed uses. A year of blaming
+  MSE came from a bench that only ever exercised the other path.
+- **No WebKit setting closed the gap**, and several looked as though they had.
+  `WEBKIT_GST_USE_PLAYBIN3` is the cautionary one: it halved the stalls and
+  stopped 22-28 videos out of 99 from ever playing. That is why the report
+  carries `errors`, `presented`, `playedSec` and `ttffMed` at all.
+
+### The bench is not a Meta host
+
+`urls.rs` calls `127.0.0.1` external, so the app hands the bench to the system
+browser and leaves its own window blank — and the system browser then quietly
+produces the numbers. That is not hypothetical; it happened, and the readings
+looked wonderful. `bench/run.sh` disables the routing for the run, and the page
+reports which engine actually rendered it. Check that field.
 
 ## A grey, unresponsive page
 
-That is WebKit's rendering process having died, not a frozen UI. `ui.rs`
-handles `web-process-terminated` and reloads, at most `MAX_CRASH_RELOADS` times
-inside `CRASH_WINDOW`, then shows the crash page instead of looping forever.
-Anything that makes the process die on every load must not be "fixed" by
-raising that limit.
+That is the renderer process having died, not a frozen UI. The scene handles
+`onRenderProcessTerminated` and asks `bridge.rs` whether to reload; it says yes
+at most `MAX_CRASH_RELOADS` times inside `CRASH_WINDOW`, and then the crash
+page is shown instead of looping forever. That decision is in Rust, and tested,
+precisely so it cannot quietly become "always reload". Anything that makes the
+process die on every load must not be "fixed" by raising the limit.
 
 ## Touching `urls.rs`
 

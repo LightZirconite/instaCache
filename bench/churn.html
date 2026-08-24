@@ -1,0 +1,150 @@
+<!doctype html><meta charset="utf-8"><title>jank</title>
+<body style="margin:0;background:#111;overflow:hidden"><div id="stage"></div>
+<script>
+// Exactly SLOTS videos alive at any instant. In "churn" mode each slot
+// destroys its video and builds a new one every SLOTS*PERIOD ms, so the
+// decoding load is identical to the static case and only pipeline renewal
+// differs -- which is the thing under test.
+//
+//   ?src=mse    feed each video through MediaSource, the way Instagram does
+//   ?src=file   plain progressive <video src>, the simpler control
+//
+// Everything is reported over HTTP so that any engine can be measured the
+// same way, with no engine-specific plumbing to read a value out of the page.
+const Q = new URLSearchParams(location.search);
+const CHURN  = Q.get('mode') !== 'static';
+const SRC    = Q.get('src') || 'file';
+const SLOTS  = +(Q.get('slots')  || 4);
+const PERIOD = +(Q.get('period') || 500);
+const WARMUP = +(Q.get('warmup') || 8000);
+const LABEL  = Q.get('label') || 'unnamed';
+const MIME   = 'video/mp4; codecs="avc1.640028"';
+
+const stage = document.getElementById('stage');
+const t0 = performance.now();
+let created = 0, jank = 0, worst = 0, deltas = [], last = t0, counting = false;
+let retired = 0, dropped = 0, presented = 0, playedSec = 0, errors = 0;
+const ttff = [];
+const RVFC = !!HTMLVideoElement.prototype.requestVideoFrameCallback;
+let media = null;   // the fragmented segment, fetched once
+
+requestAnimationFrame(function f(now) {
+  const d = now - last; last = now;
+  if (counting) {
+    if (d > 50) { jank++; if (d > worst) worst = d; }
+    deltas.push(d);
+  } else if (now - t0 > WARMUP) {
+    counting = true;   // reset the clock so the warm-up gap is not itself
+    last = now;        // counted as one enormous frame
+  }
+  requestAnimationFrame(f);
+});
+
+function quality(v) {
+  try {
+    if (v.getVideoPlaybackQuality) {
+      const q = v.getVideoPlaybackQuality();
+      return [q.totalVideoFrames || 0, q.droppedVideoFrames || 0];
+    }
+  } catch (e) {}
+  return [v.webkitDecodedFrameCount || 0, v.webkitDroppedFrameCount || 0];
+}
+
+function attachMse(v) {
+  const ms = new MediaSource();
+  const url = URL.createObjectURL(ms);
+  v.__objectUrl = url;
+  v.src = url;
+  ms.addEventListener('sourceopen', () => {
+    if (ms.readyState !== 'open') return;
+    try {
+      const sb = ms.addSourceBuffer(MIME);
+      sb.addEventListener('updateend', () => {
+        try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
+      }, { once: true });
+      sb.appendBuffer(media);
+    } catch (e) { errors++; }
+  }, { once: true });
+}
+
+function make(slot) {
+  const v = document.createElement('video');
+  v.autoplay = true; v.loop = false; v.muted = true; v.playsInline = true;
+  v.style.width = (96 / SLOTS) + 'vw'; v.dataset.slot = slot;
+  v.addEventListener('error', () => errors++);
+  if (SRC === 'mse') attachMse(v); else v.src = 'clip5.mp4';
+  stage.appendChild(v); created++;
+
+  const born = performance.now();
+  const seen = () => { if (!v.__seen) { v.__seen = 1; ttff.push(performance.now() - born); } };
+  if (RVFC) {
+    const tick = () => { seen(); presented++; if (v.isConnected) v.requestVideoFrameCallback(tick); };
+    v.requestVideoFrameCallback(tick);
+  } else {
+    v.addEventListener('playing', seen, { once: true });
+  }
+  v.play().catch(() => {});
+  return v;
+}
+
+function destroy(v) {
+  const q = quality(v); retired += q[0]; dropped += q[1];
+  playedSec += v.currentTime || 0;
+  v.pause(); v.removeAttribute('src'); v.load(); v.remove();
+  if (v.__objectUrl) URL.revokeObjectURL(v.__objectUrl);
+}
+
+function pct(sorted, p) {
+  if (!sorted.length) return 0;
+  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))]);
+}
+
+function start() {
+  const live = [];
+  for (let i = 0; i < SLOTS; i++) live.push(make(i));
+  if (CHURN) {
+    let i = 0;
+    setInterval(() => {
+      const slot = i++ % SLOTS;
+      destroy(live[slot]);
+      live[slot] = make(slot);
+    }, PERIOD);
+  }
+
+  setInterval(() => {
+    if (!counting) return;
+    const s = [...deltas].sort((a, b) => a - b);
+    const tt = [...ttff].sort((a, b) => a - b);
+    let decoded = retired, drops = dropped, playing = 0;
+    document.querySelectorAll('video').forEach(v => {
+      const q = quality(v); decoded += q[0]; drops += q[1];
+      if (!v.paused && v.readyState >= 3 && v.currentTime > 0) playing++;
+    });
+    const r = {
+      label: LABEL, src: SRC,
+      elapsed: Math.round((performance.now() - t0 - WARMUP) / 1000),
+      jank: jank, worst: Math.round(worst),
+      p95: pct(s, 0.95), p99: pct(s, 0.99), median: pct(s, 0.5),
+      frames: s.length, created: created,
+      live: document.querySelectorAll('video').length,
+      playing: playing, decoded: decoded, dropped: drops,
+      presented: presented, rvfc: RVFC, errors: errors,
+      playedSec: Math.round(playedSec +
+        [...document.querySelectorAll('video')].reduce((a, v) => a + (v.currentTime || 0), 0)),
+      ttffMed: pct(tt, 0.5), ttffP95: pct(tt, 0.95), ttffN: tt.length,
+      mse: !!(window.MediaSource && MediaSource.isTypeSupported(MIME)),
+      engine: (window.chrome ? 'chromium' : 'mozInnerScreenX' in window ? 'gecko'
+               : navigator.vendor === 'Apple Computer, Inc.' ? 'webkit' : '?')
+    };
+    window.__jank = r;
+    document.title = 'JANK ' + JSON.stringify(r);
+    fetch('/report', { method: 'POST', body: JSON.stringify(r) }).catch(() => {});
+  }, 1000);
+}
+
+if (SRC === 'mse') {
+  fetch('clip5_frag.mp4').then(r => r.arrayBuffer()).then(b => { media = b; start(); });
+} else {
+  start();
+}
+</script></body>

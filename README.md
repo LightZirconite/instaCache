@@ -6,7 +6,7 @@
 
 **A native, ultra-light Instagram client for Linux.**
 
-A single 517 KB binary. No Electron, no Node, no Python.
+A single 2.1 MB binary. No Electron, no Node, no Python.
 
 [Install](#install) · [Why](#why) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Build](#build-from-source)
 
@@ -21,17 +21,18 @@ A single 517 KB binary. No Electron, no Node, no Python.
 instaCache puts Instagram in a proper desktop window: it opens in your dock,
 remembers where you left it, keeps you signed in, and stays out of the way.
 
-Underneath, it is one GTK 3 window hosting one WebKitGTK view — the same engine
-Safari and GNOME Web use — with its cache and session pinned to persistent
-directories. Nothing is bundled, nothing is duplicated: the browser engine
-already on your system does the rendering.
+Underneath, it is one Qt Quick window hosting one Qt WebEngine view — the
+Chromium your distribution already ships, shared with every other Qt
+application — with its cache and session pinned to persistent directories.
+Nothing is bundled, nothing is duplicated: the browser engine already on your
+system does the rendering.
 
 ## Why
 
 | | instaCache | An Electron wrapper | A browser tab |
 |---|---|---|---|
-| Download size | **517 KB** | 80–150 MB | — |
-| Bundled browser engine | none (uses system WebKitGTK) | a full Chromium | — |
+| Download size | **2.1 MB** | 80–150 MB | — |
+| Bundled browser engine | none (uses the system's Qt WebEngine) | a full Chromium | — |
 | Own dock icon and window | yes | yes | no |
 | Survives closing the browser | yes | yes | no |
 | Session kept between runs | yes | yes | yes |
@@ -43,15 +44,14 @@ after a minute of scrolling through video. The second number is the honest one
 for daily use.
 
 That is what a browser engine costs to render a heavy web app; instaCache is
-small, the web app is not. Where it wins is the 517 KB download, the absence of
+small, the web app is not. Where it wins is the 2.1 MB download, the absence of
 a second browser engine on your disk, and a cache that makes the next launch
 instant. It is not a lightweight way to *view* Instagram — it is a lightweight
 *wrapper* around it.
 
 ## Features
 
-- **Aggressive persistent cache.** WebKit's largest cache budget
-  (`CacheModel::WebBrowser`) plus the back/forward page cache, written to
+- **Aggressive persistent cache.** Chromium's on-disk HTTP cache, written to
   `~/.cache/instacache` and reused on every launch. A warm start does not
   re-download the interface.
 - **You stay signed in.** Cookies, local storage, IndexedDB and service workers
@@ -66,9 +66,12 @@ instant. It is not a lightweight way to *view* Instagram — it is a lightweight
   the top, the way YouTube does it. It follows real page loads *and* in-app
   navigation, which produces no page load at all and would otherwise leave the
   bar dead.
-- **Hardware video decoding.** WebKit hands video to GStreamer, which by
-  default may pick the CPU decoder over the GPU one; instaCache asks for the
-  GPU decoders explicitly, which is what stops Reels from stuttering.
+- **Video that does not stutter.** Chromium reuses its decoders instead of
+  building a new pipeline for every clip, which is what a Reels feed makes it
+  do about twice a second. Measured on the reference machine: **1 to 6** frames
+  arriving late per 40-second run, where the WebKitGTK engine this app used
+  until now produced **78**. VA-API decoding is switched on as well, which
+  Chromium leaves off on Linux by default.
 - **Real keyboard navigation.** Reload, hard reload, back, forward, home, zoom,
   fullscreen.
 - **External links leave.** Anything that is not Instagram — or one of the Meta
@@ -78,7 +81,7 @@ instant. It is not a lightweight way to *view* Instagram — it is a lightweight
   opens.
 - **Several accounts at once.** `instacache --profile work` gets its own session,
   cache and window, running alongside your main one.
-- **A proper offline page** instead of WebKit's default error screen.
+- **A proper offline page** instead of Chromium's default error screen.
 
 ## Install
 
@@ -170,41 +173,47 @@ For a `--system` install the path is `/usr/local/share/instacache/uninstall.sh`.
 
 ## What it needs on your system
 
-instaCache does not bundle a browser. It uses the WebKitGTK and GStreamer
-libraries your distribution already packages, and the installer sets them up
-for you. For reference:
+instaCache does not bundle a browser. It uses the Qt WebEngine your
+distribution already packages — the same Chromium every other Qt application
+on the machine uses — and the installer sets it up for you. For reference:
 
 | | Package (Arch) | Package (Debian/Ubuntu) | Without it |
 |---|---|---|---|
-| Rendering | `webkit2gtk-4.1 gtk3` | `libwebkit2gtk-4.1-0 libgtk-3-0` | Does not start |
-| Video | `gst-plugins-good gst-plugins-bad gst-libav` | `gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav` | Photos load, every video stays blank |
+| Rendering | `qt6-webengine qt6-declarative` | `libqt6webenginequick6 qml6-module-qtwebengine` | Does not start |
+| H.264 video | included | included | — |
 
-If videos never play, that second row is almost always the reason. Run
-`./install.sh` again and it will detect and fix it.
+Qt 6.4 or newer, which is what Debian 12 and everything after it ship.
+
+**Fedora is the exception.** It builds Qt WebEngine without the
+patent-encumbered codecs, and Instagram is H.264 throughout, so photos load and
+every video stays blank until `qt6-qtwebengine-freeworld` is installed.
+`./install.sh` detects this and fixes it.
 
 ## Video performance
 
-Video decodes on the GPU by default. Measured here on four 1080x1920 H.264
-streams at 30 fps, summed across every WebKit process:
+A Reels feed asks the browser to build and throw away a video every half
+second. That is what makes a feed stutter, and it is where engines differ most.
+Measured on the reference machine — four 1080x1920 H.264 streams at 30 fps,
+one replaced every 500 ms, two concordant runs each:
 
-| `video_decoding` | CPU | frames over 50 ms | worst frame |
+| engine | frames over 50 ms | frames shown | first frame |
 |---|---|---|---|
-| `gpu` | 24% | 27 | 141 ms |
-| `software` | 104% | 41 | 203 ms |
+| **Qt WebEngine** (what ships) | **1 to 6** | 4176–4777 | **48–64 ms** |
+| WebKitGTK 4.1 (used until 1.2.0) | 78 | 4720 | 264 ms |
 
-`auto` leaves GStreamer's ranking alone. It already prefers the GPU, but only
-by one point, so the outcome is not guaranteed — which is why `gpu` states the
-preference outright.
+The range is five runs, not the best one.
 
-**A Reels feed still stutters, and the decoder is not why.** WebKit gives every
-`<video>` element its own GStreamer pipeline, and a feed builds and destroys
-one roughly twice a second. The same four streams playing without that churn
-produce **2** late frames instead of 27. That cost lives in WebKit's Media
-Source implementation, not in anything this app controls, and it is the reason
-Firefox — which pools its decoders — feels smoother on the same machine.
+This is why the engine changed. WebKit builds a fresh GStreamer pipeline for
+every `<video>`, on the thread that also runs the page; Chromium reuses its
+decoders. No WebKit setting closed the gap, and the ones that looked as though
+they had are listed, with their numbers, in [`bench/`](bench/README.md) — you
+can reproduce all of it yourself, on your own machine, in about two minutes.
 
-If playback misbehaves in some other way, `software` and `auto` are there to
-try. Neither will remove the churn.
+Two settings remain if playback misbehaves. `video_decoding` chooses the
+decoder: `gpu` (the default) turns on VA-API, which Chromium disables on Linux;
+`software` leaves decoding to the CPU; `auto` takes Chromium's own decision.
+`hardware_acceleration: never` switches the GPU off entirely, and is a last
+resort for a window that renders wrong.
 
 ## Keyboard shortcuts
 
@@ -246,10 +255,10 @@ its default. Edit it and restart.
 | Key | Default | What it does |
 |---|---|---|
 | `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
-| `user_agent` | a macOS Safari string | Sent to Instagram. Empty string keeps WebKitGTK's own. |
-| `hardware_acceleration` | `always` | `always`, `auto` or `never`. `auto` lets WebKit switch compositing modes mid-page, which shows up as one-frame freezes during video. Set `never` only if the window renders wrong. |
+| `user_agent` | a Linux Chrome string | Sent to Instagram. Honest about both the system and the engine — claiming Safari would put a Chromium engine on Safari's code path. Empty keeps Qt WebEngine's own. |
+| `hardware_acceleration` | `always` | `always`, `auto` or `never`. The first two both leave Chromium's own decision alone. Set `never` only if the window renders wrong — it turns off GPU compositing entirely. |
 | `video_decoding` | `gpu` | `gpu`, `software` or `auto`. See [Video performance](#video-performance). |
-| `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. WebKit otherwise silences anything that plays without a click, which reads as the app muting itself. |
+| `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. The engine otherwise silences anything that plays without a click, which reads as the app muting itself. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
@@ -285,20 +294,23 @@ portable install.
 ## Build from source
 
 ```sh
-sudo pacman -S --needed rust webkit2gtk-4.1 gtk3 pkgconf   # or your equivalent
+sudo pacman -S --needed rust qt6-webengine qt6-declarative pkgconf  # or your equivalent
 git clone https://git.justw.tf/LightZirconite/instaCache.git
 cd instaCache
 cargo build --release
 ./install.sh
 ```
 
-You need the `-dev` / `-devel` packages of GTK 3 and WebKitGTK 4.1 to compile —
-`libgtk-3-dev` and `libwebkit2gtk-4.1-dev` on Debian and Ubuntu.
+You need the `-dev` / `-devel` packages of Qt 6 Base, Qt 6 Declarative and Qt 6
+WebEngine to compile — `qt6-base-dev qt6-declarative-dev qt6-webengine-dev` on
+Debian and Ubuntu. The build finds them through `qmake6`, so that has to be on
+`PATH`.
 
 ### Verifying that a page actually renders
 
 Display-server screenshots are unreliable on some Wayland and XWayland setups.
-This helper renders through WebKit itself and writes a PNG, so it works anywhere:
+This helper grabs the view from inside the engine and writes a PNG, so it works
+anywhere:
 
 ```sh
 cargo run --example snapshot -- https://www.instagram.com/ shot.png
@@ -323,23 +335,28 @@ and on Gitea Actions.
 
 ```
 src/
-  main.rs        argument parsing and process startup
+  main.rs        argument parsing, process startup, termination signals
   lib.rs         module wiring and the application constants
-  ui.rs          window assembly, signals, notifications, downloads
-  web.rs         WebKit context, persistent storage, settings, link routing
-  progress.rs    the loading bar, including in-app navigation
-  updates.rs     checking for and installing a newer release
+  bridge.rs      everything QML may ask Rust -- the policy lives here
+  qml/main.qml   the window, the view, the loading bar, the shortcuts
+  chromium.rs    settings translated into Chromium command-line flags
   config.rs      config.json and window geometry
   paths.rs       XDG locations and profiles
-  shortcuts.rs   keyboard navigation
+  downloads.rs   where a download goes and under what name
+  instance.rs    one window per profile, over a Unix socket
   urls.rs        which hosts stay inside the app
   errorpage.rs   the offline page
+  updates.rs     checking for and installing a newer release
 examples/
-  snapshot.rs    render a page to PNG through WebKit, for verification
+  snapshot.rs    render a page to PNG, for verification
+  stress.rs      drive a page from inside, for reproducing crashes
+bench/           the video-smoothness harness
 ```
 
-The crate is split into a library and a thin binary so the snapshot helper
-exercises exactly the configuration the app ships with.
+The split is deliberate: the QML scene owns widgets and nothing else, and every
+decision it needs — is this URL internal, where does this download go, should a
+dead renderer be reloaded again — is answered by Rust, where it is unit tested.
+The scene is compiled into the binary, so there is still one file to ship.
 
 ## Project status and limits
 

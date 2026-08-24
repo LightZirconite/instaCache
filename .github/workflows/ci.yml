@@ -16,20 +16,28 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # The Qt bindings locate Qt by running qmake, trying `qmake6` then plain
+  # `qmake`. On several distributions plain `qmake` is still Qt 5 -- it is on
+  # this project's own reference machine -- so the version is pinned rather
+  # than left to whichever one comes first on PATH.
+  QMAKE: qmake6
 
 jobs:
   check:
     name: Format, lint, test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
 
+      # ubuntu-24.04 for Qt 6.4, the baseline instaCache targets -- the version
+      # Debian 12 ships.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+            build-essential pkg-config libgl1-mesa-dev \
+            qt6-base-dev qt6-declarative-dev qt6-webengine-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -54,7 +62,7 @@ jobs:
 
   packaging:
     name: Validate the packaging
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -81,8 +89,8 @@ jobs:
 
       - name: Lint the shell scripts
         run: |
-          shellcheck --severity=warning --shell=sh install.sh uninstall.sh
-          shellcheck --severity=warning --shell=bash scripts/release.sh
+          shellcheck --severity=warning --shell=sh install.sh uninstall.sh bench/make-clips.sh
+          shellcheck --severity=warning --shell=bash scripts/release.sh bench/run.sh
 
       - name: Check that the SVG icon is well-formed
         run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('assets/instacache.svg')"

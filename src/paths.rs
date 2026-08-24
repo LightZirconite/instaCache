@@ -143,6 +143,16 @@ pub fn purge(dir: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// Profile names reach a D-Bus name through `dbus_segment`, which must
+    /// never produce an invalid one. This lived in main.rs while a
+    /// GtkApplication owned the name; the check outlived it.
+    #[test]
+    fn profile_names_become_valid_dbus_segments() {
+        assert_eq!(super::dbus_segment("default"), "default");
+        assert_eq!(super::dbus_segment("work-2"), "work_2");
+        assert_eq!(super::dbus_segment("2fa"), "p2fa");
+    }
+
     use super::*;
 
     #[test]

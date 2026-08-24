@@ -11,65 +11,76 @@ use crate::paths::Paths;
 
 pub const DEFAULT_HOME_URL: &str = "https://www.instagram.com/";
 
-/// Safari on Linux.
+/// Chrome on Linux.
 ///
-/// instaCache renders with WebKit, so claiming Safari puts Instagram on the
-/// code path it tests against this engine. The platform is reported honestly:
-/// Instagram shows the user agent's operating system in its login-alert
-/// emails, and a Linux machine announcing macOS makes those alerts read like
-/// somebody else signed in.
+/// Both halves are honest, and both matter. Instagram serves different code to
+/// different engines, and instaCache now renders with Chromium — claiming
+/// Safari would put a Chromium engine on Safari's code path, which is a bug
+/// waiting to happen rather than a clever disguise. And the platform is
+/// reported truthfully because Instagram shows the user agent's operating
+/// system in its login-alert emails: a Linux machine announcing macOS makes
+/// those alerts read as though somebody else signed in.
 ///
-/// The Safari version is stated as a real one. WebKitGTK's own default says
-/// `Version/60.5`, a number Safari has never shipped, which invites
-/// "unsupported browser" banners.
+/// It is stated rather than left to the engine because Qt WebEngine's own
+/// string carries a `QtWebEngine/6.x` token that no site has ever heard of.
+/// The version will drift behind whatever Qt the distribution ships; that
+/// costs nothing, and `user_agent` in `config.json` overrides it.
 pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) \
-AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-/// The macOS string shipped as the default up to 1.1.1. A config file still
-/// carrying it was never a deliberate choice by the user, only the old
-/// default written out on first run, so it is migrated rather than preserved.
-const SUPERSEDED_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
-AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15";
+/// Defaults shipped by earlier versions. A config file still carrying one of
+/// these was never a deliberate choice by the user, only the old default
+/// written out on first run, so they are migrated rather than preserved.
+///
+/// The macOS string was the default up to 1.1.1; the Linux Safari one until
+/// the engine became Chromium, at which point it stopped being true.
+const SUPERSEDED_USER_AGENTS: &[&str] = &[
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) \
+AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Page loaded at startup and by the "home" shortcut.
     pub home_url: String,
-    /// Empty string keeps WebKitGTK's built-in user agent.
+    /// Empty string keeps Qt WebEngine's built-in user agent, which carries a
+    /// `QtWebEngine/6.x` token. See `DEFAULT_USER_AGENT` for why that is not the
+    /// default.
     pub user_agent: String,
     /// `auto` | `always` | `never`.
     ///
-    /// Defaults to `always`. Under `auto` WebKit switches between software and
-    /// accelerated compositing as the page changes, and each switch shows up
-    /// as a one-frame freeze during video playback.
+    /// `always` and `auto` both leave Chromium's own decision alone — unlike
+    /// WebKit it does not switch compositing modes mid-page, which is the
+    /// reason this setting had three meanings rather than two. `never` turns
+    /// GPU compositing off entirely and is a last resort for a window that
+    /// renders wrong. Carried out in `chromium.rs`.
     pub hardware_acceleration: String,
     /// Let videos start with their sound on.
     ///
-    /// WebKit's default is the web's default: a video that starts playing
+    /// The engine's default is the web's default: a video that starts playing
     /// without the user having clicked something is forced to be silent. In a
     /// dedicated Instagram window that reads as "the app muted itself", since
     /// Instagram keeps its own mute button anyway.
     pub allow_autoplay_with_sound: bool,
-    /// Which video decoders GStreamer should reach for: `gpu`, `software` or
-    /// `auto`.
+    /// Which decoder to reach for: `gpu`, `software` or `auto`.
     ///
-    /// `gpu` is the default and is what the measurements support. Four
-    /// 1080x1920 H.264 streams at 30 fps, on the reference machine:
+    /// `gpu` is the default and switches on the VA-API decoding that Chromium
+    /// leaves off on Linux. `software` leaves decoding to the CPU without
+    /// switching off compositing as well. `auto` takes Chromium's own
+    /// decision. Carried out in `chromium.rs`, which is where the flags and
+    /// their tests live.
     ///
-    /// | decoders | CPU | frames over 50 ms | worst frame |
-    /// |---|---|---|---|
-    /// | gpu | 24% | 27 | 141 ms |
-    /// | software | 104% | 41 | 203 ms |
+    /// The name and the meaning survived the change of engine; the mechanism
+    /// did not. Under WebKit this reordered GStreamer's plugin ranks, which
+    /// Chromium does not use at all.
     ///
-    /// `auto` leaves GStreamer's own ranks alone, which already favour the GPU
-    /// by one point — close enough that the choice is not guaranteed, which is
-    /// why the preference is stated explicitly rather than left to chance.
-    ///
-    /// Note what this setting does *not* fix. The stutter on a Reels feed comes
-    /// from building and tearing down a pipeline per clip, not from decoding:
-    /// the same four streams playing without that churn produce 2 late frames
-    /// instead of 27.
+    /// Note what this setting does *not* decide. What makes a Reels feed
+    /// stutter is building and tearing down a video per clip, not decoding
+    /// one frame — which is why the engine changed and this setting did not.
+    /// On the reference machine it is worth 2 or 3 late frames either way.
     pub video_decoding: String,
     /// Enables the Web Inspector (Ctrl+Shift+I / right-click → Inspect).
     pub developer_tools: bool,
@@ -151,7 +162,7 @@ impl Config {
         if self.home_url.trim().is_empty() {
             self.home_url = DEFAULT_HOME_URL.to_string();
         }
-        if self.user_agent == SUPERSEDED_USER_AGENT {
+        if SUPERSEDED_USER_AGENTS.contains(&self.user_agent.as_str()) {
             self.user_agent = DEFAULT_USER_AGENT.to_string();
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
@@ -304,16 +315,26 @@ mod tests {
     }
 
     #[test]
-    fn the_default_user_agent_reports_linux() {
+    fn the_default_user_agent_reports_linux_and_chromium() {
         assert!(DEFAULT_USER_AGENT.contains("X11; Linux x86_64"));
         assert!(!DEFAULT_USER_AGENT.contains("Mac OS X"));
+        // Claiming Safari on a Chromium engine puts Instagram on the wrong
+        // code path; see DEFAULT_USER_AGENT.
+        assert!(DEFAULT_USER_AGENT.contains("Chrome/"));
+        assert!(!DEFAULT_USER_AGENT.contains("Version/"));
     }
 
     #[test]
-    fn the_old_macos_default_is_migrated() {
-        let raw = format!(r#"{{"user_agent": "{SUPERSEDED_USER_AGENT}"}}"#);
-        let cfg: Config = serde_json::from_str(&raw).unwrap();
-        assert_eq!(cfg.normalized().user_agent, DEFAULT_USER_AGENT);
+    fn every_superseded_default_is_migrated() {
+        for old in SUPERSEDED_USER_AGENTS {
+            let raw = serde_json::json!({ "user_agent": old }).to_string();
+            let cfg: Config = serde_json::from_str(&raw).unwrap();
+            assert_eq!(
+                cfg.normalized().user_agent,
+                DEFAULT_USER_AGENT,
+                "{old} should have been migrated"
+            );
+        }
     }
 
     #[test]

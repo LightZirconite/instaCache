@@ -2,21 +2,26 @@
 name = "instacache"
 version = "1.2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.82"
 description = "Ultra-light native Instagram desktop client for Linux, with aggressive persistent caching"
 authors = ["instaCache contributors"]
 license = "MIT"
 repository = "https://git.justw.tf/LightZirconite/instaCache"
 readme = "README.md"
-keywords = ["instagram", "webkit", "gtk", "desktop", "linux"]
+keywords = ["instagram", "chromium", "qt", "desktop", "linux"]
 categories = ["gui"]
 
 [dependencies]
 dirs = "6"
-gtk = "0.18"
+# The window and the web view. `webengine` is what pulls in Qt WebEngine and
+# provides the initialisation call that has to run before QGuiApplication.
+qmetaobject = { version = "0.2.10", features = ["webengine"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-webkit2gtk = { version = "2.0", features = ["v2_40"] }
+# Desktop notifications. The `z` backend speaks the freedesktop protocol over
+# pure-Rust D-Bus, so packaging gains no system development package; the
+# default `d` backend would require libdbus headers at build time.
+notify-rust = { version = "4.17", default-features = false, features = ["z"] }
 
 [profile.release]
 opt-level = 3
@@ -25,10 +30,3 @@ codegen-units = 1
 panic = "abort"
 strip = true
 incremental = false
-
-# Only used by `cargo run --example snapshot`, the rendering-verification
-# helper. Keeping it here leaves the shipped binary free of PNG encoding.
-[dev-dependencies]
-cairo-rs = { version = "0.18", features = ["png"] }
-# Reading values back out of the page, used only by `cargo run --example stress`.
-javascriptcore-rs = "1.1"

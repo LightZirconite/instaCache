@@ -1,96 +1,101 @@
-//! Development helper: render a page through WebKit's own snapshot API and
-//! write it to a PNG.
+//! Renders a page to PNG through the real engine configuration.
 //!
-//! Useful when a display-server screenshot is unavailable or unreliable
-//! (headless CI, XWayland, screenshot portals), because the snapshot is
-//! produced inside the WebProcess and never touches the compositor.
+//! On this project's reference machine every display-server screenshot comes
+//! back entirely white, for every window, including unrelated applications —
+//! a broken capture pipeline, not a broken app. Two blank captures cost an
+//! hour before that was established, so "does it actually render?" is answered
+//! here instead, from inside the engine, without touching the compositor.
 //!
-//! It builds the web view through `instacache::web::build`, so what it captures
-//! is the real application configuration — user agent, cache model, settings
-//! and all.
+//!     cargo run --example snapshot -- https://www.instagram.com/ shot.png
 //!
-//!     cargo run --example snapshot -- <url> <output.png> [seconds]
+//! It builds the same `Shell` the app builds, so the profile, the user agent
+//! and the Chromium flags under test are the ones that ship.
 
 use std::rc::Rc;
 
-use gtk::cairo;
-use gtk::prelude::*;
-use instacache::config::Config;
-use instacache::paths::Paths;
-use webkit2gtk::{LoadEvent, SnapshotOptions, SnapshotRegion, WebViewExt};
+use instacache::bridge::Shell;
+use instacache::{chromium, config, paths};
+use qmetaobject::{QObjectPinned, QmlEngine};
+
+const SCENE: &str = r#"
+import QtQuick
+import QtQuick.Window
+import QtWebEngine
+
+Window {
+    id: root
+    width: 1280; height: 900; visible: true
+
+    WebEngineProfile {
+        id: profile
+        offTheRecord: false
+        storageName: "instacache"
+        persistentStoragePath: shell.storage_path
+        cachePath: shell.cache_path
+        httpCacheType: WebEngineProfile.DiskHttpCache
+        persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
+        httpUserAgent: shell.user_agent
+    }
+
+    WebEngineView {
+        id: view
+        anchors.fill: parent
+        profile: profile
+        url: TARGET
+
+        onLoadingChanged: function (info) {
+            if (info.status === WebEngineView.LoadStartedStatus)
+                return;
+            // Give the page a moment to paint what it just finished loading;
+            // grabbing the instant a load reports success captures a blank
+            // frame often enough to be useless.
+            settle.start();
+        }
+    }
+
+    Timer {
+        id: settle
+        interval: 2500
+        onTriggered: view.grabToImage(function (result) {
+            if (result.saveToFile(OUTPUT))
+                shell.log("wrote " + OUTPUT);
+            else
+                shell.log("could not write " + OUTPUT);
+            Qt.quit();
+        })
+    }
+
+    // Never hang a scripted run for ever.
+    Timer { interval: 30000; running: true; onTriggered: { shell.log("timed out"); Qt.quit(); } }
+}
+"#;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let url = args
         .next()
-        .unwrap_or_else(|| "https://www.instagram.com/".into());
-    let output = args.next().unwrap_or_else(|| "snapshot.png".into());
-    let settle: u64 = args.next().and_then(|v| v.parse().ok()).unwrap_or(8);
+        .unwrap_or_else(|| "https://www.instagram.com/".to_string());
+    let output = args.next().unwrap_or_else(|| "shot.png".to_string());
+    let output = std::path::absolute(&output)
+        .unwrap_or_else(|_| output.into())
+        .to_string_lossy()
+        .into_owned();
 
-    // Redirect every storage root into a temporary directory so the
-    // developer's real session is never touched.
-    let sandbox = std::env::temp_dir().join(format!("instacache-snapshot-{}", std::process::id()));
-    for key in [
-        "INSTACACHE_DATA_HOME",
-        "INSTACACHE_CACHE_HOME",
-        "INSTACACHE_CONFIG_HOME",
-    ] {
-        std::env::set_var(key, &sandbox);
-    }
+    let paths = paths::Paths::for_profile(paths::DEFAULT_PROFILE);
+    paths.ensure().expect("could not open the profile");
+    let config = Rc::new(config::Config::load_or_create(&paths));
 
-    gtk::init().expect("GTK could not be initialised");
+    chromium::apply(&config);
+    qmetaobject::webengine::initialize();
 
-    let paths = Rc::new(Paths::for_profile("snapshot"));
-    paths
-        .ensure()
-        .expect("could not create the snapshot sandbox");
-    let config = Config::default();
+    let mut engine = QmlEngine::new();
+    let shell = std::cell::RefCell::new(Shell::new(config, Rc::new(paths), None, None));
+    let pinned = unsafe { QObjectPinned::new(&shell) };
+    engine.set_object_property("shell".into(), pinned);
 
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_default_size(1180, 820);
-    let view = instacache::web::build(&config, &paths).view;
-    window.add(&view);
-    window.show_all();
-
-    view.connect_load_changed(move |view, event| {
-        if event != LoadEvent::Finished {
-            return;
-        }
-        let view = view.clone();
-        let output = output.clone();
-        // Give the client-side app time to hydrate before snapshotting.
-        gtk::glib::timeout_add_seconds_local_once(settle as u32, move || {
-            view.snapshot(
-                SnapshotRegion::Visible,
-                SnapshotOptions::NONE,
-                None::<&gtk::gio::Cancellable>,
-                move |result| {
-                    match result {
-                        Ok(surface) => write_png(&surface, &output),
-                        Err(err) => eprintln!("snapshot failed: {err}"),
-                    }
-                    gtk::main_quit();
-                },
-            );
-        });
-    });
-
-    view.load_uri(&url);
-    gtk::main();
-
-    std::fs::remove_dir_all(&sandbox).ok();
-}
-
-fn write_png(surface: &cairo::Surface, output: &str) {
-    let image =
-        cairo::ImageSurface::try_from(surface.clone()).expect("snapshot is not an image surface");
-    println!("snapshot: {}x{} -> {output}", image.width(), image.height());
-    match std::fs::File::create(output) {
-        Ok(mut file) => {
-            if let Err(err) = image.write_to_png(&mut file) {
-                eprintln!("could not encode PNG: {err}");
-            }
-        }
-        Err(err) => eprintln!("could not create {output}: {err}"),
-    }
+    let scene = SCENE
+        .replace("TARGET", &format!("{url:?}"))
+        .replace("OUTPUT", &format!("{output:?}"));
+    engine.load_data(scene.into());
+    engine.exec();
 }

@@ -1,45 +1,100 @@
-//! Development harness: drive the browser hard without touching the GUI.
+//! Drives the page hard from inside, without touching the GUI.
 //!
 //! The reference machine is reached over a remote desktop, where injected
 //! keyboard and mouse events never arrive and screenshots come back blank.
 //! Reproducing a crash that only happens while scrolling therefore needs the
-//! page to be driven from inside, which is what this does: it runs the same
-//! `web::build` the app runs, installs the same loading bar, and then scrolls
-//! and navigates through JavaScript on a timer.
+//! page driven from within, which is what this does: it builds the same
+//! `Shell` the app builds, then scrolls and navigates through JavaScript on a
+//! timer.
 //!
-//!     cargo run --example stress                 # local page, hits nothing
-//!     cargo run --example stress -- 120          # for two minutes
-//!     cargo run --example stress -- 120 <url>    # against a real site
+//!     cargo run --example stress                  # local page, hits nothing
+//!     cargo run --example stress -- 120           # for two minutes
+//!     cargo run --example stress -- 120 <url>     # against a real site
 //!
-//! By default it drives a generated local page, which exercises the same
-//! signals — a URI changing without a page load, and a steady stream of
-//! resource loads — without touching anyone's servers. Point it at Instagram
-//! only when the bug genuinely needs the real site: automated navigation there
-//! looks like a bot and risks the account.
+//! Point it at Instagram only when the bug genuinely needs the real site:
+//! automated navigation there looks like a bot and risks the account. For
+//! measuring video smoothness use `bench/` instead, which drives the shipped
+//! binary rather than a stand-in.
 
-use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
-use gtk::prelude::*;
-use instacache::config::Config;
-use instacache::paths::Paths;
-use webkit2gtk::WebViewExt;
+use instacache::bridge::Shell;
+use instacache::{chromium, config, paths};
+use qmetaobject::{QObjectPinned, QmlEngine};
 
-/// Enough churn to exercise the resource-load storm and the in-app navigation
-/// path several times over, without hammering Instagram.
-const ACTIONS: &[&str] = &[
-    "window.scrollBy(0, 900);",
-    "window.scrollBy(0, 1400);",
-    "window.scrollBy(0, -600);",
-    "history.pushState({}, '', '/explore/'); window.dispatchEvent(new PopStateEvent('popstate'));",
-    "history.pushState({}, '', '/reels/'); window.dispatchEvent(new PopStateEvent('popstate'));",
-    "history.back();",
-    "document.querySelectorAll('video').forEach(v => { try { v.play(); } catch (e) {} });",
-];
+const SCENE: &str = r#"
+import QtQuick
+import QtQuick.Window
+import QtWebEngine
 
-/// Writes a page that changes its URL and loads resources continuously, the
-/// two things a single-page application does that the loading bar reacts to.
+Window {
+    id: root
+    width: 1280; height: 900; visible: true
+
+    // Enough churn to exercise in-app navigation and a steady stream of
+    // resource loads several times over.
+    property var actions: [
+        "window.scrollBy(0, 900);",
+        "window.scrollBy(0, 1400);",
+        "window.scrollBy(0, -600);",
+        "history.pushState({}, '', '/explore/'); window.dispatchEvent(new PopStateEvent('popstate'));",
+        "history.pushState({}, '', '/reels/'); window.dispatchEvent(new PopStateEvent('popstate'));",
+        "history.back();",
+        "document.querySelectorAll('video').forEach(v => { try { v.play(); } catch (e) {} });"
+    ]
+    property int step: 0
+
+    WebEngineProfile {
+        id: profile
+        offTheRecord: false
+        storageName: "instacache"
+        persistentStoragePath: shell.storage_path
+        cachePath: shell.cache_path
+        httpCacheType: WebEngineProfile.DiskHttpCache
+        persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
+        httpUserAgent: shell.user_agent
+    }
+
+    WebEngineView {
+        id: view
+        anchors.fill: parent
+        profile: profile
+        url: TARGET
+        settings.playbackRequiresUserGesture: false
+
+        onRenderProcessTerminated: function (status, exitCode) {
+            shell.log("rendering process terminated: status " + status
+                      + ", exit " + exitCode);
+        }
+    }
+
+    // Deliberately unhurried: a page needs a couple of seconds to settle
+    // before the next action means anything, and a faster cadence measures
+    // the harness rather than the browser.
+    Timer {
+        interval: INTERVAL
+        running: true
+        repeat: true
+        onTriggered: {
+            view.runJavaScript(root.actions[root.step % root.actions.length]);
+            root.step++;
+        }
+    }
+
+    Timer {
+        interval: DURATION
+        running: true
+        onTriggered: {
+            shell.log("survived " + (DURATION / 1000) + "s and " + root.step + " actions");
+            Qt.quit();
+        }
+    }
+}
+"#;
+
+/// A page that changes its URL and loads resources continuously, the two
+/// things a single-page application does. Written to a temporary file so the
+/// default run touches nobody's servers.
 fn local_page() -> String {
     let path = std::env::temp_dir().join(format!("instacache-stress-{}.html", std::process::id()));
     std::fs::write(
@@ -54,9 +109,7 @@ fn local_page() -> String {
 let n = 0;
 setInterval(() => {
   n++;
-  // A URI change with no page load, exactly like an in-app navigation.
   history.pushState({}, '', '/fake/' + n);
-  // A resource load, so the bar sees network activity start and stop.
   fetch(location.pathname + '?probe=' + n).catch(() => {});
   document.getElementById('log').textContent = n + ' navigations';
 }, 300);
@@ -70,102 +123,36 @@ setInterval(() => {
 fn main() {
     let mut args = std::env::args().skip(1);
     let seconds: u64 = args.next().and_then(|v| v.parse().ok()).unwrap_or(120);
-    let url = match args.next() {
-        Some(url) => url,
-        None => local_page(),
-    };
+    let url = args.next().unwrap_or_else(local_page);
 
-    gtk::init().expect("GTK could not be initialised");
+    let interval_ms: u64 = std::env::var("STRESS_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
 
     // A throwaway profile unless a real site was named, so the default run
     // cannot disturb a live session.
     let profile = if url.starts_with("file://") {
         format!("stress-{}", std::process::id())
     } else {
-        instacache::paths::DEFAULT_PROFILE.to_string()
+        paths::DEFAULT_PROFILE.to_string()
     };
-    let paths = Rc::new(Paths::for_profile(&profile));
+    let paths = paths::Paths::for_profile(&profile);
     paths.ensure().expect("could not open the profile");
-    let config = Config::load_or_create(&paths);
+    let config = Rc::new(config::Config::load_or_create(&paths));
 
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_default_size(1280, 900);
+    chromium::apply(&config);
+    qmetaobject::webengine::initialize();
 
-    let browser = instacache::web::build(&config, &paths);
-    let view = browser.view.clone();
+    let mut engine = QmlEngine::new();
+    let shell = std::cell::RefCell::new(Shell::new(config, Rc::new(paths), None, None));
+    let pinned = unsafe { QObjectPinned::new(&shell) };
+    engine.set_object_property("shell".into(), pinned);
 
-    // The loading bar is the code under test, so it has to be wired exactly
-    // the way ui.rs wires it.
-    let overlay = gtk::Overlay::new();
-    overlay.add(&view);
-    let bar = gtk::ProgressBar::new();
-    bar.set_valign(gtk::Align::Start);
-    bar.set_no_show_all(true);
-    overlay.add_overlay(&bar);
-    window.add(&overlay);
-    instacache::progress::install(&view, &bar);
-
-    window.show_all();
-    bar.hide();
-    view.load_uri(&url);
-
-    let step = Cell::new(0usize);
-    let elapsed = Cell::new(0u64);
-    let driver_view = view.clone();
-
-    // The interval is deliberately unhurried: a page needs a couple of seconds
-    // to settle before the next action means anything, and a faster cadence
-    // measures the harness rather than the browser.
-    let interval_ms: u64 = std::env::var("STRESS_INTERVAL_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3000);
-
-    gtk::glib::timeout_add_local(Duration::from_millis(interval_ms), move || {
-        let index = step.get();
-        step.set(index + 1);
-        elapsed.set(elapsed.get() + interval_ms);
-
-        let script = ACTIONS[index % ACTIONS.len()];
-        driver_view.evaluate_javascript(
-            script,
-            None,
-            None,
-            None::<&gtk::gio::Cancellable>,
-            |result| {
-                if let Err(error) = result {
-                    eprintln!("stress: script failed: {error}");
-                }
-            },
-        );
-
-        // Read the page's own jank counter, when it exposes one.
-        if std::env::var_os("JANK_REPORT").is_some() {
-            driver_view.evaluate_javascript(
-                "JSON.stringify(window.__jank || {})",
-                None,
-                None,
-                None::<&gtk::gio::Cancellable>,
-                |result| {
-                    if let Ok(value) = result {
-                        use javascriptcore::ValueExt;
-                        let text = value.to_str();
-                        if text.len() > 2 {
-                            println!("jank: {text}");
-                        }
-                    }
-                },
-            );
-        }
-
-        if elapsed.get() >= seconds * 1000 {
-            println!("stress: survived {seconds}s and {index} actions");
-            gtk::main_quit();
-            gtk::glib::ControlFlow::Break
-        } else {
-            gtk::glib::ControlFlow::Continue
-        }
-    });
-
-    gtk::main();
+    let scene = SCENE
+        .replace("TARGET", &format!("{url:?}"))
+        .replace("INTERVAL", &interval_ms.to_string())
+        .replace("DURATION", &(seconds * 1000).to_string());
+    engine.load_data(scene.into());
+    engine.exec();
 }
