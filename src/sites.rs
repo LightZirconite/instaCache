@@ -187,14 +187,29 @@ pub fn desktop_entry(name: &str, profile: &str, exec: &str, icon: &str) -> Strin
     )
 }
 
-/// The command a menu entry should run. The running binary's own path, so an
-/// entry keeps working when instaCache is installed somewhere that is not on
-/// `PATH`; the bare name is the fallback for the odd platform that cannot
-/// report it.
+/// The command a menu entry should run.
+///
+/// The installed copy is preferred over the running one. They are the same
+/// thing for anybody using instaCache normally, and different in exactly one
+/// case that matters: a build tree. An entry written from `target/debug`
+/// points at a binary that gets rebuilt, moved and broken all day, and the
+/// site stops opening -- which is not a theoretical failure, it happened here.
+///
+/// Falling back to the running binary keeps entries working when instaCache is
+/// installed somewhere that is not on `PATH`, and the bare name is the last
+/// resort for a platform that cannot report either.
 fn exec_command() -> String {
-    std::env::current_exe()
-        .ok()
-        .filter(|path| path.is_absolute())
+    choose_exec(
+        crate::http::which(PROGRAM_NAME),
+        std::env::current_exe().ok(),
+    )
+}
+
+fn choose_exec(on_path: Option<PathBuf>, running: Option<PathBuf>) -> String {
+    on_path
+        .into_iter()
+        .chain(running)
+        .find(|path| path.is_absolute())
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| PROGRAM_NAME.to_string())
 }
@@ -660,6 +675,29 @@ mod tests {
             pick_icon_link(html, "https://example.com/").as_deref(),
             Some("https://example.com/i.png")
         );
+    }
+
+    #[test]
+    fn an_entry_prefers_the_installed_binary_over_a_build_tree() {
+        let installed = PathBuf::from("/home/someone/.local/bin/instacache");
+        let built = PathBuf::from("/src/instaCache/target/debug/instacache");
+
+        // The case this exists for: writing the entry from a build tree.
+        assert_eq!(
+            choose_exec(Some(installed.clone()), Some(built.clone())),
+            installed.to_string_lossy()
+        );
+        // Installed somewhere off PATH: the running binary still works.
+        assert_eq!(
+            choose_exec(None, Some(built.clone())),
+            built.to_string_lossy()
+        );
+        // A relative path would break the moment the menu runs it elsewhere.
+        assert_eq!(
+            choose_exec(None, Some(PathBuf::from("./instacache"))),
+            PROGRAM_NAME
+        );
+        assert_eq!(choose_exec(None, None), PROGRAM_NAME);
     }
 
     #[test]

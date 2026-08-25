@@ -4,6 +4,15 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- A menu entry now names the installed binary rather than whichever copy
+  created it. Running `--add-site` from a build tree wrote an entry pointing
+  into `target/debug`, so the site stopped opening as soon as that binary was
+  rebuilt or removed. The installed copy is preferred, the running one is the
+  fallback for an install that is not on `PATH`.
+
 ## [2.2.0] - 2026-08-25
 
 ### Added
