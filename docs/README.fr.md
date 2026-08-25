@@ -247,6 +247,11 @@ instacache [OPTIONS] [URL]
 
   <URL>                  Ouvrir cette adresse Instagram au lieu de ton fil.
   -p, --profile <NOM>    Utiliser une session, un cache et une fenêtre séparés.
+      --add-site <NOM> <URL>
+                         Ajouter un site à ton menu d'applications.
+      --remove-site <NOM>
+                         L'en retirer. Ses données sont conservées.
+      --list-sites       Lister les sites ajoutés.
       --update           Chercher une version plus récente et l'installer.
       --clear-cache      Supprimer le cache, rester connecté.
       --clear-session    Supprimer cookies et stockage (te déconnecte).
@@ -256,6 +261,34 @@ instacache [OPTIONS] [URL]
 
 Lancer instaCache deux fois avec le même profil met la fenêtre existante au
 premier plan au lieu d'ouvrir une seconde copie.
+
+## Un autre site, dans sa propre fenêtre
+
+instaCache est un client Instagram, mais rien dans la fenêtre n'est propre à
+Instagram : c'est un moteur pointé sur un site. Pointe-le ailleurs et il devient
+l'application de ce site :
+
+```sh
+instacache --add-site X https://x.com/ --domains x.com,twimg.com
+```
+
+Ça écrit deux choses : un profil, et une entrée de menu. **X apparaît alors dans
+ton menu d'applications avec sa propre icône**, et s'ouvre dans sa propre
+fenêtre, avec sa session, son cache et ses cookies — être connecté à X n'a rien
+à voir avec être connecté à Instagram.
+
+`--domains` est la liste blanche de cette fenêtre, et elle compte : un site dont
+les images viennent d'un autre hôte a besoin que cet hôte soit nommé, sinon les
+images sont traitées comme des liens externes. Omis, il vaut l'hôte de l'adresse
+donnée, ce qui suffit pour un site qui sert tout lui-même :
+
+```sh
+instacache --add-site "Hacker News" https://news.ycombinator.com/
+```
+
+`--list-sites` montre ce que tu as ajouté et `--remove-site X` retire l'entrée du
+menu. Retirer une entrée ne supprime jamais la session derrière ;
+`instacache --profile x --clear-session` s'en charge.
 
 ## Configuration
 

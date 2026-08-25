@@ -19,6 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and "Copy link address", so `context_menu: true` brings the menu back.
 
 ### Added
+- **`--add-site`: another site, in its own window, with its own icon.**
+  `instacache --add-site X https://x.com/ --domains x.com,twimg.com` writes a
+  profile and a `.desktop` entry, and X appears in the application menu as its
+  own application — own window, own session, own cache, own cookies. Nothing in
+  the window was ever Instagram-specific; only the allowed-host list was, and
+  that became configurable in the same release.
+
+  `--domains` defaults to the URL's own host, which is right for a site that
+  serves everything itself and wrong for one whose images come from a separate
+  CDN, so it can be stated. `--list-sites` shows what has been added and
+  `--remove-site` takes an entry back out without touching the session behind
+  it.
+
+  Each site gets its own window class, `instacache-<profile>`, so the desktop
+  gives it a separate icon instead of piling every window under one. The class
+  and the entry's `StartupWMClass` come from the same function, because a
+  disagreement between them shows the window as a second, unnamed item next to
+  its own launcher. `uninstall.sh` removes the entries it finds.
 - `user.js`: JavaScript in `~/.config/instacache/user.js` runs on every page
   once it has loaded, in the page's own world. Qt WebEngine implements no
   extension API — no Chrome Web Store, no `.crx`, no uBlock — so this is the
