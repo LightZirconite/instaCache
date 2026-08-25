@@ -277,14 +277,23 @@ process die on every load must not be "fixed" by raising the limit.
 
 ## Touching `urls.rs`
 
-`is_internal()` decides what renders inside a window holding a logged-in
-Instagram session. The suffix check must keep rejecting `notinstagram.com` and
-`instagram.com.evil.example`. If you extend `INTERNAL_DOMAINS`, add a test for
-the lookalike form too.
+`is_internal_in()` decides what renders inside a window holding a logged-in
+session. It is an allow-list and must stay one: the suffix check has to keep
+rejecting `notinstagram.com` and `instagram.com.evil.example`, and an empty
+entry must never match, because `host.ends_with(".")` would otherwise let in
+the entire web. There are tests for all three; extend them rather than
+replacing them.
 
-`facebook.com` and `meta.com` are in that list on purpose: Instagram's login,
-two-factor and Accounts Center flows redirect through them. Removing them breaks
-signing in.
+The list itself now comes from the profile's `internal_domains`, so a second
+profile can be a dedicated window for another site. `INTERNAL_DOMAINS` remains
+as the default and as what `is_internal()` uses when there is no configuration
+to hand. Widening the list is the user's decision; widening what *counts* as a
+match is not, and is the thing to be careful about here.
+
+`facebook.com` and `meta.com` are in the default on purpose: Instagram's login,
+two-factor and Accounts Center flows redirect through them. Removing them
+breaks signing in. `threads.com` and `threads.net` are there by choice, not by
+necessity.
 
 ## The installer's option contract
 

@@ -68,7 +68,7 @@ pub struct Shell {
     /// is what keeps a logged-in session away from arbitrary sites.
     is_internal: qt_method!(
         fn is_internal(&self, url: String) -> bool {
-            urls::is_internal(&url)
+            urls::is_internal_in(&self.config().internal_domains, &url)
         }
     ),
     is_engine_scheme: qt_method!(

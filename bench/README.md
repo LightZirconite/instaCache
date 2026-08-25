@@ -83,6 +83,38 @@ believed before the bench could tell the two video paths apart:
   change; the patch that improved WebKit is kept in the history rather than
   thrown away.
 
+## Is the disk cache actually working?
+
+Timing a warm start against a cold one proves nothing over loopback: 12 MB
+arrives in 40 ms either way, and the difference disappears into the noise. What
+does prove it is whether the warm start reaches the server at all, which is why
+`serve.py` counts requests under `/assets/` and answers `/stats`.
+
+```sh
+./bench/make-clips.sh                       # also writes bench/assets/
+python3 bench/serve.py &
+curl -s http://127.0.0.1:8731/stats/reset
+# run the app twice against /load.html with the same profile, then:
+curl -s http://127.0.0.1:8731/stats
+```
+
+Measured on the reference machine, 12 MB of assets declared cacheable:
+
+| run | requests reaching the server |
+|---|---|
+| cold, empty profile | 12 |
+| warm, same profile, app restarted | **0** |
+| warm, with the files deleted from the server | **0**, page still loads |
+| after `instacache --clear-cache` | 12 again |
+
+The third row is the one that settles it: the bodies come from disk, not from
+the server being fast. The fourth shows `--clear-cache` clears what it says.
+
+`httpCacheMaximumSize` was measured and deliberately left unset. The default
+already retains the whole working set, and Instagram's media arrives on signed
+one-shot CDN URLs that no cache can reuse, so raising the cap has nothing to
+act on. A setting that changes no measurement does not earn its place.
+
 ## Things that were measured and rejected
 
 | tried | result |
