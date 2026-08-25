@@ -115,6 +115,31 @@ already retains the whole working set, and Instagram's media arrives on signed
 one-shot CDN URLs that no cache can reuse, so raising the cap has nothing to
 act on. A setting that changes no measurement does not earn its place.
 
+## Where the memory goes
+
+Summed as PSS across the whole process tree, because adding up RSS over a
+Chromium tree counts every shared page once per process and reports roughly
+twice the truth.
+
+| page | memory |
+|---|---|
+| an empty page | 278 / 282 MB |
+| four 1080x1920 H.264 streams playing | 309 / 312 MB |
+
+The content is not what costs: four full-resolution videos add about 30 MB to a
+floor of roughly 280 MB, and that floor is Chromium itself. Flags aimed at it
+change nothing measurable:
+
+| tried | result |
+|---|---|
+| `--enable-low-end-device-mode` | 317 MB — no better than the default |
+| `--renderer-process-limit=1 --process-per-site` | 306 MB — inside the noise |
+| both together | 313 MB — inside the noise |
+
+So there is nothing to win in configuration here. The engine has a floor, this
+is where it is, and a smaller number would mean a different engine — which is
+the trade that was already made, with video smoothness on the other side of it.
+
 ## Things that were measured and rejected
 
 | tried | result |

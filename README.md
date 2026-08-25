@@ -39,9 +39,15 @@ system does the rendering.
 | Disk cache reused on restart | yes, aggressively | usually | yes |
 
 Measured on the reference machine, adding up proportional memory across every
-process: about **300 MB** on a fresh window, and **800 MB** on a signed-in feed
-after a minute of scrolling through video. The second number is the honest one
-for daily use.
+process: about **280 MB** on an empty page, and **310 MB** with four
+1080x1920 videos playing at once. The content is not what costs — four
+full-resolution streams add roughly 30 MB — the floor is the engine.
+
+A signed-in feed after a while of scrolling will sit above that; the figure has
+not been re-measured since the engine changed, and the old one is not quoted
+here because it described a different engine. Nothing in configuration moves
+the floor: the flags aimed at it were tried and measured, and are listed in
+[`bench/`](bench/README.md) so nobody spends an afternoon on them again.
 
 That is what a browser engine costs to render a heavy web app; instaCache is
 small, the web app is not. Where it wins is the 2.1 MB download, the absence of
