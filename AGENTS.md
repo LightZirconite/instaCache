@@ -56,7 +56,8 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/paths.rs` | XDG locations and named profiles. |
 | `src/downloads.rs` | Where a download goes and under what name. |
 | `src/instance.rs` | One window per profile, over a Unix socket. |
-| `src/sites.rs` | Turning a site into its own menu entry and window class. |
+| `src/sites.rs` | Turning a site into its own menu entry, icon and window class. |
+| `src/http.rs` | Fetching a URL through curl or wget, never a linked stack. |
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
 | `src/updates.rs` | Checking for and installing a newer release. |

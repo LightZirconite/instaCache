@@ -249,6 +249,7 @@ instacache [OPTIONS] [URL]
   -p, --profile <NOM>    Utiliser une session, un cache et une fenêtre séparés.
       --add-site <NOM> <URL>
                          Ajouter un site à ton menu d'applications.
+      --icon <CHEMIN>    Utiliser cette image au lieu du logo du site.
       --remove-site <NOM>
                          L'en retirer. Ses données sont conservées.
       --list-sites       Lister les sites ajoutés.
@@ -273,9 +274,17 @@ instacache --add-site X https://x.com/ --domains x.com,twimg.com
 ```
 
 Ça écrit deux choses : un profil, et une entrée de menu. **X apparaît alors dans
-ton menu d'applications avec sa propre icône**, et s'ouvre dans sa propre
-fenêtre, avec sa session, son cache et ses cookies — être connecté à X n'a rien
-à voir avec être connecté à Instagram.
+ton menu d'applications avec le logo X**, et s'ouvre dans sa propre fenêtre,
+avec sa session, son cache et ses cookies — être connecté à X n'a rien à voir
+avec être connecté à Instagram.
+
+L'icône vient du site lui-même : celle qu'il déclare dans son code, la plus
+grande, et son `/favicon.ico` sinon. GitHub en publie une en 512×512 et c'est
+celle-là qui est prise ; X n'en déclare aucune, donc son favicon est utilisé.
+Le format est déduit du contenu et non du nom du fichier, parce que
+`x.com/favicon.ico` est en réalité un PNG. Quand un site ne publie rien
+d'exploitable, l'icône d'instaCache est conservée, et `--icon chemin/logo.png`
+remplace tout ça.
 
 `--domains` est la liste blanche de cette fenêtre, et elle compte : un site dont
 les images viennent d'un autre hôte a besoin que cet hôte soit nommé, sinon les

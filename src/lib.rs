@@ -19,6 +19,7 @@ pub mod chromium;
 pub mod config;
 pub mod downloads;
 pub mod errorpage;
+pub mod http;
 pub mod instance;
 pub mod paths;
 pub mod sites;

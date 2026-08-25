@@ -50,11 +50,22 @@ fn main() -> ExitCode {
         Mode::AddSite => {
             let name = options.site.clone().unwrap_or_default();
             let url = options.url.clone().unwrap_or_default();
-            return match sites::add(&name, &url, options.domains.as_deref()) {
+            return match sites::add(
+                &name,
+                &url,
+                options.domains.as_deref(),
+                options.icon.as_deref(),
+            ) {
                 Ok(added) => {
                     println!("Added `{}` to your application menu.", added.profile);
                     println!("  settings  {}", added.config.display());
                     println!("  entry     {}", added.entry.display());
+                    match added.icon {
+                        Some(icon) => println!("  icon      {}", icon.display()),
+                        None => println!(
+                            "  icon      instaCache's own — the site published none we could use"
+                        ),
+                    }
                     println!();
                     println!(
                         "It has its own session, cache and window. Open it from the menu, or run:  \
@@ -205,6 +216,8 @@ struct Options {
     /// directory name derived from it.
     site: Option<String>,
     domains: Option<String>,
+    /// An icon chosen by hand, instead of the one the site publishes.
+    icon: Option<String>,
 }
 
 impl Options {
@@ -215,6 +228,7 @@ impl Options {
             url: None,
             site: None,
             domains: None,
+            icon: None,
         };
         let mut args = args.peekable();
 
@@ -268,6 +282,15 @@ impl Options {
                 }
                 other if other.starts_with("--domains=") => {
                     options.domains = Some(other["--domains=".len()..].to_string());
+                }
+                "--icon" => {
+                    options.icon = Some(
+                        args.next()
+                            .ok_or_else(|| "--icon requires a path to an image".to_string())?,
+                    );
+                }
+                other if other.starts_with("--icon=") => {
+                    options.icon = Some(other["--icon=".len()..].to_string());
                 }
                 "--clear-cache" => options.mode = Mode::Clear(Clearable::Cache),
                 "--clear-session" => options.mode = Mode::Clear(Clearable::Session),
@@ -330,6 +353,8 @@ OPTIONS:
         --domains <LIST>   Hosts that site may open, comma-separated. Defaults
                            to the URL's own host. Use it when a site loads from
                            a separate CDN, e.g. --domains x.com,twimg.com
+        --icon <PATH>      Use this image as the site's icon instead of the
+                           one it publishes. PNG, SVG, ICO, JPEG or WebP.
         --remove-site <NAME>
                            Take a site out of the menu. Its data is kept.
         --list-sites       Show the sites currently in the menu.

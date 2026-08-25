@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `--remove-site` takes an entry back out without touching the session behind
   it.
 
+  **A site keeps its own logo.** It is taken from the site: the largest icon it
+  declares in its markup, or its `/favicon.ico`. GitHub publishes a 512x512 one
+  and gets that; X declares none, so its favicon is used. The format is decided
+  by the bytes rather than the file name, because `x.com/favicon.ico` is
+  actually a PNG and writing it as `icon.ico` produces a file some icon loaders
+  refuse. The image lands in the profile's own directory and the entry points
+  at it by absolute path, which the specification allows -- so nothing is
+  installed into the shared icon theme, and clearing a session or a cache never
+  takes the icon with it. `--icon` overrides the choice; a site that publishes
+  nothing usable keeps instaCache's own icon.
+
   Each site gets its own window class, `instacache-<profile>`, so the desktop
   gives it a separate icon instead of piling every window under one. The class
   and the entry's `StartupWMClass` come from the same function, because a
