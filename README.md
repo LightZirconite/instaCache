@@ -239,6 +239,7 @@ instacache [OPTIONS] [URL]
   -p, --profile <NAME>   Use a separate session, cache and window.
       --add-site <NAME> <URL>
                          Add a site to your application menu.
+      --icon <PATH>      Use this image instead of the site's own logo.
       --remove-site <NAME>
                          Take it back out. Its data is kept.
       --list-sites       Show the sites you have added.
@@ -263,9 +264,16 @@ instacache --add-site X https://x.com/ --domains x.com,twimg.com
 ```
 
 That writes two things: a profile, and a menu entry. **X now appears in your
-application menu with its own icon**, and opens in its own window, with its own
+application menu with the X logo**, and opens in its own window, with its own
 session, its own cache and its own cookies — signed into X has nothing to do
 with signed into Instagram.
+
+The icon comes from the site itself: whatever it declares in its markup, taking
+the largest, and its `/favicon.ico` otherwise. GitHub publishes a 512×512 one
+and gets that; X declares nothing and its favicon is used. The image is
+identified by its actual bytes rather than its file name, because
+`x.com/favicon.ico` is in fact a PNG. When a site publishes nothing usable it
+keeps instaCache's own icon, and `--icon path/to/logo.png` overrides the lot.
 
 `--domains` is the allow-list for that window, and it matters: a site whose
 images come from a separate host needs that host named, or the images are
