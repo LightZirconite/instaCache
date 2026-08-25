@@ -278,6 +278,10 @@ ton menu d'applications avec le logo X**, et s'ouvre dans sa propre fenêtre,
 avec sa session, son cache et ses cookies — être connecté à X n'a rien à voir
 avec être connecté à Instagram.
 
+instaCache est livré avec un site déjà configuré : **XCache**, c'est-à-dire X.
+L'installeur l'ajoute, et une seule fois — si tu le supprimes, une mise à jour
+ne le fera pas revenir. `--setup-sites` fait la même chose à la main.
+
 L'icône vient du site lui-même : celle qu'il déclare dans son code, la plus
 grande, et son `/favicon.ico` sinon. GitHub en publie une en 512×512 et c'est
 celle-là qui est prise ; X n'en déclare aucune, donc son favicon est utilisé.

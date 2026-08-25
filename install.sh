@@ -394,6 +394,18 @@ step "Locating the binary"
 BINARY=$(resolve_binary)
 ok "using $BINARY"
 
+# instaCache ships one extra site, XCache, which is X in its own window with
+# its own session. The binary decides whether to add it: a site whose profile
+# already exists is left alone, which matters because this script runs again on
+# every update -- without that rule, a site somebody removed would come back
+# every time they updated.
+setup_sites() {
+    "$BIN_DIR/$APP" --setup-sites 2>/dev/null | while read -r line; do
+        [ -n "$line" ] && ok "$line"
+    done
+    return 0
+}
+
 step "Installing into $PREFIX"
 run install -Dm755 "$BINARY" "$BIN_DIR/$APP"
 ok "binary -> $BIN_DIR/$APP"
@@ -416,6 +428,7 @@ fi
 
 install_icons
 refresh_caches
+setup_sites
 check_path
 
 printf '\n%sDone.%s %s is installed.\n\n' "$C_GREEN$C_BOLD" "$C_RESET" "$APP_NAME"

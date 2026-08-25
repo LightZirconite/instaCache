@@ -94,6 +94,12 @@ instacache --profile {}",
                 }
             };
         }
+        Mode::SetupSites => {
+            for profile in sites::ensure_defaults() {
+                println!("Added `{profile}` to your application menu.");
+            }
+            return ExitCode::SUCCESS;
+        }
         Mode::ListSites => {
             let sites = sites::list();
             if sites.is_empty() {
@@ -214,6 +220,7 @@ enum Mode {
     AddSite,
     RemoveSite,
     ListSites,
+    SetupSites,
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +291,7 @@ impl Options {
                     );
                 }
                 "--list-sites" => options.mode = Mode::ListSites,
+                "--setup-sites" => options.mode = Mode::SetupSites,
                 "--domains" => {
                     options.domains = Some(
                         args.next()
@@ -368,6 +376,9 @@ OPTIONS:
         --remove-site <NAME>
                            Take a site out of the menu. Its data is kept.
         --list-sites       Show the sites currently in the menu.
+        --setup-sites      Add the sites instaCache ships with, skipping any
+                           that already exist or that you removed. Run by the
+                           installer; harmless to run again.
         --update           Check for a newer release and install it.
         --clear-cache      Delete the cached resources, keep the session.
         --clear-session    Delete cookies and site storage (signs you out).
@@ -465,6 +476,7 @@ mod tests {
     #[test]
     fn sites_can_be_listed_and_removed() {
         assert_eq!(parse(&["--list-sites"]).unwrap().mode, Mode::ListSites);
+        assert_eq!(parse(&["--setup-sites"]).unwrap().mode, Mode::SetupSites);
         let options = parse(&["--remove-site", "x"]).unwrap();
         assert_eq!(options.mode, Mode::RemoveSite);
         assert_eq!(options.site.as_deref(), Some("x"));
