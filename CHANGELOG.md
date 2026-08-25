@@ -6,14 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Threads is no longer part of the app.** It was in the allowed-host list by
+  choice rather than necessity — Instagram works without it — so a click on
+  Instagram's Threads button now leaves for the system browser like any other
+  link to a different application. Name `threads.com` in `internal_domains` to
+  put it back.
+- **The right-click menu is off.** In a window that exists to be one
+  application it is browser chrome — Back, Forward, View Source, Inspect — and
+  it covers the page while Instagram's own right-click handling stops working.
+  This is a trade-off rather than a free win: it also removes "Save image as"
+  and "Copy link address", so `context_menu: true` brings the menu back.
+
 ### Added
+- `user.js`: JavaScript in `~/.config/instacache/user.js` runs on every page
+  once it has loaded, in the page's own world. Qt WebEngine implements no
+  extension API — no Chrome Web Store, no `.crx`, no uBlock — so this is the
+  nearest thing to one. It is trusted completely; a mistake in it is reported
+  to the console rather than breaking the page, but it is your file running
+  with the page's privileges.
 - `internal_domains`, per profile: which hosts are allowed to render inside the
-  window. The default is exactly what it was, so nothing changes unless you
-  edit it. It is still an allow-list — naming `x.com` lets in `x.com` and its
+  window. It is an allow-list — naming `x.com` lets in `x.com` and its
   sub-domains, not the web — which means a second profile can now be a
   dedicated window for another site: point `home_url` at it and name its
-  domains. Drop `threads.com` and `threads.net` for a window that stays on
-  Instagram alone.
+  domains. An empty list restores the default rather than locking the window.
 - The bench can now show whether the disk cache is doing anything, by counting
   the requests that reach the server rather than timing a transfer that is too
   fast over loopback to time. Measured: a cold start fetches 12 assets, a warm

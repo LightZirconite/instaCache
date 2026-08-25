@@ -9,7 +9,13 @@
 ///
 /// `facebook.com` / `meta.com` are included because Instagram's login,
 /// two-factor and Accounts Center flows redirect through them; dropping them
-/// would break signing in.
+/// would break signing in. That is the only reason a non-Instagram host is
+/// here, and it is the test for adding another.
+///
+/// Threads used to be in this list. It was never needed for anything —
+/// Instagram works without it — so a click on Instagram's Threads button now
+/// leaves for the system browser like any other link to another application.
+/// Anyone who wants it back can name it in `internal_domains`.
 pub const INTERNAL_DOMAINS: &[&str] = &[
     "instagram.com",
     "cdninstagram.com",
@@ -18,8 +24,6 @@ pub const INTERNAL_DOMAINS: &[&str] = &[
     "fb.com",
     "messenger.com",
     "meta.com",
-    "threads.com",
-    "threads.net",
 ];
 
 /// Schemes WebKit must keep handling itself; they carry no host and are used
@@ -144,6 +148,17 @@ mod tests {
         assert!(!is_internal("https://instagram.com.evil.example/"));
         assert!(!is_internal("https://youtube.com/watch?v=1"));
         assert!(!is_internal("ftp://instagram.com/"));
+    }
+
+    #[test]
+    fn threads_is_another_application_and_leaves() {
+        assert!(!is_internal("https://www.threads.com/@someone"));
+        assert!(!is_internal("https://threads.net/"));
+        // Still reachable for anyone who names it themselves.
+        assert!(is_internal_in(
+            &["threads.com".to_string()],
+            "https://www.threads.com/"
+        ));
     }
 
     #[test]
