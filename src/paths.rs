@@ -53,6 +53,13 @@ impl Paths {
         self.config.join("window-state.json")
     }
 
+    /// User JavaScript, run on every page once it has loaded. The nearest
+    /// thing to an extension this app has; Qt WebEngine implements no
+    /// extension API at all.
+    pub fn user_script(&self) -> PathBuf {
+        self.config.join("user.js")
+    }
+
     pub fn user_stylesheet(&self) -> PathBuf {
         self.config.join("user.css")
     }

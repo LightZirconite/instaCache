@@ -57,8 +57,11 @@ pub struct Shell {
     autoplay_without_gesture: qt_property!(bool; READ autoplay_without_gesture),
     notifications_enabled: qt_property!(bool; READ notifications_enabled),
     external_links_in_browser: qt_property!(bool; READ external_links_in_browser),
+    context_menu: qt_property!(bool; READ context_menu),
     /// The user's own CSS, or an empty string when there is none.
     user_stylesheet: qt_property!(QString; READ user_stylesheet),
+    /// The user's own JavaScript, or an empty string when there is none.
+    user_script: qt_property!(QString; READ user_script),
     /// Comma-separated, because a QML list property would need a metatype
     /// registration for one setting. Empty disables spell checking entirely.
     spell_check_languages: qt_property!(QString; READ spell_check_languages),
@@ -250,12 +253,24 @@ impl Shell {
         self.config().open_external_links_in_browser
     }
 
+    fn context_menu(&self) -> bool {
+        self.config().context_menu
+    }
+
     /// Read on every access rather than cached, so editing the file and
     /// reloading is enough to see the change.
     fn user_stylesheet(&self) -> QString {
         self.paths
             .as_ref()
             .and_then(|paths| std::fs::read_to_string(paths.user_stylesheet()).ok())
+            .unwrap_or_default()
+            .into()
+    }
+
+    fn user_script(&self) -> QString {
+        self.paths
+            .as_ref()
+            .and_then(|paths| std::fs::read_to_string(paths.user_script()).ok())
             .unwrap_or_default()
             .into()
     }

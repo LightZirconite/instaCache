@@ -259,10 +259,11 @@ its default. Edit it and restart.
 | `hardware_acceleration` | `always` | `always`, `auto` or `never`. The first two both leave Chromium's own decision alone. Set `never` only if the window renders wrong — it turns off GPU compositing entirely. |
 | `video_decoding` | `gpu` | `gpu`, `software` or `auto`. See [Video performance](#video-performance). |
 | `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. The engine otherwise silences anything that plays without a click, which reads as the app muting itself. |
+| `context_menu` | `false` | Show the engine's right-click menu. Off, because in a one-application window it is browser chrome — Back, Forward, View Source — and it covers the page. Turning it off also removes "Save image as" and "Copy link address"; set `true` to get them back. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
-| `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Drop `threads.com` and `threads.net` for a window that stays on Instagram alone. An empty list restores the default rather than locking the window. |
+| `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
 | `default_zoom` | `1.0` | Zoom used when no window state has been saved. |
 | `remember_window_state` | `true` | Restore size, position and zoom. |
@@ -271,7 +272,7 @@ its default. Edit it and restart.
 | `auto_update` | `true` | Check GitHub for a newer release and install it. |
 | `update_check_interval_hours` | `24` | Hours between checks. `0` checks every launch. |
 
-### Custom styling
+### Custom styling and scripting
 
 Drop CSS into `~/.config/instacache/user.css` and it is applied to every page.
 
@@ -279,6 +280,22 @@ Drop CSS into `~/.config/instacache/user.css` and it is applied to every page.
 /* Widen the feed on a large screen */
 main[role="main"] { max-width: 1100px; }
 ```
+
+Drop JavaScript into `~/.config/instacache/user.js` and it runs on every page
+once it has loaded, in the page's own world, so it can see and change what the
+page sees.
+
+```js
+// Hide the suggestions rail
+document.querySelectorAll('aside').forEach(el => el.remove());
+```
+
+**There is no extension support, and there cannot be.** Qt WebEngine implements
+no extension API at all — no Chrome Web Store, no `.crx`, no uBlock. `user.js`
+is the nearest thing this app has, and it is deliberately unsandboxed: it is
+your file, running with the page's privileges. A mistake in it is caught and
+reported to the console rather than breaking the page, but it is otherwise
+trusted completely. Do not paste a script you have not read.
 
 ### Updating from a WebKitGTK version
 

@@ -82,6 +82,17 @@ pub struct Config {
     /// one frame — which is why the engine changed and this setting did not.
     /// On the reference machine it is worth 2 or 3 late frames either way.
     pub video_decoding: String,
+    /// Show the engine's context menu on right-click.
+    ///
+    /// Off by default. In a window that exists to be one application, the
+    /// menu is browser chrome: it offers Back, Forward, Reload, View Source
+    /// and Inspect, none of which belong in it, and it covers the page while
+    /// Instagram's own long-press and right-click handling stops working.
+    ///
+    /// It is a real trade-off rather than a free win, so it is a switch:
+    /// turning the menu off also removes "Save image as", "Copy image address"
+    /// and "Copy link address". Set it to `true` to get them back.
+    pub context_menu: bool,
     /// Enables the Web Inspector (Ctrl+Shift+I / right-click → Inspect).
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
@@ -135,6 +146,7 @@ impl Default for Config {
             hardware_acceleration: "always".to_string(),
             video_decoding: "gpu".to_string(),
             allow_autoplay_with_sound: true,
+            context_menu: false,
             developer_tools: false,
             notifications: true,
             internal_domains: crate::urls::INTERNAL_DOMAINS
@@ -339,6 +351,19 @@ mod tests {
     fn unknown_fields_are_ignored() {
         let cfg: Config = serde_json::from_str(r#"{"from_a_future_version": 42}"#).unwrap();
         assert_eq!(cfg.home_url, DEFAULT_HOME_URL);
+    }
+
+    #[test]
+    fn the_context_menu_is_off_but_can_be_asked_for() {
+        assert!(!Config::default().context_menu);
+        let cfg: Config = serde_json::from_str(r#"{"context_menu": true}"#).unwrap();
+        assert!(cfg.context_menu);
+    }
+
+    #[test]
+    fn threads_is_not_in_the_default_allow_list() {
+        let cfg = Config::default();
+        assert!(!cfg.internal_domains.iter().any(|d| d.contains("threads")));
     }
 
     #[test]

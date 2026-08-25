@@ -269,10 +269,11 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 | `hardware_acceleration` | `always` | `always`, `auto` ou `never`. Les deux premiers laissent Chromium décider lui-même. Mets `never` seulement si la fenêtre s'affiche mal : ça coupe entièrement la composition GPU. |
 | `video_decoding` | `gpu` | `gpu`, `software` ou `auto`. Voir [Performance vidéo](#performance-vidéo). |
 | `allow_autoplay_with_sound` | `true` | Autoriser une vidéo à démarrer avec le son. Sinon le moteur coupe le son de tout ce qui démarre sans clic, ce qui se lit comme « l'app se mute toute seule ». |
+| `context_menu` | `false` | Afficher le menu du clic droit. Désactivé : dans une fenêtre dédiée à une seule application c'est du chrome de navigateur — Précédent, Suivant, Code source — et ça recouvre la page. Le désactiver retire aussi « Enregistrer l'image » et « Copier l'adresse du lien » ; mets `true` pour les retrouver. |
 | `developer_tools` | `false` | Active l'inspecteur web et la sortie console. |
 | `notifications` | `true` | Transmettre les notifications web au bureau. |
 | `open_external_links_in_browser` | `true` | Envoyer les liens non-Instagram au navigateur. |
-| `internal_domains` | Instagram + les hôtes Meta nécessaires au login | Les hôtes autorisés à s'afficher dans la fenêtre, en liste blanche — un hôte ne correspond qu'exactement ou comme sous-domaine. Par profil : un second profil peut donc être une fenêtre dédiée à un autre site, en pointant `home_url` dessus et en nommant ses domaines ici. Retire `threads.com` et `threads.net` pour une fenêtre qui reste sur Instagram seul. Une liste vide restaure le défaut au lieu de verrouiller la fenêtre. |
+| `internal_domains` | Instagram + les hôtes Meta nécessaires au login | Les hôtes autorisés à s'afficher dans la fenêtre, en liste blanche — un hôte ne correspond qu'exactement ou comme sous-domaine. Par profil : un second profil peut donc être une fenêtre dédiée à un autre site, en pointant `home_url` dessus et en nommant ses domaines ici. Threads n'y est volontairement pas ; ajoute `threads.com` pour le garder dans la fenêtre. Une liste vide restaure le défaut au lieu de verrouiller la fenêtre. |
 | `spell_checking_languages` | `[]` | Par ex. `["fr_FR", "en_US"]`. Vide = correction désactivée. |
 | `default_zoom` | `1.0` | Zoom utilisé quand aucun état de fenêtre n'est enregistré. |
 | `remember_window_state` | `true` | Restaurer taille, position et zoom. |
@@ -281,7 +282,24 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 | `auto_update` | `true` | Chercher une nouvelle version sur GitHub et l'installer. |
 | `update_check_interval_hours` | `24` | Heures entre deux vérifications. `0` = à chaque lancement. |
 
-### Style personnalisé
+### Style et script personnalisés
+
+Dépose du JavaScript dans `~/.config/instacache/user.js` : il s'exécute sur
+chaque page une fois chargée, dans le monde de la page, donc il voit et modifie
+ce que la page voit.
+
+```js
+// Masquer la colonne de suggestions
+document.querySelectorAll('aside').forEach(el => el.remove());
+```
+
+**Il n'y a pas d'extensions, et il ne peut pas y en avoir.** Qt WebEngine
+n'implémente aucune API d'extension — ni Chrome Web Store, ni `.crx`, ni
+uBlock. `user.js` est ce qui s'en rapproche le plus, et il n'est délibérément
+pas mis en bac à sable : c'est ton fichier, exécuté avec les droits de la page.
+Une erreur dedans est attrapée et signalée dans la console au lieu de casser la
+page, mais pour le reste il est cru sur parole. Ne colle pas un script que tu
+n'as pas lu.
 
 Dépose du CSS dans `~/.config/instacache/user.css`, il est appliqué à toutes les
 pages.

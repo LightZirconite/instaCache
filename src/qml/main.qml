@@ -146,9 +146,25 @@ Window {
                 }
             } else {
                 bar.finish();
-                if (info.status === WebEngineView.LoadSucceededStatus)
+                if (info.status === WebEngineView.LoadSucceededStatus) {
                     view.applyUserStyle();
+                    view.applyUserScript();
+                }
             }
+        }
+
+        // `~/.config/instacache/user.js`. Qt WebEngine implements no extension
+        // API, so this is the nearest thing: the user's own script, run once
+        // per real page load, in the page's own world so it can see what the
+        // page sees. Wrapped so a mistake in it cannot take the page with it.
+        function applyUserScript() {
+            var js = shell.user_script;
+            if (js === "")
+                return;
+            view.runJavaScript(
+                "(function () { try {\n" + js + "\n} catch (e) {" +
+                "  console.error('instacache: user.js failed:', e);" +
+                "} })();");
         }
 
         // `~/.config/instacache/user.css`, injected rather than installed as a
@@ -213,6 +229,16 @@ Window {
         onFullScreenRequested: function (request) {
             root.visibility = request.toggleOn ? Window.FullScreen : Window.Windowed;
             request.accept();
+        }
+
+        // In a window that exists to be one application, the engine's menu is
+        // browser chrome -- Back, Forward, View Source, Inspect -- and it
+        // covers the page while Instagram's own right-click handling stops
+        // working. Accepting the request without showing anything is how Qt
+        // says "handled".
+        onContextMenuRequested: function (request) {
+            if (!shell.context_menu)
+                request.accepted = true;
         }
 
         onJavaScriptDialogRequested: function (request) {
