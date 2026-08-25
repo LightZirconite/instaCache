@@ -40,9 +40,17 @@ moteur de rendu déjà présent sur ton système qui travaille.
 | Cache disque réutilisé au redémarrage | oui, agressivement | en général | oui |
 
 Mesuré sur la machine de référence, en additionnant la mémoire proportionnelle
-de tous les processus : environ **300 Mo** sur une fenêtre fraîche, et **800 Mo**
-sur un fil connecté après une minute de défilement avec des vidéos. C'est le
-second chiffre qui compte au quotidien.
+de tous les processus : environ **280 Mo** sur une page vide, et **310 Mo** avec
+quatre vidéos 1080×1920 en lecture simultanée. Ce n'est pas le contenu qui
+coûte — quatre flux pleine résolution ajoutent une trentaine de mégaoctets — le
+plancher, c'est le moteur.
+
+Un fil connecté après un moment de défilement se situera au-dessus ; ce chiffre
+n'a pas été remesuré depuis le changement de moteur, et l'ancien n'est pas cité
+ici parce qu'il décrivait un autre moteur. Aucun réglage ne déplace ce
+plancher : les drapeaux prévus pour ça ont été essayés et mesurés, et sont
+listés dans [`bench/`](../bench/README.md) pour que personne n'y repasse une
+après-midi.
 
 C'est le prix d'un moteur de navigateur affichant une application web lourde :
 instaCache est petit, l'application web ne l'est pas. Ce que tu gagnes, c'est un
