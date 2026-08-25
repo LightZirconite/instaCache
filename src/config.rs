@@ -86,6 +86,27 @@ pub struct Config {
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
     pub notifications: bool,
+    /// Hosts allowed to render inside the window, as an allow-list.
+    ///
+    /// This is the security boundary of the app: the window holds a logged-in
+    /// session, so a host that is not named here — or a sub-domain of one — is
+    /// handed to the system browser instead of being rendered next to it.
+    ///
+    /// It is per profile so a second profile can be a dedicated window for a
+    /// different site: point `home_url` at it and name its domains here. The
+    /// list stays an allow-list either way — adding `x.com` lets in `x.com`
+    /// and its sub-domains, not the web.
+    ///
+    /// The Meta hosts in the default are not decoration: Instagram's login,
+    /// two-factor and Accounts Center flows redirect through `facebook.com`
+    /// and `meta.com`, and removing them breaks signing in. `threads.com` and
+    /// `threads.net` are there by choice rather than necessity, and are the
+    /// entries to drop for a window that stays on Instagram alone.
+    ///
+    /// An empty list restores the default rather than locking every
+    /// navigation out of the window, which would make the app unusable and is
+    /// never what an empty value in a config file means.
+    pub internal_domains: Vec<String>,
     /// Open non-Meta links in the system browser instead of inside the app.
     pub open_external_links_in_browser: bool,
     /// Hunspell dictionaries to load, e.g. `["en_US", "fr_FR"]`. Empty disables
@@ -116,6 +137,10 @@ impl Default for Config {
             allow_autoplay_with_sound: true,
             developer_tools: false,
             notifications: true,
+            internal_domains: crate::urls::INTERNAL_DOMAINS
+                .iter()
+                .map(|domain| (*domain).to_string())
+                .collect(),
             open_external_links_in_browser: true,
             spell_checking_languages: Vec::new(),
             default_zoom: 1.0,
@@ -166,6 +191,20 @@ impl Config {
             self.user_agent = DEFAULT_USER_AGENT.to_string();
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+
+        // A host is compared lower-cased, and an empty entry would turn the
+        // sub-domain check into a wildcard, so both are dealt with here rather
+        // than at every comparison.
+        self.internal_domains = self
+            .internal_domains
+            .iter()
+            .map(|domain| domain.trim().trim_start_matches('.').to_ascii_lowercase())
+            .filter(|domain| !domain.is_empty())
+            .collect();
+        if self.internal_domains.is_empty() {
+            self.internal_domains = Config::default().internal_domains;
+        }
+
         self
     }
 }
@@ -300,6 +339,32 @@ mod tests {
     fn unknown_fields_are_ignored() {
         let cfg: Config = serde_json::from_str(r#"{"from_a_future_version": 42}"#).unwrap();
         assert_eq!(cfg.home_url, DEFAULT_HOME_URL);
+    }
+
+    #[test]
+    fn the_default_allow_list_is_the_built_in_one() {
+        let cfg = Config::default();
+        assert!(cfg.internal_domains.iter().any(|d| d == "instagram.com"));
+        assert!(
+            cfg.internal_domains.iter().any(|d| d == "facebook.com"),
+            "the login flow redirects through Meta hosts"
+        );
+    }
+
+    #[test]
+    fn a_configured_allow_list_replaces_the_default() {
+        let cfg: Config =
+            serde_json::from_str(r#"{"internal_domains": ["  X.com ", ".news.ycombinator.com"]}"#)
+                .unwrap();
+        let cfg = cfg.normalized();
+        assert_eq!(cfg.internal_domains, ["x.com", "news.ycombinator.com"]);
+    }
+
+    #[test]
+    fn an_empty_allow_list_falls_back_rather_than_locking_the_window() {
+        let cfg: Config = serde_json::from_str(r#"{"internal_domains": ["", "   "]}"#).unwrap();
+        let cfg = cfg.normalized();
+        assert_eq!(cfg.internal_domains, Config::default().internal_domains);
     }
 
     #[test]

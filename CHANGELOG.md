@@ -4,6 +4,22 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `internal_domains`, per profile: which hosts are allowed to render inside the
+  window. The default is exactly what it was, so nothing changes unless you
+  edit it. It is still an allow-list — naming `x.com` lets in `x.com` and its
+  sub-domains, not the web — which means a second profile can now be a
+  dedicated window for another site: point `home_url` at it and name its
+  domains. Drop `threads.com` and `threads.net` for a window that stays on
+  Instagram alone.
+- The bench can now show whether the disk cache is doing anything, by counting
+  the requests that reach the server rather than timing a transfer that is too
+  fast over loopback to time. Measured: a cold start fetches 12 assets, a warm
+  start after a restart fetches none, and still loads them with the files
+  deleted from the server.
+
 ## [2.0.2] - 2026-08-24
 
 ### Fixed

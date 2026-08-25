@@ -262,6 +262,7 @@ its default. Edit it and restart.
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
+| `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Drop `threads.com` and `threads.net` for a window that stays on Instagram alone. An empty list restores the default rather than locking the window. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
 | `default_zoom` | `1.0` | Zoom used when no window state has been saved. |
 | `remember_window_state` | `true` | Restore size, position and zoom. |

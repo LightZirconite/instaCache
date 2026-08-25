@@ -272,6 +272,7 @@ options à leur valeur par défaut. Modifie-le puis relance l'application.
 | `developer_tools` | `false` | Active l'inspecteur web et la sortie console. |
 | `notifications` | `true` | Transmettre les notifications web au bureau. |
 | `open_external_links_in_browser` | `true` | Envoyer les liens non-Instagram au navigateur. |
+| `internal_domains` | Instagram + les hôtes Meta nécessaires au login | Les hôtes autorisés à s'afficher dans la fenêtre, en liste blanche — un hôte ne correspond qu'exactement ou comme sous-domaine. Par profil : un second profil peut donc être une fenêtre dédiée à un autre site, en pointant `home_url` dessus et en nommant ses domaines ici. Retire `threads.com` et `threads.net` pour une fenêtre qui reste sur Instagram seul. Une liste vide restaure le défaut au lieu de verrouiller la fenêtre. |
 | `spell_checking_languages` | `[]` | Par ex. `["fr_FR", "en_US"]`. Vide = correction désactivée. |
 | `default_zoom` | `1.0` | Zoom utilisé quand aucun état de fenêtre n'est enregistré. |
 | `remember_window_state` | `true` | Restaurer taille, position et zoom. |

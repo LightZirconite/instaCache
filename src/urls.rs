@@ -75,17 +75,35 @@ pub fn is_engine_scheme(uri: &str) -> bool {
     }
 }
 
-/// Whether a navigation belongs inside the app window.
+/// Whether a navigation belongs inside the app window, against the built-in
+/// list. Kept for callers that have no configuration to hand, such as tests.
 pub fn is_internal(uri: &str) -> bool {
+    is_internal_in(INTERNAL_DOMAINS, uri)
+}
+
+/// Whether a navigation belongs inside a window whose allowed domains are
+/// `domains`.
+///
+/// This is an allow-list and nothing else: a host is inside only when it
+/// matches an entry exactly or is a sub-domain of one. That is the whole
+/// security property of the window — it holds a logged-in session, so
+/// everything not named here is handed to the system browser instead.
+///
+/// The list is per profile so that a second profile can be a dedicated window
+/// for a different site. Widening it is the user's decision, and a widened
+/// list is still an allow-list: adding `x.com` lets in `x.com` and its
+/// sub-domains, not the web.
+pub fn is_internal_in<S: AsRef<str>>(domains: &[S], uri: &str) -> bool {
     if !is_http(uri) {
         return false;
     }
     let Some(host) = host_of(uri) else {
         return false;
     };
-    INTERNAL_DOMAINS
-        .iter()
-        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    domains.iter().any(|domain| {
+        let domain = domain.as_ref();
+        !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+    })
 }
 
 #[cfg(test)]
@@ -126,6 +144,30 @@ mod tests {
         assert!(!is_internal("https://instagram.com.evil.example/"));
         assert!(!is_internal("https://youtube.com/watch?v=1"));
         assert!(!is_internal("ftp://instagram.com/"));
+    }
+
+    #[test]
+    fn a_configured_list_is_still_an_allow_list() {
+        // A profile pointed at another site lets that site in, and nothing
+        // else -- including the sites the built-in list would have allowed.
+        let mine = ["x.com".to_string()];
+        assert!(is_internal_in(&mine, "https://x.com/home"));
+        assert!(is_internal_in(&mine, "https://mobile.x.com/home"));
+        assert!(!is_internal_in(&mine, "https://instagram.com/"));
+
+        // The lookalike checks must survive a hand-written list.
+        assert!(!is_internal_in(&mine, "https://notx.com/"));
+        assert!(!is_internal_in(&mine, "https://x.com.evil.example/"));
+        assert!(!is_internal_in(&mine, "ftp://x.com/"));
+    }
+
+    #[test]
+    fn an_empty_entry_never_matches() {
+        // An empty string would otherwise turn `host.ends_with(".")` into a
+        // wildcard and let the whole web in.
+        let sloppy = ["".to_string()];
+        assert!(!is_internal_in(&sloppy, "https://anything.example/"));
+        assert!(!is_internal_in(&sloppy, "https://evil.example./"));
     }
 
     #[test]

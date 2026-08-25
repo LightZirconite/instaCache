@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>load</title><body style="background:#111">
+<script>
+// Time from navigation to every asset being in hand. The label says which run
+// this is; the server records both so cold and warm can be compared.
+const LABEL = new URLSearchParams(location.search).get('label') || 'load';
+const N = 12, t0 = performance.now();
+let done = 0;
+for (let i = 0; i < N; i++) {
+  fetch('/assets/chunk' + i + '.bin').then(r => r.arrayBuffer()).then(() => {
+    if (++done === N) {
+      const ms = Math.round(performance.now() - t0);
+      const r = { label: LABEL, loadMs: ms, assets: N };
+      document.title = 'LOAD ' + ms;
+      fetch('/report', { method: 'POST', body: JSON.stringify(r) });
+    }
+  });
+}
+</script></body>
