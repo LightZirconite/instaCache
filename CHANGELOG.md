@@ -4,6 +4,26 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **XCache**, X in its own window, is set up by the installer. It is the only
+  site instaCache ships, and it is added once: the rule is "this profile has
+  never existed", not "this entry is missing", so a site somebody removes stays
+  removed instead of coming back with the next update. `--setup-sites` runs the
+  same step by hand.
+
+### Fixed
+- A site's icon is installed into the icon theme and named there, instead of
+  being pointed at by absolute path from the entry. `Icon=` accepts a path, and
+  the application menu honoured it, but a task bar resolving a window to an
+  application goes through the icon theme — which is why the menu showed the
+  site's logo while the task bar still showed instaCache's. Removing a site
+  removes its icon again; `uninstall.sh` clears any that are left.
+- Adding a site now refreshes KDE's cache as well as the freedesktop ones. A
+  new entry was otherwise invisible to the task bar until the next login, which
+  made the icon look wrong when it was merely not yet known.
+
 ## [2.1.1] - 2026-08-25
 
 ### Fixed

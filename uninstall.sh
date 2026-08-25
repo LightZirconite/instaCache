@@ -103,6 +103,14 @@ for entry in "$SITE_DIR/$APP-"*.desktop; do
     [ -e "$entry" ] || continue
     remove "$entry"
 done
+
+# And the icons those entries name, which are installed into the user's icon
+# theme under whichever size each one happened to be.
+SITE_ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+for icon in "$SITE_ICON_DIR"/*/apps/"$APP-"*.png "$SITE_ICON_DIR"/*/apps/"$APP-"*.svg; do
+    [ -e "$icon" ] || continue
+    remove "$icon"
+done
 remove "$ICON_DIR/scalable/apps/$APP.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
     remove "$ICON_DIR/${size}x${size}/apps/$APP.png"

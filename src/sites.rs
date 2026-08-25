@@ -30,6 +30,82 @@ pub fn applications_dir() -> PathBuf {
     base.join("applications")
 }
 
+/// Where icon themes live for this user. A site's icon is installed here
+/// under its own name, rather than referenced from the profile by absolute
+/// path: `Icon=` accepts a path, but a task bar resolving a window to an
+/// application goes through the icon theme, and an absolute path is not
+/// reliably honoured there. A wrong icon in the task bar with the right one in
+/// the menu is what that looks like.
+pub fn icon_theme_dir() -> PathBuf {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("icons/hicolor")
+}
+
+/// The theme name a site's icon is installed under, which is also what its
+/// entry names in `Icon=`.
+pub fn icon_name(profile: &str) -> String {
+    format!("{PROGRAM_NAME}-{profile}")
+}
+
+/// Width and height of a PNG, read from its header.
+///
+/// The icon theme wants a size-matched directory, and there is no way to know
+/// one without looking: a favicon may be 16, 32 or 512 pixels square. Thirteen
+/// bytes of IHDR beat pulling in an image crate for it.
+pub fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let ihdr = bytes.get(12..16)?;
+    if ihdr != b"IHDR" {
+        return None;
+    }
+    let read = |at: usize| -> Option<u32> {
+        let raw: [u8; 4] = bytes.get(at..at + 4)?.try_into().ok()?;
+        Some(u32::from_be_bytes(raw))
+    };
+    let (width, height) = (read(16)?, read(20)?);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// Installs a site's icon into the icon theme and returns the name to put in
+/// `Icon=`. Falls back to the absolute path when the image is one the theme
+/// cannot file away — an `.ico` has no single size to sort it under.
+fn install_theme_icon(profile: &str, bytes: &[u8], ext: &str, fallback: &Path) -> String {
+    let name = icon_name(profile);
+    let dir = match ext {
+        "svg" => Some(icon_theme_dir().join("scalable/apps")),
+        "png" => png_dimensions(bytes).map(|(w, h)| icon_theme_dir().join(format!("{w}x{h}/apps"))),
+        _ => None,
+    };
+
+    let Some(dir) = dir else {
+        return fallback.to_string_lossy().into_owned();
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return fallback.to_string_lossy().into_owned();
+    }
+    if std::fs::write(dir.join(format!("{name}.{ext}")), bytes).is_err() {
+        return fallback.to_string_lossy().into_owned();
+    }
+    name
+}
+
+/// Removes every copy of a site's icon from the theme, whatever size it went
+/// in under.
+fn remove_theme_icon(profile: &str) {
+    let name = icon_name(profile);
+    let Ok(sizes) = std::fs::read_dir(icon_theme_dir()) else {
+        return;
+    };
+    for size in sizes.filter_map(|entry| entry.ok()) {
+        for ext in ["png", "svg"] {
+            let _ = std::fs::remove_file(size.path().join("apps").join(format!("{name}.{ext}")));
+        }
+    }
+}
+
 pub fn desktop_file(profile: &str) -> PathBuf {
     applications_dir().join(format!("{PROGRAM_NAME}-{profile}.desktop"))
 }
@@ -254,6 +330,40 @@ fn fetch_icon(site_url: &str) -> Option<(Vec<u8>, &'static str)> {
     None
 }
 
+/// Sites instaCache sets up for you on a first install.
+///
+/// Instagram is the application itself and is not in this list; these are the
+/// extras. Kept deliberately short — a dedicated browser that fills somebody's
+/// menu with applications they did not ask for is spam, not a feature.
+pub const DEFAULT_SITES: &[(&str, &str, &str)] = &[(
+    "XCache",
+    "https://x.com/",
+    // Posts load from x.com but every image and video comes from twimg.com,
+    // so a window that allows only the first shows a feed with no pictures.
+    "x.com,twimg.com",
+)];
+
+/// Adds the default sites, but only ones that have never existed.
+///
+/// `install.sh` calls this, and it runs again on every update, so "already
+/// there" is not the only case to skip: somebody who removed a site must not
+/// find it back in their menu after the next update. The profile's directory
+/// is what records that it once existed — `--remove-site` deliberately leaves
+/// it — so its presence is the signal to keep out of the way.
+pub fn ensure_defaults() -> Vec<String> {
+    let mut added = Vec::new();
+    for (name, url, domains) in DEFAULT_SITES {
+        if Paths::for_profile(&sanitize_profile(name)).config.exists() {
+            continue;
+        }
+        match add(name, url, Some(domains), None) {
+            Ok(site) => added.push(site.profile),
+            Err(error) => eprintln!("instacache: could not add {name}: {error}"),
+        }
+    }
+    added
+}
+
 pub struct Added {
     pub profile: String,
     pub config: PathBuf,
@@ -322,10 +432,17 @@ pub fn add(
             std::fs::write(&target, bytes).ok().map(|()| target)
         }),
     };
-    let icon_name = icon_path
-        .as_ref()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| ICON_NAME.to_string());
+    let icon_entry = match icon_path.as_ref() {
+        Some(path) => {
+            let bytes = std::fs::read(path).unwrap_or_default();
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            install_theme_icon(&profile, &bytes, &ext, path)
+        }
+        None => ICON_NAME.to_string(),
+    };
 
     let entry = desktop_file(&profile);
     if let Some(parent) = entry.parent() {
@@ -333,7 +450,7 @@ pub fn add(
     }
     std::fs::write(
         &entry,
-        desktop_entry(name.trim(), &profile, &exec_command(), &icon_name),
+        desktop_entry(name.trim(), &profile, &exec_command(), &icon_entry),
     )
     .map_err(|err| err.to_string())?;
     refresh_desktop_database(&applications_dir());
@@ -367,6 +484,9 @@ pub fn remove(name: &str) -> Result<PathBuf, String> {
     let entry = desktop_file(&profile);
     match std::fs::remove_file(&entry) {
         Ok(()) => {
+            // The theme copy is an installed artefact, not the user's data, so
+            // unlike the session it goes when the entry does.
+            remove_theme_icon(&profile);
             refresh_desktop_database(&applications_dir());
             Ok(entry)
         }
@@ -396,13 +516,39 @@ pub fn list() -> Vec<String> {
     names
 }
 
-/// Best-effort: a stale cache only means the entry appears at the next login.
+/// Tells the desktop a new entry and a new icon exist.
+///
+/// Three caches, because they are read by different things and refreshing only
+/// some leaves a site half-visible: `update-desktop-database` rebuilds the
+/// freedesktop association cache, `gtk-update-icon-cache` the icon theme
+/// index, and `kbuildsycoca6` KDE's own, which is what its menu and task bar
+/// consult. Both are best-effort — a stale cache
+/// only means the entry turns up at the next login rather than at once, which
+/// is not worth failing an install over.
 fn refresh_desktop_database(dir: &Path) {
-    let _ = std::process::Command::new("update-desktop-database")
-        .arg(dir)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let quiet = |mut command: std::process::Command| {
+        let _ = command
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    };
+
+    let mut update = std::process::Command::new("update-desktop-database");
+    update.arg(dir);
+    quiet(update);
+
+    if crate::http::which("gtk-update-icon-cache").is_some() {
+        let mut icons = std::process::Command::new("gtk-update-icon-cache");
+        icons.args(["-f", "-t"]).arg(icon_theme_dir());
+        quiet(icons);
+    }
+
+    for tool in ["kbuildsycoca6", "kbuildsycoca5"] {
+        if crate::http::which(tool).is_some() {
+            quiet(std::process::Command::new(tool));
+            break;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -514,6 +660,48 @@ mod tests {
             pick_icon_link(html, "https://example.com/").as_deref(),
             Some("https://example.com/i.png")
         );
+    }
+
+    #[test]
+    fn a_pngs_size_is_read_from_its_header() {
+        // An 8x8 PNG: signature, length, IHDR, width, height.
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&[0, 0, 0, 13]);
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&8u32.to_be_bytes());
+        png.extend_from_slice(&8u32.to_be_bytes());
+        assert_eq!(png_dimensions(&png), Some((8, 8)));
+
+        // Anything that is not a PNG header must not produce a size, or the
+        // icon lands in a directory that claims a size it does not have.
+        assert_eq!(png_dimensions(b"<svg/>"), None);
+        assert_eq!(png_dimensions(&[0u8; 4]), None);
+    }
+
+    #[test]
+    fn a_sites_icon_is_named_after_its_profile() {
+        assert_eq!(icon_name("xcache"), "instacache-xcache");
+        // Same shape as the window class, so an entry, a window and an icon
+        // all agree without anyone having to remember to keep them in step.
+        assert_eq!(icon_name("xcache"), window_class("xcache"));
+    }
+
+    #[test]
+    fn the_default_sites_are_well_formed() {
+        for (name, url, domains) in DEFAULT_SITES {
+            assert!(crate::urls::is_http(url), "{name} needs a web address");
+            assert_ne!(
+                sanitize_profile(name),
+                crate::paths::DEFAULT_PROFILE,
+                "{name} would collide with instaCache itself"
+            );
+            // A site whose media host is missing shows a feed with no pictures.
+            let listed: Vec<&str> = domains.split(',').collect();
+            assert!(
+                listed.contains(&default_domain(url).unwrap().as_str()),
+                "{name} does not allow its own host"
+            );
+        }
     }
 
     #[test]

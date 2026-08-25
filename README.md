@@ -268,6 +268,10 @@ application menu with the X logo**, and opens in its own window, with its own
 session, its own cache and its own cookies — signed into X has nothing to do
 with signed into Instagram.
 
+instaCache ships with one such site already set up: **XCache**, which is X. The
+installer adds it, and only ever once — remove it and an update will not bring
+it back. `--setup-sites` does the same thing by hand.
+
 The icon comes from the site itself: whatever it declares in its markup, taking
 the largest, and its `/favicon.ico` otherwise. GitHub publishes a 512×512 one
 and gets that; X declares nothing and its favicon is used. The image is
