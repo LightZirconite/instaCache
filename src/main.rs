@@ -143,13 +143,23 @@ instacache --profile {}",
     chromium::apply(&config);
     qmetaobject::webengine::initialize();
 
-    let mut engine = QmlEngine::new();
     // What Wayland turns into the `app_id` and X11 into `WM_CLASS`; it has to
-    // match `StartupWMClass` in the entry that launched us or the dock shows a
-    // generic icon. It differs per profile so that each site added to the menu
-    // gets its own icon instead of every window piling under one. See the
+    // match `StartupWMClass` in the entry that launched us or the task bar
+    // cannot tell which application the window belongs to, and falls back to
+    // instaCache's own icon. It differs per profile so each site added to the
+    // menu gets its own icon instead of every window piling under one. See the
     // three-constants rule in AGENTS.md.
-    QCoreApplication::set_application_name(sites::window_class(&profile).into());
+    //
+    // Set before the application object exists, not after: Qt reads the name
+    // while building it, and assigning afterwards changes nothing the
+    // compositor ever sees. That is exactly the bug this line once had.
+    let class = sites::window_class(&profile);
+    QCoreApplication::set_application_name(class.as_str().into());
+    // The one that actually reaches the compositor. See the function's own
+    // comment for why the line above is not enough on its own.
+    sites::announce_desktop_file(&class);
+
+    let mut engine = QmlEngine::new();
 
     let shell = std::cell::RefCell::new(Shell::new(config, paths, listener, options.url.clone()));
     let pinned = unsafe { QObjectPinned::new(&shell) };

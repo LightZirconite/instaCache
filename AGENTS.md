@@ -58,6 +58,7 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/instance.rs` | One window per profile, over a Unix socket. |
 | `src/sites.rs` | Turning a site into its own menu entry, icon and window class. |
 | `src/http.rs` | Fetching a URL through curl or wget, never a linked stack. |
+| `build.rs` | Compiles the single C++ call Qt exposes no binding for. |
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
 | `src/updates.rs` | Checking for and installing a newer release. |
@@ -83,9 +84,38 @@ which looks like a packaging bug and is not.
 There is a fourth link now: a site added with `--add-site` gets its own class,
 `instacache-<profile>`, from `sites::window_class()`, and its generated entry
 carries the matching `StartupWMClass`. Both sides come from that one function
-on purpose — if they ever disagree, the desktop shows the site's window as a
-second, unnamed item next to its own launcher. The default profile still
-returns plain `instacache`, which is what keeps the shipped entry correct.
+on purpose — if they ever disagree, the task bar cannot tell which application
+the window belongs to. The default profile still returns plain `instacache`,
+which is what keeps the shipped entry correct.
+
+### The name the compositor actually reads
+
+`QCoreApplication::setApplicationName` is **not** what sets the Wayland
+`app_id`, and believing otherwise cost an afternoon here. Qt's Wayland plugin
+calls `QGuiApplication::desktopFileName()` and passes the result straight to
+`xdg_toplevel::set_app_id`; it never looks at the application name. You can
+confirm it without reading Qt's source:
+
+```sh
+strings /usr/lib/libQt6WaylandClient.so.6 | grep -E 'desktopFileName|set_app_id'
+```
+
+Setting only the application name leaves every window announcing `instacache`,
+so a site's window matched `instacache.desktop` and the task bar drew
+instaCache's icon over the site's — while the menu, which reads the entry
+directly, showed the right one. A wrong icon in one place and the right icon in
+the other is the signature of this bug.
+
+`sites::announce_desktop_file()` makes the real call, through the only C++ in
+this codebase. That is why `build.rs`, `cpp` and `qttypes` exist: no binding
+exposes the function, and nothing else in Qt's API stands in for it. It must
+run before the first window is created.
+
+To check a window's class without trusting anything:
+
+```sh
+kdotool search --classname . | while read w; do kdotool getwindowclassname "$w"; done
+```
 
 ## Before you commit
 
