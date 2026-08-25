@@ -4,6 +4,22 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- A site added to the menu now keeps its own icon **in the task bar**, not just
+  in the application menu. Its window announced `instacache` like every other,
+  so the task bar matched it to `instacache.desktop` and drew instaCache's icon
+  over the site's.
+
+  The cause is worth writing down: `QCoreApplication::setApplicationName` does
+  not set the Wayland `app_id`. Qt's Wayland plugin calls
+  `QGuiApplication::desktopFileName()` and passes that to
+  `xdg_toplevel::set_app_id`, ignoring the application name entirely. No Rust
+  binding exposes `setDesktopFileName`, so this release adds a `build.rs` and
+  the one C++ call in the codebase to make it. A wrong icon in the task bar and
+  the right one in the menu is the signature of exactly this mistake.
+
 ## [2.1.0] - 2026-08-25
 
 ### Changed

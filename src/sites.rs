@@ -11,6 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
+use cpp::cpp;
+use qttypes::QString;
+
 use crate::config::Config;
 use crate::paths::{sanitize_profile, Paths};
 use crate::{ICON_NAME, PROGRAM_NAME};
@@ -29,6 +32,30 @@ pub fn applications_dir() -> PathBuf {
 
 pub fn desktop_file(profile: &str) -> PathBuf {
     applications_dir().join(format!("{PROGRAM_NAME}-{profile}.desktop"))
+}
+
+cpp! {{
+    #include <QtGui/QGuiApplication>
+    #include <QtCore/QString>
+}}
+
+/// Tells Qt which desktop entry this process belongs to.
+///
+/// This is what actually puts a site's own icon in the task bar, and it is not
+/// the same thing as the application name. Qt's Wayland plugin calls
+/// `QGuiApplication::desktopFileName()` and passes the result straight to
+/// `xdg_toplevel::set_app_id`; it never looks at `applicationName()`. Setting
+/// only the latter — which is what this code did at first — leaves every
+/// window announcing `instacache`, so the task bar matches all of them to
+/// `instacache.desktop` and draws instaCache's icon over the site's.
+///
+/// Must be called before the first window is created. The name is passed
+/// without the `.desktop` suffix, which Qt would strip with a warning.
+pub fn announce_desktop_file(name: &str) {
+    let name = QString::from(name);
+    cpp!(unsafe [name as "QString"] {
+        QGuiApplication::setDesktopFileName(name);
+    });
 }
 
 /// What the window reports as its Wayland `app_id` and X11 `WM_CLASS`.

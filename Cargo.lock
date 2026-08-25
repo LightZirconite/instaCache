@@ -481,9 +481,12 @@ dependencies = [
 name = "instacache"
 version = "2.1.0"
 dependencies = [
+ "cpp",
+ "cpp_build",
  "dirs",
  "notify-rust",
  "qmetaobject",
+ "qttypes",
  "serde",
  "serde_json",
 ]

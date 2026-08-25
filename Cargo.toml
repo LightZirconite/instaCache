@@ -12,7 +12,11 @@ keywords = ["instagram", "chromium", "qt", "desktop", "linux"]
 categories = ["gui"]
 
 [dependencies]
+# One C++ call this project cannot do without and no binding exposes:
+# QGuiApplication::setDesktopFileName. See `sites::announce_desktop_file`.
+cpp = "0.5"
 dirs = "6"
+qttypes = "0.2"
 # The window and the web view. `webengine` is what pulls in Qt WebEngine and
 # provides the initialisation call that has to run before QGuiApplication.
 qmetaobject = { version = "0.2.10", features = ["webengine"] }
@@ -22,6 +26,9 @@ serde_json = "1"
 # pure-Rust D-Bus, so packaging gains no system development package; the
 # default `d` backend would require libdbus headers at build time.
 notify-rust = { version = "4.17", default-features = false, features = ["z"] }
+
+[build-dependencies]
+cpp_build = "0.5"
 
 [profile.release]
 opt-level = 3
