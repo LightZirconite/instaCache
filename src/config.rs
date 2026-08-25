@@ -324,6 +324,12 @@ impl WindowState {
 
 /// Atomic write: a crash mid-save leaves the previous file intact rather than
 /// a half-written one.
+/// Writes a configuration file, creating its directory. Used when a site is
+/// added, which is the only path that writes a config the user has not seen.
+pub fn write(path: &Path, config: &Config) -> std::io::Result<()> {
+    write_json(path, config)
+}
+
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

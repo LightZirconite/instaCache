@@ -56,6 +56,7 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/paths.rs` | XDG locations and named profiles. |
 | `src/downloads.rs` | Where a download goes and under what name. |
 | `src/instance.rs` | One window per profile, over a Unix socket. |
+| `src/sites.rs` | Turning a site into its own menu entry and window class. |
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
 | `src/updates.rs` | Checking for and installing a newer release. |
@@ -74,9 +75,16 @@ to drift apart across an update.
 
 `PROGRAM_NAME` in `src/lib.rs`, `StartupWMClass` in `instacache.desktop`, and
 the installed icon name `instacache`. Qt derives the Wayland `app_id` and the
-X11 `WM_CLASS` from the application name, which `main.rs` sets from
-`PROGRAM_NAME` before the first window exists. Break the chain and the app
-shows a generic icon in the dock — which looks like a packaging bug and is not.
+X11 `WM_CLASS` from the application name, which `main.rs` sets before the first
+window exists. Break the chain and the app shows a generic icon in the dock —
+which looks like a packaging bug and is not.
+
+There is a fourth link now: a site added with `--add-site` gets its own class,
+`instacache-<profile>`, from `sites::window_class()`, and its generated entry
+carries the matching `StartupWMClass`. Both sides come from that one function
+on purpose — if they ever disagree, the desktop shows the site's window as a
+second, unnamed item next to its own launcher. The default profile still
+returns plain `instacache`, which is what keeps the shipped entry correct.
 
 ## Before you commit
 

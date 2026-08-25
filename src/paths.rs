@@ -97,7 +97,7 @@ fn scoped(base: PathBuf, profile: &str) -> PathBuf {
 
 /// Profile names end up as directory names and as a D-Bus application-id
 /// suffix, so restrict them to a conservative, always-valid character set.
-fn sanitize_profile(raw: &str) -> String {
+pub fn sanitize_profile(raw: &str) -> String {
     let cleaned: String = raw
         .trim()
         .chars()

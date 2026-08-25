@@ -93,6 +93,16 @@ REMOVED=0
 
 remove "$PREFIX/bin/$APP"
 remove "$DESKTOP_DIR/$APP.desktop"
+
+# Menu entries for sites added with `--add-site`. They always live under the
+# user's own data directory, never under $PREFIX, because a site somebody added
+# is their data rather than part of the installation -- so they are removed
+# from there whether this is a user or a system uninstall.
+SITE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+for entry in "$SITE_DIR/$APP-"*.desktop; do
+    [ -e "$entry" ] || continue
+    remove "$entry"
+done
 remove "$ICON_DIR/scalable/apps/$APP.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
     remove "$ICON_DIR/${size}x${size}/apps/$APP.png"

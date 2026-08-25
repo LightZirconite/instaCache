@@ -237,6 +237,11 @@ instacache [OPTIONS] [URL]
 
   <URL>                  Open this Instagram URL instead of your feed.
   -p, --profile <NAME>   Use a separate session, cache and window.
+      --add-site <NAME> <URL>
+                         Add a site to your application menu.
+      --remove-site <NAME>
+                         Take it back out. Its data is kept.
+      --list-sites       Show the sites you have added.
       --update           Check for a newer release and install it.
       --clear-cache      Delete cached resources, stay signed in.
       --clear-session    Delete cookies and site storage (signs you out).
@@ -246,6 +251,34 @@ instacache [OPTIONS] [URL]
 
 Launching instaCache twice with the same profile focuses the existing window
 instead of starting a second copy.
+
+## Another site in its own window
+
+instaCache is an Instagram client, but nothing in the window is Instagram-
+specific — it is one engine pointed at one site. Point it somewhere else and it
+becomes that site's application:
+
+```sh
+instacache --add-site X https://x.com/ --domains x.com,twimg.com
+```
+
+That writes two things: a profile, and a menu entry. **X now appears in your
+application menu with its own icon**, and opens in its own window, with its own
+session, its own cache and its own cookies — signed into X has nothing to do
+with signed into Instagram.
+
+`--domains` is the allow-list for that window, and it matters: a site whose
+images come from a separate host needs that host named, or the images are
+treated as external links. Left out, it defaults to the URL's own host, which
+is right for a site that serves everything itself:
+
+```sh
+instacache --add-site "Hacker News" https://news.ycombinator.com/
+```
+
+`--list-sites` shows what you have added and `--remove-site X` takes the entry
+back out of the menu. Removing an entry never deletes the session behind it;
+`instacache --profile x --clear-session` does that.
 
 ## Configuration
 
