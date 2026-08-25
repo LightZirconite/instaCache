@@ -314,6 +314,45 @@ page is shown instead of looping forever. That decision is in Rust, and tested,
 precisely so it cannot quietly become "always reload". Anything that makes the
 process die on every load must not be "fixed" by raising the limit.
 
+## A live process, no window and no error
+
+qmetaobject does not report QML component errors. A scene that fails to
+instantiate leaves a process that runs happily for as long as you let it,
+prints nothing at all — not one line — and never shows a window. It looks like
+a hang, or like the page failing to load, and it is neither.
+
+If a change to `main.qml` produces silence, assume the scene did not build.
+Bisect by removing what you added rather than by adding logging, because your
+logging will not run either.
+
+What produced this the first time: `WebEngineScript { … }` inside
+`userScripts.collection`. Qt's own type registry says why —
+
+```sh
+grep -A 12 '"QtWebEngine/WebEngineScript' /usr/lib/qt6/qml/QtWebEngine/plugins.qmltypes
+```
+
+— `isCreatable: false`. User scripts cannot be declared from QML in this Qt, so
+running the user's JavaScript at document creation, the way an extension's
+content script does, needs `QWebEngineProfile::scripts()` from C++. Until
+somebody does that, `user.js` runs after the load finishes, which is fine for
+changing a page and useless for stopping something appearing.
+
+## A test launch that does nothing
+
+`instance.rs` gives one window per profile, and a second launch of the same
+profile hands its URL over and exits 0 immediately. That is correct behaviour
+and a trap while testing: a stray instance left from an earlier run swallows
+every launch after it, so the app appears to do nothing and the bench records
+nothing.
+
+It cost a wrong conclusion here — a change was blamed for breaking rendering
+when it had simply never run. Give each test its own profile name, and check:
+
+```sh
+pgrep -ax instacache; ls "$XDG_RUNTIME_DIR"/instacache-*.sock
+```
+
 ## Touching `urls.rs`
 
 `is_internal_in()` decides what renders inside a window holding a logged-in
