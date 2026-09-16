@@ -417,6 +417,33 @@ Two consequences to keep in mind:
   due, and stops once an update is installed, because the running binary would
   otherwise keep finding the same release newer and install it again.
 
+## Updates take over by restarting
+
+An update is installed long before it runs: replacing the binary under a
+running copy is safe on Linux, and the running copy keeps the file it started
+from. `bridge.rs` then holds the update as `Ready`, and the new version takes
+over by a restart that `main.rs` performs after the scene has quit:
+
+- **Quietly**, when `quiet_restart_allowed` says so — window closed, no call.
+  The scene asks on every poll and quits; `main` starts the new binary with
+  `--background`, so nothing appears.
+- **On request**, from the pill in a visible window, reopening its page.
+
+Three details that each cost something to get right:
+
+- The path to restart is read with `current_exe()` **at startup**. Once the
+  file has been replaced, `/proc/self/exe` names a deleted file.
+- `main` drops the engine and releases the instance socket **before** starting
+  the new copy, which would otherwise find this one still holding the profile
+  and hand itself over to it.
+- `--background` also has to set the window's `visibility` to `Hidden`: in Qt
+  any other visibility shows the window, whatever `visible` says.
+
+`--background` is new in 2.4.0. A quiet restart only ever starts a newer
+binary, which knows it, but a test that "updates" a build to an *older*
+published release sees that release reject the option. That is the test, not
+the updater.
+
 ## A test launch that does nothing
 
 `instance.rs` gives one window per profile, and a second launch of the same
@@ -466,6 +493,14 @@ Test an update by lowering the version in `Cargo.toml`, building, installing to
 a scratch prefix and running `--update` against the real published release. It
 is the only way to exercise the download, the checksum and the hand-off
 together.
+
+The automatic path is tested the same way, without a terminal command: set
+`XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` to a scratch directory
+— the installer adds menu entries through them, and must not touch yours —
+give that config `"update_check_interval_hours": 0`, and start the scratch
+binary with `QT_QPA_PLATFORM=offscreen` and `--background`. The log should show
+the install, `takes over at the next restart`, and `restarted into the updated
+version`, and the first process should exit on its own.
 
 ## Releasing
 

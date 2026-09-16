@@ -160,24 +160,32 @@ the checksum for you.
 ## Updates
 
 Nothing else updates instaCache — it is installed from an archive, not by a
-package manager — so it updates itself.
+package manager — so it updates itself, the way Chrome, Firefox and VS Code do
+when they are installed from an archive:
 
-On startup it asks GitHub once a day whether a newer release exists. If there
-is one, and your install is in `~/.local` where no root is needed, it is
-downloaded, checked against its SHA-256 and installed in the background. You
-get a notification saying to quit with `Ctrl+Q` and open it again. Nothing is
-ever replaced while you are looking at it. An instance left running in the
-background asks again every hour whether a check is due.
+1. **It checks in the background**, at startup and every 6 hours while it runs.
+2. **It installs without asking.** For an install in `~/.local`, where no root
+   is needed, the new release is downloaded, checked against its published
+   SHA-256 and installed while you keep using the old one.
+3. **The new version takes over at a restart, and you rarely have to do it.**
+   - The window is closed and instaCache is running in the background: it
+     restarts on its own, still hidden, and the next time you open it you are
+     on the new version. Never during a call.
+   - The window is open: a small **Update ready — Restart** pill appears at the
+     bottom. Restart reopens the page you were on; **Later** hides it, and the
+     update is applied as soon as you close the window.
 
-To check right now:
+A system-wide install needs root to be replaced. When `pkexec` is available the
+pill offers **Install** instead, which asks for the administrator password;
+otherwise a notification says to run `sudo instacache --update`.
+
+To check right now from a terminal:
 
 ```sh
 instacache --update
 ```
 
-A system-wide install cannot update itself without root, so it only tells you
-that a new version exists. Turn the whole thing off with `"auto_update": false`
-in `config.json`.
+Turn the whole thing off with `"auto_update": false` in `config.json`.
 
 ## Uninstall
 
@@ -269,6 +277,7 @@ instacache [OPTIONS] [URL]
                          Take it back out. Its data is kept.
       --list-sites       Show the sites you have added.
       --update           Check for a newer release and install it.
+      --background       Start with the window hidden. Launching again shows it.
       --clear-cache      Delete cached resources, stay signed in.
       --clear-session    Delete cookies and site storage (signs you out).
   -h, --help             Full help.
@@ -344,7 +353,7 @@ its default. Edit it and restart.
 | `show_loading_indicator` | `true` | The thin gradient bar at the top of the window. |
 | `start_maximized` | `false` | Always open maximized. |
 | `auto_update` | `true` | Check GitHub for a newer release and install it. |
-| `update_check_interval_hours` | `24` | Hours between checks. `0` checks every launch. |
+| `update_check_interval_hours` | `6` | Hours between checks. `0` checks at every launch and never in between. A `24` written by an older version is read as the new default. |
 
 ### Custom styling and scripting
 
