@@ -91,6 +91,15 @@ instant. It is not a lightweight way to *view* Instagram — it is a lightweight
 - **Pages, not tabs.** Something Instagram opens in a new tab or window shows up
   in the same window with a small back button, and opening another one replaces
   it. The window stays one application rather than turning into a browser.
+- **It sounds like a messenger.** A new message plays a short sound with its
+  notification, and an incoming call rings — repeatedly, like Discord — until
+  you open the window, click or dismiss the notification, or thirty seconds
+  pass. Do Not Disturb silences both.
+- **Closing is really closing, for the page.** Videos and Reels are paused, and
+  Chromium is told the page is hidden, so it stops drawing and slows its
+  timers; a call keeps going. Opening the window again shows the page as you
+  left it straight away, and the live page takes over a fraction of a second
+  later — no blank screen while it redraws.
 - **Unread count on the icon.** The number Instagram puts in its title appears on
   the task bar icon, on docks that read Unity's launcher API — KDE Plasma,
   Dash to Dock, Plank.
@@ -327,6 +336,13 @@ is right for a site that serves everything itself:
 instacache --add-site "Hacker News" https://news.ycombinator.com/
 ```
 
+A site gets every fix and feature Instagram's window has — pages with a back
+button, the unread badge, notifications and their sound, updates — except the
+ones that make Instagram a messenger. It does not keep running when closed, has
+no tray icon, is not given the microphone or camera, and does not ring; closing
+it frees its memory. Any of those can be turned on in its own `config.json`,
+and a value written there always wins.
+
 `--list-sites` shows what you have added and `--remove-site X` takes the entry
 back out of the menu. Removing an entry never deletes the session behind it;
 `instacache --profile x --clear-session` does that.
@@ -346,10 +362,12 @@ its default. Edit it and restart.
 | `context_menu` | `false` | Show the engine's right-click menu. Off, because in a one-application window it is browser chrome — Back, Forward, View Source — and it covers the page. Turning it off also removes "Save image as" and "Copy link address"; set `true` to get them back. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
-| `calls` | `true` | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
-| `run_in_background` | `true` | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
+| `notification_sounds` | `true` | A short sound with a message's notification. Where the notification server plays sounds itself (KDE Plasma does), it honours Do Not Disturb and its own sound settings. |
+| `ring_for_calls` | `true` for Instagram, `false` for other sites | Ring for an incoming call until it is answered or dismissed. A call is recognised from the notification's words, in English, French, Spanish, German, Portuguese and Italian. |
+| `calls` | `true` for Instagram, `false` for other sites | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
+| `run_in_background` | `true` for Instagram, `false` for other sites | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
 | `unread_badge` | `true` | Show the unread count from Instagram's title on the task bar icon. |
-| `tray_icon` | `true` | An icon in the system tray while instaCache runs. Needs a desktop with a tray: KDE Plasma, Cinnamon, XFCE and most others have one; GNOME needs the AppIndicator extension. Without a tray nothing breaks, there is simply no icon. |
+| `tray_icon` | `true` for Instagram, `false` for other sites | An icon in the system tray while instaCache runs. Needs a desktop with a tray: KDE Plasma, Cinnamon, XFCE and most others have one; GNOME needs the AppIndicator extension. Without a tray nothing breaks, there is simply no icon. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
 | `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
@@ -489,6 +507,9 @@ The scene is compiled into the binary, so there is still one file to ship.
   reopened from the application menu or by launching `instacache` again, and
   quit with `Ctrl+Q` or `pkill -x instacache`, which still saves the window's
   size and position.
+- An incoming call is recognised from the words of Instagram's notification,
+  because Instagram marks call notifications in no other way. In a language not
+  on the list, a call notifies like a message and does not ring.
 - On Wayland, a window brought back by launching instaCache again may not take
   the keyboard focus: the compositor wants an activation token from the
   launcher, and handing it to the running copy needs Qt API newer than the

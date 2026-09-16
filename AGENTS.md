@@ -54,6 +54,7 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/bridge.rs` | Everything QML may ask Rust. The policy lives here. |
 | `src/qml/main.qml` | The window, its pages, the loading bar, the shortcuts. |
 | `src/badge.rs` | The unread count on the task bar icon, over D-Bus. |
+| `src/alerts.rs` | Notifications, their sounds, and ringing for a call. |
 | `src/chromium.rs` | Config settings translated into Chromium flags. |
 | `src/config.rs` | `config.json` and window geometry, both fault-tolerant. |
 | `src/paths.rs` | XDG locations and named profiles. |
@@ -471,20 +472,86 @@ then `org.freedesktop.DBus.Properties.GetAll` on the new item and
 an installed icon still shows instaCache's: the icon theme falls back from
 `instacache-<profile>` to `instacache` by itself.
 
-## A window shown again comes back blank
+## Closing to the background, measured
 
-Closing a window hides it, and a hidden window loses its graphics. When it is
-shown again, Chromium's last frame is gone and Chromium does not know it, so
-the page stays blank — black here, Instagram's grey for a user — until an
-input event makes it draw. `root.repaint()` hides the view for 30 ms after a
-show, which makes Chromium send a new frame.
+Hiding a Qt window does **not** hide the page from Chromium. Measured off
+screen, twelve seconds after `hide()`: `document.visibilityState` was still
+`visible`, timers ran at full rate, and two videos kept playing, one with its
+sound. And a window shown again came back blank — black with a test page,
+Instagram's grey for a user — for seconds, or until a click, because its
+graphics went with the hide and Chromium did not know.
 
-It is not reproducible by starting with `--background` and showing the window:
-it needs a window that was shown, closed, and left hidden for a while. On the
-reference machine, closed for 25 or 40 seconds, the page came back black in
-two runs out of two without the repaint and correct in two out of two with it,
-both in `grabToImage` and on screen. Test it that way, with a solid-colour page
-and a profile of its own, and never with a click in between.
+So closing to the background does three things, in `hideToBackground`:
+
+1. **Snapshot** the stage with `grabToImage`, while it is still on screen.
+2. **Pause** every `video` and `audio` that is not a `MediaStream` — a call's
+   own streams are left alone — in Instagram and in ordinary pages.
+3. **Hide the views** (`backgrounded`), which is what tells Chromium the page
+   is hidden: measured, `visibilityState` becomes `hidden`, timers throttle,
+   videos stay paused.
+
+`bringToFront` shows the snapshot, shows the window, unhides the views and
+waits for two animation frames to run in the page — which only happens once
+Chromium composites again — before fading the snapshot out, with a two-second
+cap. On the reference machine, closed for 20 seconds: the live page took over
+78 and 308 ms after the window showed, and the screen was never blank.
+
+An earlier fix hid the view for 30 ms after a show to force a new frame. It
+worked on a plain test page and still left Instagram black for seconds while
+Chromium redrew; do not go back to it.
+
+Reproduce with a window that was shown, closed and left hidden for 20 seconds
+or more, a solid-colour page and a profile of its own — never by starting with
+`--background`, which does not show the problem.
+
+## Per-site defaults
+
+A profile whose `home_url` is Instagram gets `calls`, `ring_for_calls`,
+`run_in_background` and `tray_icon` on; any other site gets them off.
+`Config::from_json` fills a key the file leaves out with the default for *that
+file's* home page, so XCache's config, written before those keys existed, does
+not inherit a messenger's behaviour. A key present in the file always wins.
+New settings that only make sense for a messenger belong in `Config::for_home`.
+
+## Notifications and ringing
+
+`alerts.rs` shows each notification on a thread of its own. Waiting for a click
+blocks, and a call's notification stays up until acted on; on one shared
+thread, every notification after it would wait.
+
+A message names `message-new-instant` in the notification when the server has
+the `sound` capability, so the server plays it and honours Do Not Disturb, and
+plays it locally otherwise. A call rings locally, `phone-incoming-call` on
+repeat, because no server repeats a sound; it checks the server's `Inhibited`
+property first. Ringing stops when the notification is clicked or dismissed,
+when the window becomes active, when a page is granted the microphone or
+camera, or after thirty seconds.
+
+Instagram does not mark a call notification, so `alerts::classify` reads its
+words. Extend `CALL_PHRASES` rather than loosening the match: a message that
+merely mentions calling must not ring. Nothing about a notification's content
+is logged, only that a call rang.
+
+Check it without Instagram, on a local page that posts `new Notification(…)`,
+by watching `Notify` with `dbus-monitor` and the player with `pgrep`.
+
+## A binary replaced under a running copy
+
+`/proc/self/exe` ends in ` (deleted)` once the file was replaced. `bridge.rs`
+looks every twenty seconds and treats it as an installed update, so a window
+closed to the background takes it over by its quiet restart. Without that, an
+`instacache --update` run by hand left the old copy running for as long as it
+stayed in the background, and every launch from the menu was handed to it.
+
+## A crash when quitting after a video played
+
+Quitting — a window closed with `run_in_background` off, or `Ctrl+Q` — shortly
+after a video played occasionally dies in Chromium's shutdown: `SIGTRAP` from
+a Chromium thread, or glibc's `__pthread_tpp_change_priority` assertion. It is
+not new: a build from before the background changes did it too, 1 time in 11,
+on the reference machine, where CachyOS's `foreground_booster` changes process
+priorities on every focus change. The window state is already saved by then.
+Not fixed; if you look into it, start from the priority assertion.
 
 ## A test launch that does nothing
 
