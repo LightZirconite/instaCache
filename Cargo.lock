@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "instacache"
-version = "2.2.1"
+version = "2.3.0"
 dependencies = [
  "cpp",
  "cpp_build",
