@@ -4,7 +4,7 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.3.0] - 2026-09-16
 
 ### Added
 - **Pages instead of tabs.** Whatever Instagram opens in a new tab or window —
