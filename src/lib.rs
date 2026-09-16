@@ -14,6 +14,7 @@
 //! which URL is internal, where a download goes, what the offline page says,
 //! when to check for an update. The QML scene owns only the widgets.
 
+pub mod alerts;
 pub mod badge;
 pub mod bridge;
 pub mod chromium;

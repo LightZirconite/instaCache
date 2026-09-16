@@ -21,7 +21,7 @@ use qmetaobject::*;
 
 use crate::config::{Config, WindowState};
 use crate::paths::Paths;
-use crate::{badge, downloads, errorpage, instance, sites, updates, urls};
+use crate::{alerts, badge, downloads, errorpage, instance, sites, updates, urls};
 use crate::{APP_NAME, ICON_NAME};
 
 /// Set by the termination signal handler, which may do nothing more than
@@ -38,13 +38,9 @@ const CRASH_WINDOW: Duration = Duration::from_secs(120);
 /// still decided by `update_check_interval_hours`.
 const UPDATE_RECHECK: Duration = Duration::from_secs(3600);
 
-/// What the notification thread is asked to display.
-struct Toast {
-    title: String,
-    body: String,
-    /// Whether a click should raise the window and reach the page.
-    clickable: bool,
-}
+/// How often a running instance looks whether its binary was replaced. It is
+/// one `readlink`.
+const REPLACED_CHECK: Duration = Duration::from_secs(20);
 
 #[derive(QObject, Default)]
 pub struct Shell {
@@ -162,6 +158,21 @@ pub struct Shell {
             self.send_toast(title, body, true);
         }
     ),
+    /// A notification a page posted: a message, or an incoming call, which
+    /// rings. Only whether it was a call is logged, never what it said.
+    notify_page: qt_method!(
+        fn notify_page(&self, title: String, body: String) {
+            self.page_notification(title, body);
+        }
+    ),
+    /// The window was opened, or a call answered: whatever was ringing stops.
+    stop_ringing: qt_method!(
+        fn stop_ringing(&self) {
+            if let Some(alerts) = self.alerts.as_ref() {
+                alerts.stop_ringing();
+            }
+        }
+    ),
     /// Drains everything that happened off the UI thread, as JSON:
     /// `{"present": bool, "urls": [...], "quit": bool}`.
     ///
@@ -223,10 +234,11 @@ pub struct Shell {
     listener: Option<UnixListener>,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
     update_asked: Cell<Option<Instant>>,
+    replaced_checked: Cell<Option<Instant>>,
     update: RefCell<UpdateState>,
     restart: RefCell<Option<Restart>>,
     hidden_at_start: bool,
-    toasts: Option<Sender<Toast>>,
+    alerts: Option<alerts::Alerts>,
     badge: Option<Sender<u32>>,
     unread: Cell<u32>,
     activations: Option<Receiver<()>>,
@@ -244,7 +256,15 @@ impl Shell {
         start_hidden: bool,
     ) -> Self {
         let update_check = updates::check_in_background(&config, &paths);
-        let (toasts, activations) = spawn_notifier();
+        let (alerts, activations) = alerts::spawn(alerts::Identity {
+            app_name: if paths.is_default_profile() {
+                APP_NAME.to_string()
+            } else {
+                paths.profile.clone()
+            },
+            icon: profile_icon_name(&paths.profile),
+            desktop_entry: sites::window_class(&paths.profile),
+        });
         let badge = config
             .unread_badge
             .then(|| badge::spawn(sites::window_class(&paths.profile)));
@@ -255,7 +275,7 @@ impl Shell {
             listener,
             updates: RefCell::new(update_check),
             update_asked: Cell::new(Some(Instant::now())),
-            toasts: Some(toasts),
+            alerts: Some(alerts),
             badge,
             activations: Some(activations),
             pending_url: RefCell::new(start_url),
@@ -383,7 +403,7 @@ impl Shell {
     }
 
     fn instagram_shortcuts(&self) -> bool {
-        urls::is_internal_in(&["instagram.com"], &self.config().home_url)
+        crate::config::is_instagram(&self.config().home_url)
     }
 
     fn note_hidden(&self, tray: bool) {
@@ -399,6 +419,36 @@ impl Shell {
         }
         let (title, body) = background_notice(tray);
         self.send_toast(title, body, false);
+    }
+
+    /// Notices a binary updated from outside the app, and treats it as an
+    /// update this copy installed: it takes over at the next quiet restart,
+    /// or from the pill. Without this, a window closed to the background kept
+    /// running the old version after `instacache --update`, and every launch
+    /// from the menu was handed to that old copy.
+    fn notice_replaced_binary(&self) {
+        let now = Instant::now();
+        if self
+            .replaced_checked
+            .get()
+            .is_some_and(|checked| now.saturating_duration_since(checked) < REPLACED_CHECK)
+        {
+            return;
+        }
+        self.replaced_checked.set(Some(now));
+        if !matches!(
+            *self.update.borrow(),
+            UpdateState::Idle | UpdateState::Available(_)
+        ) {
+            return;
+        }
+        let replaced = std::fs::read_link("/proc/self/exe")
+            .map(|link| binary_replaced(&link.to_string_lossy()))
+            .unwrap_or(false);
+        if replaced {
+            println!("instacache: this binary was replaced on disk; the new one takes over at the next restart");
+            *self.update.borrow_mut() = UpdateState::Ready(String::new());
+        }
     }
 
     /// An instance that stays in the background may run for weeks, and the
@@ -522,11 +572,33 @@ impl Shell {
         if !self.config().notifications {
             return;
         }
-        if let Some(toasts) = self.toasts.as_ref() {
-            let _ = toasts.send(Toast {
+        if let Some(alerts) = self.alerts.as_ref() {
+            let _ = alerts.toasts.send(alerts::Toast {
                 title,
                 body,
                 clickable,
+                kind: alerts::Kind::Plain,
+                sound: false,
+            });
+        }
+    }
+
+    fn page_notification(&self, title: String, body: String) {
+        let config = self.config();
+        if !config.notifications {
+            return;
+        }
+        let kind = alerts::classify(&title, &body, config.ring_for_calls);
+        if kind == alerts::Kind::Call {
+            eprintln!("instacache: incoming call; ringing");
+        }
+        if let Some(alerts) = self.alerts.as_ref() {
+            let _ = alerts.toasts.send(alerts::Toast {
+                title,
+                body,
+                clickable: true,
+                kind,
+                sound: config.notification_sounds,
             });
         }
     }
@@ -547,6 +619,11 @@ impl Shell {
         if let Some(activations) = self.activations.as_ref() {
             while activations.try_recv().is_ok() {
                 present = true;
+            }
+        }
+        if present {
+            if let Some(alerts) = self.alerts.as_ref() {
+                alerts.stop_ringing();
             }
         }
 
@@ -570,6 +647,7 @@ impl Shell {
         }
 
         self.recheck_updates();
+        self.notice_replaced_binary();
 
         let (update, version) = match &*self.update.borrow() {
             UpdateState::Idle => ("none", String::new()),
@@ -691,47 +769,6 @@ fn quiet_restart_allowed(state: &UpdateState, window_visible: bool, in_call: boo
     matches!(state, UpdateState::Ready(_)) && !window_visible && !in_call
 }
 
-/// Shows notifications and waits for clicks on a thread of its own.
-///
-/// `notify-rust` blocks while waiting for the user to click, and the handle it
-/// returns is bound to the connection that produced it, so both the showing
-/// and the waiting stay on this one thread and only plain messages cross.
-fn spawn_notifier() -> (Sender<Toast>, Receiver<()>) {
-    let (toast_tx, toast_rx) = std::sync::mpsc::channel::<Toast>();
-    let (activated_tx, activated_rx) = std::sync::mpsc::channel::<()>();
-
-    std::thread::spawn(move || {
-        while let Ok(toast) = toast_rx.recv() {
-            let mut notification = notify_rust::Notification::new();
-            notification
-                .summary(&toast.title)
-                .body(&toast.body)
-                .icon(ICON_NAME)
-                .appname(APP_NAME);
-
-            if toast.clickable {
-                notification.action("default", "Open");
-            }
-
-            match notification.show() {
-                Ok(handle) => {
-                    if toast.clickable {
-                        let activated = activated_tx.clone();
-                        handle.wait_for_action(|action| {
-                            if action == "default" {
-                                let _ = activated.send(());
-                            }
-                        });
-                    }
-                }
-                Err(error) => eprintln!("instacache: could not post a notification: {error}"),
-            }
-        }
-    });
-
-    (toast_tx, activated_rx)
-}
-
 /// The permission policy, apart from the Qt types so it can be tested.
 ///
 /// Anything not named here is refused: geolocation, screen capture, pointer
@@ -774,6 +811,13 @@ fn background_notice(tray: bool) -> (String, String) {
          application menu, or press Ctrl+Q in its window to quit."
     };
     (title, body.to_string())
+}
+
+/// Whether `/proc/self/exe` says the running binary's file was replaced —
+/// by `instacache --update`, `install.sh` or a package manager — which the
+/// kernel reports by appending ` (deleted)` to the link.
+fn binary_replaced(exe_link: &str) -> bool {
+    exe_link.ends_with(" (deleted)")
 }
 
 /// Whether a running instance should ask again if an update check is due.
@@ -971,6 +1015,13 @@ mod tests {
             restart.arguments("work"),
             vec!["--profile", "work", "--background"]
         );
+    }
+
+    #[test]
+    fn a_binary_replaced_on_disk_is_noticed() {
+        assert!(binary_replaced("/home/u/.local/bin/instacache (deleted)"));
+        assert!(!binary_replaced("/home/u/.local/bin/instacache"));
+        assert!(!binary_replaced("/home/u/(deleted)/instacache"));
     }
 
     #[test]

@@ -429,7 +429,7 @@ pub fn add(
         let config = Config {
             home_url: url.to_string(),
             internal_domains: allowed,
-            ..Config::default()
+            ..Config::for_home(url)
         };
         crate::config::write(&config_file, &config).map_err(|err| err.to_string())?;
     }

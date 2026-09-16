@@ -4,6 +4,38 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-09-16
+
+### Added
+- **Sounds like a messenger.** A new message plays a short sound with its
+  notification, and an incoming call rings on repeat until the window is
+  opened, the notification is clicked or dismissed, or thirty seconds pass.
+  The notification server plays message sounds where it can, so Do Not Disturb
+  silences them; ringing checks it too. Settings: `notification_sounds`,
+  `ring_for_calls`.
+- Notifications are filed under the right application, with its icon — a
+  site's own for a site's window.
+
+### Changed
+- **A site is not a messenger.** XCache, and any site added with `--add-site`,
+  no longer keeps running when closed, has no tray icon, is not given the
+  microphone or camera and does not ring. Closing it frees its memory. It keeps
+  everything else Instagram's window has. A value written in a site's own
+  config still wins.
+
+### Fixed
+- **Closing the window now really puts the page to rest.** Measured, a hidden
+  window's page still thought it was visible: its timers ran at full speed and
+  its videos kept playing, sound included. Videos and Reels are now paused, and
+  Chromium is told the page is hidden. A call keeps going.
+- **No blank screen when opening a closed window.** The page as it was left is
+  shown at once, and the live page takes over when Chromium has drawn it — 78
+  to 308 ms later on the reference machine. The 2.5.0 fix forced a redraw but
+  still showed black while Instagram redrew.
+- An update installed from outside the app — `instacache --update` in a
+  terminal — is now noticed by a copy running in the background, which restarts
+  into it instead of running the old version indefinitely.
+
 ## [2.5.0] - 2026-09-16
 
 ### Added

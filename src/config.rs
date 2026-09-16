@@ -106,9 +106,21 @@ pub struct Config {
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
     pub notifications: bool,
+    /// A short sound with a message's notification, the way a chat
+    /// application has one. The notification server plays it where it can,
+    /// and Do Not Disturb silences it.
+    pub notification_sounds: bool,
+    /// Ring, repeatedly, for an incoming call's notification, until it is
+    /// answered, dismissed or the window is opened. See `alerts.rs`.
+    ///
+    /// On for Instagram and off for another site by default: see
+    /// [`Config::for_home`].
+    pub ring_for_calls: bool,
     /// Let Instagram use the microphone and camera, which is what voice and
     /// video calls in Direct need. Only a host in `internal_domains` is ever
     /// granted them; `false` refuses them everywhere.
+    ///
+    /// On for Instagram and off for another site by default.
     pub calls: bool,
     /// Keep running when the window is closed, so opening it again is instant
     /// and notifications keep arriving. `Ctrl+Q` still quits for real.
@@ -117,6 +129,8 @@ pub struct Config {
     /// Qt WebEngine, starting Chromium's processes and running Instagram's
     /// own JavaScript. Keeping the window instead of rebuilding it is the one
     /// thing that removes that time rather than shaving a little off it.
+    ///
+    /// On for Instagram and off for another site by default.
     pub run_in_background: bool,
     /// Show the number of unread items on the task bar icon, read from the
     /// `(3)` Instagram puts in front of its page title.
@@ -125,6 +139,8 @@ pub struct Config {
     /// Spotify or Discord have one: it shows that a closed window is still
     /// running, and opens or quits it. Where the desktop has no tray, the
     /// setting has no effect and nothing breaks.
+    ///
+    /// On for Instagram and off for another site by default.
     pub tray_icon: bool,
     /// Hosts allowed to render inside the window, as an allow-list.
     ///
@@ -178,6 +194,8 @@ impl Default for Config {
             context_menu: false,
             developer_tools: false,
             notifications: true,
+            notification_sounds: true,
+            ring_for_calls: true,
             calls: true,
             run_in_background: true,
             unread_badge: true,
@@ -199,12 +217,57 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The defaults for a window whose home page is `home_url`.
+    ///
+    /// Instagram is a messenger as well as a feed, and gets what a messenger
+    /// needs: calls, ringing, a tray icon, and staying alive when closed.
+    /// Another site added with `--add-site` — X, say — is a feed you open and
+    /// close, and gets none of those unless its config asks. Everything else,
+    /// the fixes and the rest of the features, is the same for both.
+    pub fn for_home(home_url: &str) -> Self {
+        let mut config = Config {
+            home_url: home_url.to_string(),
+            ..Config::default()
+        };
+        if !is_instagram(home_url) {
+            config.calls = false;
+            config.ring_for_calls = false;
+            config.run_in_background = false;
+            config.tray_icon = false;
+        }
+        config
+    }
+
+    /// Reads a config file's contents. A key the file leaves out takes the
+    /// default for the file's own home page, not Instagram's: a site's config
+    /// written before a setting existed must not inherit a messenger's
+    /// behaviour just because it never mentioned it.
+    pub fn from_json(raw: &str) -> Result<Self, serde_json::Error> {
+        let written: serde_json::Value = serde_json::from_str(raw)?;
+        if !written.is_object() {
+            // Not a config at all; let serde say so in its own words.
+            return serde_json::from_value(written);
+        }
+        let home = written
+            .get("home_url")
+            .and_then(serde_json::Value::as_str)
+            .filter(|home| !home.trim().is_empty())
+            .unwrap_or(DEFAULT_HOME_URL);
+        let mut merged = serde_json::to_value(Config::for_home(home))?;
+        if let (Some(merged), Some(written)) = (merged.as_object_mut(), written.as_object()) {
+            for (key, value) in written {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+        serde_json::from_value(merged)
+    }
+
     /// Reads `config.json`, falling back to defaults on any problem. A missing
     /// file is written out with the defaults so the knobs are discoverable.
     pub fn load_or_create(paths: &Paths) -> Self {
         let file = paths.config_file();
         match std::fs::read_to_string(&file) {
-            Ok(raw) => match serde_json::from_str::<Config>(&raw) {
+            Ok(raw) => match Config::from_json(&raw) {
                 Ok(cfg) => cfg.normalized(),
                 Err(err) => {
                     eprintln!(
@@ -368,6 +431,11 @@ pub fn write(path: &Path, config: &Config) -> std::io::Result<()> {
     write_json(path, config)
 }
 
+/// Whether a home page is Instagram's.
+pub fn is_instagram(home_url: &str) -> bool {
+    crate::urls::is_internal_in(&["instagram.com"], home_url)
+}
+
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -469,6 +537,34 @@ mod tests {
                 "{old} should have been migrated"
             );
         }
+    }
+
+    #[test]
+    fn a_site_is_not_a_messenger_unless_it_says_so() {
+        // XCache's config as 2.2 wrote it: none of the messenger settings.
+        let x =
+            Config::from_json(r#"{"home_url": "https://x.com/", "internal_domains": ["x.com"]}"#)
+                .unwrap();
+        assert!(!x.run_in_background && !x.tray_icon && !x.calls && !x.ring_for_calls);
+        // What every window shares.
+        assert!(x.notification_sounds && x.unread_badge && x.notifications);
+
+        let instagram = Config::from_json(r#"{"home_url": "https://www.instagram.com/"}"#).unwrap();
+        assert!(instagram.run_in_background && instagram.tray_icon && instagram.calls);
+        assert!(instagram.ring_for_calls);
+
+        let chosen =
+            Config::from_json(r#"{"home_url": "https://x.com/", "tray_icon": true}"#).unwrap();
+        assert!(chosen.tray_icon, "a value in the file always wins");
+
+        let no_home = Config::from_json("{}").unwrap();
+        assert!(no_home.run_in_background, "no home page means Instagram's");
+    }
+
+    #[test]
+    fn a_config_that_is_not_an_object_is_an_error() {
+        assert!(Config::from_json("[1, 2]").is_err());
+        assert!(Config::from_json("not json").is_err());
     }
 
     #[test]

@@ -149,13 +149,15 @@ Item {
         }
 
         function test_09_close_hides_instead_of_quitting() {
+            win.activeView().runJavaScript("document.body.insertAdjacentHTML('beforeend', '<video id=v loop muted autoplay src=\"data:,\"></video>')");
             win.close();
             wait(500);
             verify(!win.visible, "hidden");
+            verify(!win.activeView().visible, "Chromium is told the page is hidden");
             compare(win.shell.hidden, 1);
             win.shell.pollResult = '{"present":true,"urls":[],"quit":false}';
             waitFor(function () { return win.visible; }, 3000, "a second launch shows it again");
-            waitFor(function () { return win.activeView().visible && !win.repainting; }, 2000, "the page is shown again after its repaint");
+            waitFor(function () { return win.activeView().visible && !win.backgrounded; }, 2000, "the page is live again");
         }
 
         function test_12_a_closed_window_takes_an_update_quietly() {

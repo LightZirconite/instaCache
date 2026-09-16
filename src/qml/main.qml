@@ -96,6 +96,9 @@ Window {
     // Closing the window keeps instaCache running when `run_in_background`
     // says so, which is what makes the next launch instant: most of a cold
     // start is Chromium and Instagram, not anything this scene could skip.
+    // Opening the window is answering the ring, whatever it was for.
+    onActiveChanged: if (active) shell.stop_ringing()
+
     onClosing: function (close) {
         if (!root.quitting && shell.run_in_background) {
             close.accepted = false;
@@ -105,35 +108,101 @@ Window {
         root.saveState();
     }
 
+    // Closed to the background. Hiding a Qt window does not hide the page
+    // from Chromium: measured, the page still reports itself visible, its
+    // timers run at full speed and its videos keep playing, sound included.
+    // So the views are hidden explicitly, which is what makes Chromium
+    // throttle the page, and whatever is playing is paused first.
+    property bool backgrounded: false
+
     function hideToBackground() {
         root.writeState();
         root.hiddenMaximized = root.visibility === Window.Maximized;
-        root.hide();
-        shell.window_hidden(root.trayShown);
+        root.pauseMedia();
+        // The snapshot is taken while the page is still on screen, and the
+        // window hides once it exists, or at once if it cannot be taken.
+        var hidden = false;
+        function finish() {
+            if (hidden)
+                return;
+            hidden = true;
+            root.backgrounded = true;
+            root.hide();
+            shell.window_hidden(root.trayShown);
+        }
+        if (!stage.grabToImage(function (result) {
+                snapshot.source = result.url;
+                finish();
+            }))
+            finish();
+    }
+
+    // Everything playing in Instagram and in ordinary pages. A call's own
+    // streams are left alone: they are what makes it a call.
+    function pauseMedia() {
+        var script =
+            "document.querySelectorAll('video, audio').forEach(function (m) {" +
+            "  if (!m.srcObject && !m.paused) m.pause();" +
+            "});";
+        view.runJavaScript(script);
+        for (var i = 0; i < pages.length; i++) {
+            if (!pages[i].inCall)
+                pages[i].runJavaScript(script);
+        }
     }
 
     function bringToFront() {
         if (!root.visible) {
+            // The snapshot first, so the window opens on the page as it was
+            // left rather than on nothing while Chromium draws again.
+            snapshot.visible = snapshot.status === Image.Ready;
             if (root.hiddenMaximized)
                 root.showMaximized();
             else
                 root.show();
-            root.repaint();
+            root.backgrounded = false;
+            root.waitForFrames();
         }
         root.raise();
         root.requestActivate();
     }
 
-    // A window that was hidden comes back with the page grey until something
-    // — a click, a hover — makes Chromium draw a new frame: the old frame went
-    // with the window's graphics, and Chromium does not know. Hiding the view
-    // for a moment and showing it again is what makes it draw one.
-    property bool repainting: false
-    function repaint() {
-        root.repainting = true;
-        repaintDone.restart();
+    // The snapshot goes once the live page has drawn: two animation frames
+    // have run in it, which only happens once Chromium is compositing again.
+    // A page that never answers still gets its snapshot removed.
+    property int frameWaits: 0
+    function waitForFrames() {
+        root.frameWaits = 0;
+        root.activeView().runJavaScript(
+            "window.__instacacheFrames = 0;" +
+            "requestAnimationFrame(function () {" +
+            "  window.__instacacheFrames = 1;" +
+            "  requestAnimationFrame(function () { window.__instacacheFrames = 2; });" +
+            "});");
+        frameWatch.restart();
     }
-    Timer { id: repaintDone; interval: 30; onTriggered: root.repainting = false }
+    Timer {
+        id: frameWatch
+        interval: 50
+        repeat: true
+        onTriggered: {
+            root.frameWaits++;
+            if (root.frameWaits * interval >= 2000) {
+                stop();
+                root.dropSnapshot();
+                return;
+            }
+            root.activeView().runJavaScript("window.__instacacheFrames || 0", function (frames) {
+                if (frames >= 2 && frameWatch.running) {
+                    frameWatch.stop();
+                    root.dropSnapshot();
+                }
+            });
+        }
+    }
+    function dropSnapshot() {
+        snapshotFade.restart();
+    }
 
     function restartForUpdate() {
         // Back on the same Instagram page, in a window that shows.
@@ -423,7 +492,8 @@ Window {
             if (!shell.notifications_enabled)
                 return;
             lastNotification = notification;
-            shell.notify(notification.title, notification.message);
+            // A message, or a call, which rings until somebody acts on it.
+            shell.notify_page(notification.title, notification.message);
             notification.show();
         }
 
@@ -465,7 +535,7 @@ Window {
             zoomFactor: root.geometry.zoom
             backgroundColor: "#000000"
             // Hidden under a page, so Chromium treats it as a background tab.
-            visible: root.current === null && !root.repainting
+            visible: root.current === null && !root.backgrounded
 
             settings.playbackRequiresUserGesture: !shell.autoplay_without_gesture
             settings.fullScreenSupportEnabled: true
@@ -538,7 +608,7 @@ Window {
             profile: session
             zoomFactor: view.zoomFactor
             backgroundColor: "#000000"
-            visible: root.current === page && !root.repainting
+            visible: root.current === page && !root.backgrounded
 
             // Set once the page is granted the microphone or camera, which
             // for a page of its own means a call. A call is hidden rather
@@ -568,8 +638,10 @@ Window {
                 root.handleLoad(page, info);
             }
             onFeaturePermissionRequested: function (securityOrigin, feature) {
-                if (root.answerPermission(page, securityOrigin, feature).indexOf("Media") === 0)
+                if (root.answerPermission(page, securityOrigin, feature).indexOf("Media") === 0) {
                     page.inCall = true;
+                    shell.stop_ringing();
+                }
             }
             // A call ending closes its own window, which here is this page.
             onWindowCloseRequested: root.closePage(page)
@@ -604,6 +676,26 @@ Window {
                     root.goBack();
                 else
                     root.goForward();
+            }
+        }
+    }
+
+    // The page as it was when the window closed, shown while it draws again.
+    Image {
+        id: snapshot
+        anchors.fill: stage
+        visible: false
+        cache: false
+        smooth: false
+        onVisibleChanged: if (visible) opacity = 1
+        NumberAnimation on opacity {
+            id: snapshotFade
+            running: false
+            to: 0
+            duration: 120
+            onFinished: {
+                snapshot.visible = false;
+                snapshot.source = "";
             }
         }
     }

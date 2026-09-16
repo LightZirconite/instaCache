@@ -76,6 +76,10 @@ QtObject {
     function install_update() { installs++; update = "installing"; }
     function log(message) { console.log("shell.log: " + message); }
     function window_hidden(tray) { hidden++; }
+    property var notifications: []
+    property int ringStops: 0
+    function notify_page(title, body) { notifications = notifications.concat([title]); }
+    function stop_ringing() { ringStops++; }
     function title_changed(title) {
         titles = titles.concat([title]);
         var match = /^\((\d+)\+?\)/.exec(title.trim());
