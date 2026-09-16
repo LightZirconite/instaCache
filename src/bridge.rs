@@ -65,6 +65,9 @@ pub struct Shell {
     context_menu: qt_property!(bool; READ context_menu),
     /// Whether closing the window hides it instead of quitting.
     run_in_background: qt_property!(bool; READ run_in_background),
+    /// Started with `--background`: the window begins hidden. What a quiet
+    /// restart for an update uses, so nothing appears on screen.
+    start_hidden: qt_property!(bool; READ starts_hidden),
     /// Whether this window is Instagram, which is what the shortcuts that
     /// jump to the feed, Explore, Reels and Direct are written for.
     instagram_shortcuts: qt_property!(bool; READ instagram_shortcuts),
@@ -170,6 +173,28 @@ pub struct Shell {
             eprintln!("instacache: {message}");
         }
     ),
+    /// Whether a downloaded update may take over right now without anyone
+    /// noticing: the window is closed and no call is running.
+    may_restart_quietly: qt_method!(
+        fn may_restart_quietly(&self, window_visible: bool, in_call: bool) -> bool {
+            quiet_restart_allowed(&self.update.borrow(), window_visible, in_call)
+        }
+    ),
+    /// Asks `main` to start the updated binary once this one has quit, and
+    /// answers whether it will. The scene quits only on `true`. `url` is the
+    /// page to come back to; anything not internal is dropped.
+    restart_for_update: qt_method!(
+        fn restart_for_update(&self, hidden: bool, url: String) -> bool {
+            self.request_restart(hidden, url)
+        }
+    ),
+    /// Installs an update that could not be installed in the background,
+    /// asking for the administrator password.
+    install_update: qt_method!(
+        fn install_update(&self) {
+            self.install_elevated();
+        }
+    ),
     /// The window was closed and is now only hidden. Says so, once ever.
     window_hidden: qt_method!(
         fn window_hidden(&self) {
@@ -189,7 +214,9 @@ pub struct Shell {
     listener: Option<UnixListener>,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
     update_asked: Cell<Option<Instant>>,
-    update_installed: Cell<bool>,
+    update: RefCell<UpdateState>,
+    restart: RefCell<Option<Restart>>,
+    hidden_at_start: bool,
     toasts: Option<Sender<Toast>>,
     badge: Option<Sender<u32>>,
     unread: Cell<u32>,
@@ -205,6 +232,7 @@ impl Shell {
         paths: Rc<Paths>,
         listener: Option<UnixListener>,
         start_url: Option<String>,
+        start_hidden: bool,
     ) -> Self {
         let update_check = updates::check_in_background(&config, &paths);
         let (toasts, activations) = spawn_notifier();
@@ -222,8 +250,14 @@ impl Shell {
             badge,
             activations: Some(activations),
             pending_url: RefCell::new(start_url),
+            hidden_at_start: start_hidden,
             ..Default::default()
         }
+    }
+
+    /// What `main` should start once the scene has quit, if anything.
+    pub fn take_restart(&self) -> Option<Restart> {
+        self.restart.borrow_mut().take()
     }
 
     fn config(&self) -> Config {
@@ -301,6 +335,31 @@ impl Shell {
         self.config().run_in_background
     }
 
+    fn starts_hidden(&self) -> bool {
+        self.hidden_at_start
+    }
+
+    fn request_restart(&self, hidden: bool, url: String) -> bool {
+        if !matches!(*self.update.borrow(), UpdateState::Ready(_)) {
+            return false;
+        }
+        let internal = urls::is_internal_in(&self.config().internal_domains, &url);
+        *self.restart.borrow_mut() = Some(Restart {
+            hidden,
+            url: internal.then_some(url),
+        });
+        true
+    }
+
+    fn install_elevated(&self) {
+        let version = match &*self.update.borrow() {
+            UpdateState::Available(version) if updates::can_install_elevated() => version.clone(),
+            _ => return,
+        };
+        *self.update.borrow_mut() = UpdateState::Installing(version.clone());
+        *self.updates.borrow_mut() = Some(updates::install_elevated_in_background(version));
+    }
+
     fn instagram_shortcuts(&self) -> bool {
         urls::is_internal_in(&["instagram.com"], &self.config().home_url)
     }
@@ -336,14 +395,11 @@ impl Shell {
             .unwrap_or_else(|| Config::default().update_check_interval_hours);
         let now = Instant::now();
         let pending = self.updates.borrow().is_some();
-        if pending
-            || !update_recheck_due(
-                self.update_asked.get(),
-                now,
-                self.update_installed.get(),
-                interval,
-            )
-        {
+        let installed = matches!(
+            *self.update.borrow(),
+            UpdateState::Ready(_) | UpdateState::Installing(_)
+        );
+        if pending || !update_recheck_due(self.update_asked.get(), now, installed, interval) {
             return;
         }
         self.update_asked.set(Some(now));
@@ -484,21 +540,36 @@ impl Shell {
             .and_then(|rx| rx.try_recv().ok());
         if let Some(outcome) = outcome {
             *self.updates.borrow_mut() = None;
-            if matches!(outcome, updates::Outcome::Installed { .. }) {
-                self.update_installed.set(true);
+            let before = self.update.borrow().clone();
+            let after = next_update_state(&before, &outcome);
+            if let Some(message) = describe_update(&before, &after, updates::can_install_elevated())
+            {
+                println!("instacache: {message}");
+                if matches!(after, UpdateState::Available(_)) {
+                    self.send_toast(message, String::new(), false);
+                }
             }
-            if let Some((title, body)) = describe_update(&outcome) {
-                println!("instacache: {title} — {body}");
-                self.send_toast(title, body, false);
-            }
+            *self.update.borrow_mut() = after;
         }
 
         self.recheck_updates();
+
+        let (update, version) = match &*self.update.borrow() {
+            UpdateState::Idle => ("none", String::new()),
+            UpdateState::Available(v) if updates::can_install_elevated() => {
+                ("installable", v.clone())
+            }
+            UpdateState::Available(v) => ("available", v.clone()),
+            UpdateState::Installing(v) => ("installing", v.clone()),
+            UpdateState::Ready(v) => ("ready", v.clone()),
+        };
 
         serde_json::json!({
             "present": present,
             "urls": urls,
             "quit": SHUTDOWN.load(Ordering::SeqCst),
+            "update": update,
+            "update_version": version,
         })
         .to_string()
     }
@@ -520,18 +591,87 @@ fn on_wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"))
 }
 
-fn describe_update(outcome: &updates::Outcome) -> Option<(String, String)> {
-    match outcome {
-        updates::Outcome::Installed { version } => Some((
-            format!("{APP_NAME} {version} installed"),
-            "Quit instaCache with Ctrl+Q and open it again to start using it.".to_string(),
-        )),
-        updates::Outcome::Available { version } => Some((
-            format!("{APP_NAME} {version} is available"),
-            "Run `instacache --update` in a terminal to install it.".to_string(),
-        )),
-        updates::Outcome::UpToDate => None,
+/// Where an update stands in this process.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum UpdateState {
+    #[default]
+    Idle,
+    /// Newer, and not installed: a system-wide install.
+    Available(String),
+    /// Being installed as root, on the user's request.
+    Installing(String),
+    /// Installed on disk. The next start runs it.
+    Ready(String),
+}
+
+/// What `main` starts after the scene quits for an update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Restart {
+    /// Start with the window hidden, as it was.
+    pub hidden: bool,
+    /// The page to reopen. Only ever an internal one.
+    pub url: Option<String>,
+}
+
+impl Restart {
+    /// Arguments for the new process.
+    pub fn arguments(&self, profile: &str) -> Vec<String> {
+        let mut args = Vec::new();
+        if profile != crate::paths::DEFAULT_PROFILE {
+            args.push("--profile".to_string());
+            args.push(profile.to_string());
+        }
+        if self.hidden {
+            args.push("--background".to_string());
+        }
+        if let Some(url) = &self.url {
+            args.push(url.clone());
+        }
+        args
     }
+}
+
+/// A finished check or install, applied to where things stood. An update that
+/// is already on disk is not forgotten because a later check found nothing.
+fn next_update_state(before: &UpdateState, outcome: &updates::Outcome) -> UpdateState {
+    match (before, outcome) {
+        (_, updates::Outcome::Installed { version }) => UpdateState::Ready(version.clone()),
+        (UpdateState::Ready(_), _) => before.clone(),
+        (_, updates::Outcome::Available { version }) => UpdateState::Available(version.clone()),
+        (UpdateState::Installing(version), updates::Outcome::UpToDate) => {
+            UpdateState::Available(version.clone())
+        }
+        (_, updates::Outcome::UpToDate) => before.clone(),
+    }
+}
+
+/// The line logged, and for an update this copy cannot install on its own
+/// also shown, when the state changes. `None` when nothing new happened.
+fn describe_update(before: &UpdateState, after: &UpdateState, can_elevate: bool) -> Option<String> {
+    if before == after {
+        return None;
+    }
+    match after {
+        UpdateState::Ready(version) => Some(format!(
+            "{APP_NAME} {version} is installed and takes over at the next restart"
+        )),
+        UpdateState::Available(version) if can_elevate => Some(format!(
+            "{APP_NAME} {version} is available. Install it from the window."
+        )),
+        UpdateState::Available(version) => Some(format!(
+            "{APP_NAME} {version} is available. Run `sudo instacache --update` to install it."
+        )),
+        UpdateState::Idle | UpdateState::Installing(_) => None,
+    }
+}
+
+/// Whether an update may take over without the user seeing it happen.
+///
+/// Only when it is on disk, the window is closed and no call is running: a
+/// restart ends a call, and restarting a window somebody is looking at is not
+/// quiet. A visible window offers a button instead, and closing it counts.
+fn quiet_restart_allowed(state: &UpdateState, window_visible: bool, in_call: bool) -> bool {
+    matches!(state, UpdateState::Ready(_)) && !window_visible && !in_call
 }
 
 /// Shows notifications and waits for clicks on a thread of its own.
@@ -721,6 +861,89 @@ mod tests {
         assert!(update_recheck_due(Some(start), later, false, 24));
         assert!(!update_recheck_due(Some(start), later, true, 24));
         assert!(!update_recheck_due(Some(start), later, false, 0));
+    }
+
+    #[test]
+    fn an_update_restarts_quietly_only_when_nobody_is_looking() {
+        let ready = UpdateState::Ready("9.0.0".into());
+        assert!(quiet_restart_allowed(&ready, false, false));
+        assert!(!quiet_restart_allowed(&ready, true, false), "window open");
+        assert!(!quiet_restart_allowed(&ready, false, true), "call running");
+        assert!(!quiet_restart_allowed(&UpdateState::Idle, false, false));
+        assert!(!quiet_restart_allowed(
+            &UpdateState::Available("9.0.0".into()),
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn an_installed_update_is_not_forgotten_by_a_later_check() {
+        use updates::Outcome;
+        let ready = UpdateState::Ready("9.0.0".into());
+        assert_eq!(next_update_state(&ready, &Outcome::UpToDate), ready);
+        assert_eq!(
+            next_update_state(
+                &ready,
+                &Outcome::Available {
+                    version: "9.0.1".into()
+                }
+            ),
+            ready
+        );
+        let installing = UpdateState::Installing("9.0.0".into());
+        assert_eq!(
+            next_update_state(&installing, &Outcome::UpToDate),
+            UpdateState::Available("9.0.0".into()),
+            "a refused password leaves the update on offer"
+        );
+        assert_eq!(
+            next_update_state(
+                &UpdateState::Idle,
+                &Outcome::Installed {
+                    version: "9.0.0".into()
+                }
+            ),
+            ready
+        );
+    }
+
+    #[test]
+    fn a_restart_only_happens_for_an_installed_update_and_keeps_the_page() {
+        let shell = shell();
+        assert!(!shell.request_restart(false, "https://www.instagram.com/direct/".into()));
+        assert_eq!(shell.take_restart(), None);
+
+        *shell.update.borrow_mut() = UpdateState::Ready("9.0.0".into());
+        assert!(shell.request_restart(false, "https://www.instagram.com/direct/".into()));
+        let restart = shell.take_restart().unwrap();
+        assert_eq!(
+            restart.arguments("default"),
+            vec!["https://www.instagram.com/direct/".to_string()]
+        );
+
+        assert!(shell.request_restart(true, "https://evil.example/".into()));
+        let restart = shell.take_restart().unwrap();
+        assert_eq!(restart.url, None, "an external page is not reopened");
+        assert_eq!(
+            restart.arguments("work"),
+            vec!["--profile", "work", "--background"]
+        );
+    }
+
+    #[test]
+    fn only_a_change_is_announced() {
+        let idle = UpdateState::Idle;
+        let ready = UpdateState::Ready("9.0.0".into());
+        let available = UpdateState::Available("9.0.0".into());
+        assert!(describe_update(&idle, &ready, false).is_some());
+        assert!(describe_update(&ready, &ready, false).is_none());
+        assert!(describe_update(&idle, &available, false)
+            .unwrap()
+            .contains("sudo instacache --update"));
+        assert!(describe_update(&idle, &available, true)
+            .unwrap()
+            .contains("from the window"));
     }
 
     #[test]

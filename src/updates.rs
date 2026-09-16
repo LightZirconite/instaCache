@@ -1,13 +1,20 @@
 //! Self-updating.
 //!
 //! instaCache is installed by unpacking an archive, not by a package manager,
-//! so nothing else will ever update it. This module asks GitHub whether a
-//! newer release exists and, when the install is one this user can write to,
-//! runs the same installer that put the app there in the first place.
+//! so nothing else will ever update it. It therefore works the way Chrome,
+//! Firefox and VS Code do when they are installed the same way: check in the
+//! background, download, verify and install without asking, and let the new
+//! version take over at the next restart — which the scene arranges to happen
+//! on its own while the window is closed. See `bridge.rs` for that part.
+//!
+//! This module asks GitHub whether a newer release exists and runs the same
+//! installer that put the app there in the first place: directly when this
+//! user can write to the install, through `pkexec` when the user asks for it
+//! on a system-wide one.
 //!
 //! The check runs at most once per [`Config::update_check_interval_hours`] and
 //! never blocks the interface: the network call happens on a plain thread and
-//! the answer is handed back to the GTK main loop.
+//! the answer is handed back to the scene's poll.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -31,8 +38,8 @@ const NETWORK_TIMEOUT_SECS: u32 = 10;
 pub enum Outcome {
     /// A newer release exists and was installed. The app must restart to run it.
     Installed { version: String },
-    /// A newer release exists but installing it here is not possible, usually
-    /// a system-wide install that would need root.
+    /// A newer release exists but was not installed, usually because the
+    /// install is system-wide and needs root.
     Available { version: String },
     /// Nothing to do, or the check could not complete.
     UpToDate,
@@ -92,7 +99,7 @@ fn run_check(paths: &Paths, auto_install: bool) -> Outcome {
         return Outcome::Available { version: latest };
     }
 
-    match install_update() {
+    match install_update(Privilege::User) {
         Ok(()) => Outcome::Installed { version: latest },
         Err(reason) => {
             eprintln!("instacache: could not install the update: {reason}");
@@ -130,14 +137,51 @@ fn fetch_latest_version() -> Option<String> {
     Some(tag.trim_start_matches('v').to_string())
 }
 
+/// Who the installer runs as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Privilege {
+    /// This user, for an install this user owns.
+    User,
+    /// Root, through `pkexec`, which asks for a password graphically. Only
+    /// ever on the user's request, never from a background check.
+    Elevated,
+}
+
+/// Whether a system-wide install can be updated from inside the app, by
+/// asking for the administrator password.
+pub fn can_install_elevated() -> bool {
+    which("pkexec").is_some() && updater_path().is_some() && install_prefix().is_some()
+}
+
+/// Installs `version` as root on the user's request, on a thread, and hands
+/// back the channel the outcome arrives on.
+pub fn install_elevated_in_background(version: String) -> Receiver<Outcome> {
+    let (sender, receiver) = std::sync::mpsc::channel::<Outcome>();
+    std::thread::spawn(move || {
+        let outcome = match install_update(Privilege::Elevated) {
+            Ok(()) => Outcome::Installed { version },
+            Err(reason) => {
+                eprintln!("instacache: could not install the update: {reason}");
+                Outcome::Available { version }
+            }
+        };
+        let _ = sender.send(outcome);
+    });
+    receiver
+}
+
 /// Re-runs the installer that this copy was installed with. It is kept beside
 /// the binary precisely so an update needs nothing from the internet but the
 /// archive itself.
-fn install_update() -> Result<(), String> {
+///
+/// Replacing the binary under a running copy is safe on Linux: the running
+/// process keeps the file it was started from, and the next start gets the
+/// new one. That is what lets the install happen long before the restart.
+fn install_update(privilege: Privilege) -> Result<(), String> {
     let updater = updater_path().ok_or("the updater script is not installed")?;
     let prefix = install_prefix().ok_or("could not work out where this is installed")?;
 
-    if !is_writable(&prefix) {
+    if privilege == Privilege::User && !is_writable(&prefix) {
         return Err(format!("{} is not writable by this user", prefix.display()));
     }
 
@@ -152,7 +196,16 @@ fn install_update() -> Result<(), String> {
     let mut last_error = String::new();
 
     for extra in attempts {
-        let mut command = Command::new("sh");
+        let mut command = match privilege {
+            Privilege::User => Command::new("sh"),
+            // pkexec wants an absolute program and gives it a clean
+            // environment, which the installer does not depend on.
+            Privilege::Elevated => {
+                let mut command = Command::new("pkexec");
+                command.arg("/bin/sh");
+                command
+            }
+        };
         command
             .arg(&updater)
             .args(extra)
@@ -161,6 +214,13 @@ fn install_update() -> Result<(), String> {
 
         match command.status() {
             Ok(status) if status.success() => return Ok(()),
+            // 126 and 127 are pkexec's "not authorised" and "dismissed": asking
+            // again with other options would only ask for the password twice.
+            Ok(status)
+                if privilege == Privilege::Elevated && matches!(status.code(), Some(126 | 127)) =>
+            {
+                return Err("the administrator password was not given".to_string());
+            }
             Ok(status) => last_error = format!("the installer exited with {status}"),
             Err(err) => return Err(format!("could not run {}: {err}", updater.display())),
         }
@@ -281,8 +341,8 @@ pub fn update_now() -> Result<Outcome, String> {
     }
 
     println!("Updating to {latest}…");
-    install_update()?;
-    println!("Updated to {latest}. Restart instaCache to run it.");
+    install_update(Privilege::User)?;
+    println!("Updated to {latest}. It takes over the next time instaCache starts.");
     Ok(Outcome::Installed { version: latest })
 }
 

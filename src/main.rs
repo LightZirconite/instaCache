@@ -137,6 +137,11 @@ instacache --profile {}",
         }
     };
 
+    // Where this binary is now. An update replaces the file while this copy
+    // keeps running, and `/proc/self/exe` then names a deleted file, so the
+    // path to restart is taken before any update can happen.
+    let executable = std::env::current_exe().ok();
+
     let config = Rc::new(config::Config::load_or_create(&paths));
     let profile = paths.profile.clone();
     let paths = Rc::new(paths);
@@ -167,14 +172,47 @@ instacache --profile {}",
 
     let mut engine = QmlEngine::new();
 
-    let shell = std::cell::RefCell::new(Shell::new(config, paths, listener, options.url.clone()));
+    let shell = std::cell::RefCell::new(Shell::new(
+        config,
+        paths,
+        listener,
+        options.url.clone(),
+        options.background,
+    ));
     let pinned = unsafe { QObjectPinned::new(&shell) };
     engine.set_object_property("shell".into(), pinned);
     engine.load_data(SCENE.into());
     engine.exec();
 
+    let restart = shell.borrow().take_restart();
+    // Chromium's processes and the profile are released with the engine, and
+    // the socket with the claim, both before the new copy starts and asks for
+    // them.
+    drop(engine);
     instance::release(&profile);
+
+    if let Some(restart) = restart {
+        start_updated(executable.as_deref(), &restart.arguments(&profile));
+    }
     ExitCode::SUCCESS
+}
+
+/// Starts the copy an update installed, in place of this one.
+fn start_updated(executable: Option<&std::path::Path>, arguments: &[String]) {
+    let Some(executable) = executable else {
+        eprintln!("instacache: could not tell where the updated binary is; start it again by hand");
+        return;
+    };
+    match std::process::Command::new(executable)
+        .args(arguments)
+        .spawn()
+    {
+        Ok(_) => println!("instacache: restarted into the updated version"),
+        Err(error) => eprintln!(
+            "instacache: could not start {}: {error}",
+            executable.display()
+        ),
+    }
 }
 
 /// libc constants and the one libc call this needs, declared here rather than
@@ -235,6 +273,8 @@ struct Options {
     domains: Option<String>,
     /// An icon chosen by hand, instead of the one the site publishes.
     icon: Option<String>,
+    /// Start with the window hidden.
+    background: bool,
 }
 
 impl Options {
@@ -246,6 +286,7 @@ impl Options {
             site: None,
             domains: None,
             icon: None,
+            background: false,
         };
         let mut args = args.peekable();
 
@@ -269,6 +310,7 @@ impl Options {
                         .ok_or_else(|| "--profile requires a name".to_string())?;
                 }
                 "--update" => options.mode = Mode::Update,
+                "--background" => options.background = true,
                 "--add-site" => {
                     options.mode = Mode::AddSite;
                     options.site = Some(
@@ -380,6 +422,7 @@ OPTIONS:
                            that already exist or that you removed. Run by the
                            installer; harmless to run again.
         --update           Check for a newer release and install it.
+        --background       Start with the window hidden. Launching again shows it.
         --clear-cache      Delete the cached resources, keep the session.
         --clear-session    Delete cookies and site storage (signs you out).
     -h, --help             Show this message.
@@ -395,7 +438,9 @@ SHORTCUTS:
     Ctrl+R / F5            Reload            Alt+Left / Alt+Right   Back / Forward
     Ctrl+Shift+R           Reload, no cache  Ctrl+H                 Home
     Ctrl+= / Ctrl+- / Ctrl+0   Zoom          F11                    Fullscreen
-    Ctrl+W / Ctrl+Q        Quit
+    Ctrl+1 .. Ctrl+4       Feed, Explore, Reels, Direct
+    Ctrl+W                 Close the page, or the window (instaCache keeps running)
+    Ctrl+Q                 Quit
 "
     )
 }
@@ -486,6 +531,11 @@ mod tests {
     #[test]
     fn update_mode_is_recognised() {
         assert_eq!(parse(&["--update"]).unwrap().mode, Mode::Update);
+        let hidden = parse(&["--background", "--profile", "work"]).unwrap();
+        assert_eq!(hidden.mode, Mode::Run);
+        assert!(hidden.background);
+        assert_eq!(hidden.profile, "work");
+        assert!(!parse(&[]).unwrap().background);
     }
 
     #[test]

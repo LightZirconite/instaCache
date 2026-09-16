@@ -41,6 +41,15 @@ AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
 ];
 
+/// How often a running instaCache asks whether a newer release exists: a few
+/// times a day, the way Chrome and Firefox do, rather than once a day at
+/// launch. The request is one small JSON document from GitHub.
+pub const DEFAULT_UPDATE_CHECK_HOURS: u64 = 6;
+
+/// The default until 2.4.0. See `DEFAULT_USER_AGENT` for why an old default
+/// found in a config file is migrated rather than kept.
+const SUPERSEDED_UPDATE_CHECK_HOURS: u64 = 24;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -149,7 +158,7 @@ pub struct Config {
     /// Check GitHub for a newer release and install it. Nothing else updates
     /// instaCache: it is installed from an archive, not by a package manager.
     pub auto_update: bool,
-    /// How long to wait between checks. `0` checks on every launch.
+    /// How long to wait between checks. `0` checks on every launch only.
     pub update_check_interval_hours: u64,
 }
 
@@ -178,7 +187,7 @@ impl Default for Config {
             show_loading_indicator: true,
             start_maximized: false,
             auto_update: true,
-            update_check_interval_hours: 24,
+            update_check_interval_hours: DEFAULT_UPDATE_CHECK_HOURS,
         }
     }
 }
@@ -221,6 +230,11 @@ impl Config {
             self.user_agent = DEFAULT_USER_AGENT.to_string();
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        // Written out by every first run before 2.4.0, so it says nothing
+        // about what the user wants, only what the default was.
+        if self.update_check_interval_hours == SUPERSEDED_UPDATE_CHECK_HOURS {
+            self.update_check_interval_hours = DEFAULT_UPDATE_CHECK_HOURS;
+        }
 
         // A host is compared lower-cased, and an empty entry would turn the
         // sub-domain check into a wildcard, so both are dealt with here rather
@@ -448,6 +462,20 @@ mod tests {
                 DEFAULT_USER_AGENT,
                 "{old} should have been migrated"
             );
+        }
+    }
+
+    #[test]
+    fn the_old_daily_update_check_becomes_the_new_default() {
+        let cfg: Config = serde_json::from_str(r#"{"update_check_interval_hours": 24}"#).unwrap();
+        assert_eq!(
+            cfg.normalized().update_check_interval_hours,
+            DEFAULT_UPDATE_CHECK_HOURS
+        );
+        for chosen in [0, 1, 12, 48] {
+            let raw = serde_json::json!({ "update_check_interval_hours": chosen }).to_string();
+            let cfg: Config = serde_json::from_str(&raw).unwrap();
+            assert_eq!(cfg.normalized().update_check_interval_hours, chosen);
         }
     }
 

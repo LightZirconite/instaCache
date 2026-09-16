@@ -89,7 +89,7 @@ fn main() {
     qmetaobject::webengine::initialize();
 
     let mut engine = QmlEngine::new();
-    let shell = std::cell::RefCell::new(Shell::new(config, Rc::new(paths), None, None));
+    let shell = std::cell::RefCell::new(Shell::new(config, Rc::new(paths), None, None, false));
     let pinned = unsafe { QObjectPinned::new(&shell) };
     engine.set_object_property("shell".into(), pinned);
 

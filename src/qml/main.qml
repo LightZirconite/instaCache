@@ -27,7 +27,16 @@ Window {
                                Screen.desktopAvailableHeight))
     property bool stateSaved: false
     property bool quitting: false
-    property bool hiddenMaximized: false
+    // `--background` starts hidden; showing it later restores what the saved
+    // geometry asked for.
+    property bool hiddenMaximized: geometry.maximized
+
+    // Where an update stands, from `shell.poll`: "none", "available",
+    // "installable", "installing" or "ready". See bridge.rs.
+    property string updateState: "none"
+    property string updateVersion: ""
+    // "Later" hides the offer until something about the update changes.
+    property string updateDismissed: ""
 
     // The page laid over Instagram, or null when Instagram itself is shown.
     property WebEngineView current: null
@@ -51,8 +60,11 @@ Window {
     height: geometry.height
     x: geometry.x !== null && geometry.x !== undefined ? geometry.x : x
     y: geometry.y !== null && geometry.y !== undefined ? geometry.y : y
-    visibility: geometry.maximized ? Window.Maximized : Window.Windowed
-    visible: true
+    // Setting a visibility other than Hidden shows a window, so a hidden
+    // start has to say Hidden here as well as in `visible`.
+    visibility: shell.start_hidden ? Window.Hidden
+              : geometry.maximized ? Window.Maximized : Window.Windowed
+    visible: !shell.start_hidden
     color: "#000000"
 
     function writeState() {
@@ -623,6 +635,49 @@ Window {
         }
     }
 
+    // An update: ready to take over, or waiting for the password a
+    // system-wide install needs. At the bottom, where Instagram keeps nothing
+    // that a small pill would hide for long, and never over a call.
+    Row {
+        id: updateOffer
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 16
+        spacing: 6
+        property string key: root.updateState + " " + root.updateVersion
+        visible: opacity > 0
+        opacity: (root.updateState === "ready" || root.updateState === "installable"
+                  || root.updateState === "installing")
+                 && root.updateDismissed !== key
+                 && root.callPage === null
+                 && root.visibility !== Window.FullScreen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        Pill {
+            shown: true
+            accent: root.updateState !== "installing"
+            label: root.updateState === "ready"
+                   ? "Update ready — Restart"
+                   : root.updateState === "installable"
+                     ? "instaCache " + root.updateVersion + " available — Install"
+                     : "Installing instaCache " + root.updateVersion + "…"
+            onClicked: {
+                if (root.updateState === "ready") {
+                    // Back on the same Instagram page, in a window that shows.
+                    if (shell.restart_for_update(false, view.url.toString()))
+                        root.quit();
+                } else if (root.updateState === "installable") {
+                    shell.install_update();
+                }
+            }
+        }
+        Pill {
+            shown: root.updateState !== "installing"
+            label: "Later"
+            onClicked: root.updateDismissed = updateOffer.key
+        }
+    }
+
     component Pill: Rectangle {
         id: pill
         property string label
@@ -681,6 +736,18 @@ Window {
             for (var i = 0; i < events.urls.length; i++) {
                 root.showInstagram();
                 view.url = events.urls[i];
+            }
+
+            root.updateState = events.update;
+            root.updateVersion = events.update_version;
+            // The way a browser updates itself: the new version is already on
+            // disk, so while nobody is looking it simply takes over, staying
+            // hidden. A visible window gets the pill instead, and closing it
+            // brings this path round on the next tick.
+            if (events.update === "ready"
+                && shell.may_restart_quietly(root.visible, root.callPage !== null)
+                && shell.restart_for_update(true, view.url.toString())) {
+                root.quit();
             }
         }
     }

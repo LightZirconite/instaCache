@@ -4,7 +4,28 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-09-16
+
+### Changed
+- **Updates work the way a browser's do.** instaCache checks at startup and
+  every 6 hours while it runs, installs a new release in the background, and
+  lets it take over by restarting — on its own and invisibly when the window is
+  closed and no call is running, or from an **Update ready — Restart** pill in
+  an open window, which reopens the same page. Before, an update waited for you
+  to quit and relaunch after a notification, which in the background could mean
+  weeks.
+- A system-wide install can be updated from the window: the pill asks for the
+  administrator password through `pkexec`.
+- The default `update_check_interval_hours` is 6. A config file still holding
+  the old default of 24 is read as the new one.
+
+### Added
+- `--background` starts instaCache with its window hidden.
+
 ## [2.3.0] - 2026-09-16
+
+Withdrawn within the hour, before anyone had downloaded it; everything in it
+ships in 2.4.0.
 
 ### Added
 - **Pages instead of tabs.** Whatever Instagram opens in a new tab or window —

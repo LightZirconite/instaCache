@@ -22,6 +22,7 @@ QtObject {
     property bool context_menu: false
     property bool run_in_background: true
     property bool instagram_shortcuts: true
+    property bool start_hidden: false
     property string user_stylesheet: ""
     property string user_script: ""
     property string spell_check_languages: ""
@@ -30,7 +31,11 @@ QtObject {
     property var externals: []
     property var titles: []
     property int hidden: 0
-    property string pollResult: '{"present":false,"urls":[],"quit":false}'
+    property string pollResult: ""
+    // Reported by every poll, the way bridge.rs reports it.
+    property string update: "none"
+    property var restarts: []
+    property int installs: 0
 
     function is_internal(u) { return /^https?:\/\/127\.0\.0\.1(:|\/)/.test(u); }
     function grants_permission(origin, feature) {
@@ -51,10 +56,22 @@ QtObject {
     function should_reload_after_crash() { return false; }
     function notify(title, body) {}
     function poll() {
-        var result = pollResult;
-        pollResult = '{"present":false,"urls":[],"quit":false}';
-        return result;
+        var result = pollResult !== "" ? JSON.parse(pollResult)
+                                       : {present: false, urls: [], quit: false};
+        pollResult = "";
+        result.update = update;
+        result.update_version = update === "none" ? "" : "9.9.9";
+        return JSON.stringify(result);
     }
+    function may_restart_quietly(visible, inCall) {
+        return update === "ready" && !visible && !inCall;
+    }
+    // Recorded and refused, so the scene never quits the test runner.
+    function restart_for_update(hidden, url) {
+        restarts = restarts.concat([{hidden: hidden, url: url}]);
+        return false;
+    }
+    function install_update() { installs++; update = "installing"; }
     function log(message) { console.log("shell.log: " + message); }
     function window_hidden() { hidden++; }
     function title_changed(title) { titles = titles.concat([title]); }

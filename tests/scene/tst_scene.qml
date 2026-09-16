@@ -37,7 +37,7 @@ Item {
             waitFor(function () { return !main.loading && main.title === "Instagram"; }, 15000, "home loads");
         }
 
-        function test_1_unread_title_reaches_shell() {
+        function test_01_unread_title_reaches_shell() {
             var main = win.activeView();
             main.runJavaScript("document.title = '(3) Instagram'");
             waitFor(function () { return win.shell.titles.indexOf("(3) Instagram") >= 0; }, 5000, "title_changed called");
@@ -45,7 +45,7 @@ Item {
             main.runJavaScript("document.title = 'Instagram'");
         }
 
-        function test_2_call_opens_as_page_and_survives_back() {
+        function test_02_call_opens_as_page_and_survives_back() {
             var main = win.activeView();
             main.runJavaScript("window.open('/call.html', 'call', 'width=640,height=480')");
             waitFor(function () { return win.current !== null; }, 8000, "call page shown");
@@ -66,7 +66,7 @@ Item {
             win.current = null;
         }
 
-        function test_3_link_page_and_mouse_back_button() {
+        function test_03_link_page_and_mouse_back_button() {
             var main = win.activeView();
             main.runJavaScript("document.getElementById('tab').click()");
             waitFor(function () { return win.current !== null && !win.current.inCall; }, 8000, "link opened as a page");
@@ -81,7 +81,7 @@ Item {
             compare(win.pages.length, 1, "ordinary page destroyed, call kept");
         }
 
-        function test_4_second_page_replaces_the_first() {
+        function test_04_second_page_replaces_the_first() {
             var main = win.activeView();
             main.runJavaScript("document.getElementById('tab').click()");
             waitFor(function () { return win.current !== null && !win.current.inCall; }, 8000, "first page");
@@ -95,21 +95,21 @@ Item {
             verify(win.visible, "and not the window");
         }
 
-        function test_5_popup_leaving_for_the_browser_closes() {
+        function test_05_popup_leaving_for_the_browser_closes() {
             var before = win.pages.length;
             win.activeView().runJavaScript("var w = window.open('', 'x', 'width=300,height=300'); setTimeout(function(){ w.location.href = 'https://example.invalid/share'; }, 300);");
             waitFor(function () { return win.shell.externals.indexOf("https://example.invalid/share") >= 0; }, 8000, "external address handed to the browser: " + JSON.stringify(win.shell.externals));
             waitFor(function () { return win.pages.length === before && win.current === null; }, 3000, "empty page closed");
         }
 
-        function test_6_call_ending_closes_its_page() {
+        function test_06_call_ending_closes_its_page() {
             win.current = win.callPage;
             win.callPage.runJavaScript("window.close()");
             waitFor(function () { return win.callPage === null && win.current === null; }, 5000, "call page gone");
             compare(win.pages.length, 0);
         }
 
-        function test_7_escape_reaches_the_page_when_not_fullscreen() {
+        function test_07_escape_reaches_the_page_when_not_fullscreen() {
             var main = win.activeView();
             main.runJavaScript("document.title = 'Instagram'");
             wait(300);
@@ -118,19 +118,53 @@ Item {
             waitFor(function () { return main.title === "escape-reached"; }, 3000, "Escape not swallowed: " + main.title);
         }
 
-        function test_8_shortcut_moves_inside_instagram() {
+        function test_08_shortcut_moves_inside_instagram() {
             var main = win.activeView();
             keyClick(Qt.Key_4, Qt.ControlModifier);
             waitFor(function () { return main.title === "inbox-link"; }, 3000, "Ctrl+4 clicked the Direct link: " + main.title);
         }
 
-        function test_9_close_hides_instead_of_quitting() {
+        function test_10_update_ready_offers_a_restart_on_the_same_page() {
+            win.shell.update = "ready";
+            var pill = null;
+            waitFor(function () { pill = findByLabel(win.contentItem, "Update ready — Restart"); return pill !== null && pill.parent.opacity === 1; }, 3000, "update pill shown");
+            mouseClick(pill);
+            waitFor(function () { return win.shell.restarts.length === 1; }, 2000, "restart asked for");
+            compare(win.shell.restarts[0].hidden, false, "a visible window restarts visible");
+            verify(win.shell.restarts[0].url.indexOf("127.0.0.1") > 0, "on the same page");
+            var later = findByLabel(win.contentItem, "Later");
+            mouseClick(later);
+            waitFor(function () { return pill.parent.opacity === 0; }, 2000, "Later hides the offer");
+        }
+
+        function test_11_a_system_install_asks_before_installing() {
+            win.shell.update = "installable";
+            var pill = null;
+            waitFor(function () { pill = findByLabel(win.contentItem, "instaCache 9.9.9 available — Install"); return pill !== null && pill.parent.opacity === 1; }, 3000, "install offer shown again for a new state");
+            mouseClick(pill);
+            compare(win.shell.installs, 1);
+            waitFor(function () { return findByLabel(win.contentItem, "Installing instaCache 9.9.9…") !== null; }, 2000, "installing shown");
+            win.shell.update = "none";
+        }
+
+        function test_09_close_hides_instead_of_quitting() {
             win.close();
             wait(500);
             verify(!win.visible, "hidden");
             compare(win.shell.hidden, 1);
             win.shell.pollResult = '{"present":true,"urls":[],"quit":false}';
             waitFor(function () { return win.visible; }, 3000, "a second launch shows it again");
+        }
+
+        function test_12_a_closed_window_takes_an_update_quietly() {
+            win.shell.restarts = [];
+            win.shell.update = "ready";
+            wait(600);
+            compare(win.shell.restarts.length, 0, "not while the window is open");
+            win.close();
+            waitFor(function () { return win.shell.restarts.length > 0; }, 3000, "quiet restart once closed");
+            compare(win.shell.restarts[0].hidden, true, "and it stays hidden");
+            win.shell.update = "none";
         }
     }
 }
