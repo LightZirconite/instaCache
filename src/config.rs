@@ -121,6 +121,11 @@ pub struct Config {
     /// Show the number of unread items on the task bar icon, read from the
     /// `(3)` Instagram puts in front of its page title.
     pub unread_badge: bool,
+    /// An icon in the system tray for as long as instaCache runs, the way
+    /// Spotify or Discord have one: it shows that a closed window is still
+    /// running, and opens or quits it. Where the desktop has no tray, the
+    /// setting has no effect and nothing breaks.
+    pub tray_icon: bool,
     /// Hosts allowed to render inside the window, as an allow-list.
     ///
     /// This is the security boundary of the app: the window holds a logged-in
@@ -176,6 +181,7 @@ impl Default for Config {
             calls: true,
             run_in_background: true,
             unread_badge: true,
+            tray_icon: true,
             internal_domains: crate::urls::INTERNAL_DOMAINS
                 .iter()
                 .map(|domain| (*domain).to_string())

@@ -4,6 +4,23 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-09-16
+
+### Added
+- **A tray icon** while instaCache runs, open or closed to the background:
+  click to open or hide the window, right-click to quit or to restart into a
+  downloaded update. The tooltip shows the unread count. Off with `tray_icon`;
+  a desktop without a tray simply has no icon.
+
+### Fixed
+- A window opened again after being closed to the background came back with
+  a blank page until something was clicked. It now draws at once.
+- Opening a closed window from the menu answers faster: the running copy looks
+  for a second launch every 80 ms while hidden, instead of every 250 ms.
+- The notice shown the first time the window is closed says what to do in
+  plain words, and points at the tray icon when there is one, instead of
+  naming a setting in backticks.
+
 ## [2.4.0] - 2026-09-16
 
 ### Changed

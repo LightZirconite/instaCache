@@ -99,13 +99,17 @@ Window {
     onClosing: function (close) {
         if (!root.quitting && shell.run_in_background) {
             close.accepted = false;
-            root.writeState();
-            root.hiddenMaximized = root.visibility === Window.Maximized;
-            root.hide();
-            shell.window_hidden();
+            root.hideToBackground();
             return;
         }
         root.saveState();
+    }
+
+    function hideToBackground() {
+        root.writeState();
+        root.hiddenMaximized = root.visibility === Window.Maximized;
+        root.hide();
+        shell.window_hidden(root.trayShown);
     }
 
     function bringToFront() {
@@ -114,9 +118,73 @@ Window {
                 root.showMaximized();
             else
                 root.show();
+            root.repaint();
         }
         root.raise();
         root.requestActivate();
+    }
+
+    // A window that was hidden comes back with the page grey until something
+    // — a click, a hover — makes Chromium draw a new frame: the old frame went
+    // with the window's graphics, and Chromium does not know. Hiding the view
+    // for a moment and showing it again is what makes it draw one.
+    property bool repainting: false
+    function repaint() {
+        root.repainting = true;
+        repaintDone.restart();
+    }
+    Timer { id: repaintDone; interval: 30; onTriggered: root.repainting = false }
+
+    function restartForUpdate() {
+        // Back on the same Instagram page, in a window that shows.
+        if (shell.restart_for_update(false, view.url.toString()))
+            root.quit();
+    }
+
+    // --- The tray icon ---------------------------------------------------
+
+    // Created from a string rather than declared, so that a system without
+    // the Qt.labs.platform module loses the tray icon and nothing else: a
+    // failed import in the scene itself would stop the window appearing at
+    // all, silently. See "A live process, no window and no error" in AGENTS.md.
+    property var tray: null
+    property bool trayShown: tray !== null && tray.available
+    property int unread: 0
+    readonly property string trayIconName: shell.icon_name
+    readonly property string trayTitle: shell.window_title
+
+    function toggleFromTray() {
+        if (root.visible && root.active)
+            root.hideToBackground();
+        else
+            root.bringToFront();
+    }
+
+    Component.onCompleted: {
+        if (!shell.tray_icon)
+            return;
+        try {
+            root.tray = Qt.createQmlObject(
+                "import QtQuick\n" +
+                "import Qt.labs.platform\n" +
+                "SystemTrayIcon {\n" +
+                "    visible: available\n" +
+                "    icon.name: root.trayIconName\n" +
+                "    tooltip: root.unread > 0 ? root.trayTitle + ' — ' + root.unread + ' unread' : root.trayTitle\n" +
+                "    onActivated: function (reason) {\n" +
+                "        if (reason !== SystemTrayIcon.Context) root.toggleFromTray();\n" +
+                "    }\n" +
+                "    menu: Menu {\n" +
+                "        MenuItem { text: root.visible ? 'Hide' : 'Open'; onTriggered: root.toggleFromTray() }\n" +
+                "        MenuItem { text: 'Restart to update'; visible: root.updateState === 'ready'; onTriggered: root.restartForUpdate() }\n" +
+                "        MenuSeparator {}\n" +
+                "        MenuItem { text: 'Quit'; onTriggered: root.quit() }\n" +
+                "    }\n" +
+                "}\n",
+                root, "tray");
+        } catch (error) {
+            shell.log("no tray icon: " + error);
+        }
     }
 
     function activeView() {
@@ -397,7 +465,7 @@ Window {
             zoomFactor: root.geometry.zoom
             backgroundColor: "#000000"
             // Hidden under a page, so Chromium treats it as a background tab.
-            visible: root.current === null
+            visible: root.current === null && !root.repainting
 
             settings.playbackRequiresUserGesture: !shell.autoplay_without_gesture
             settings.fullScreenSupportEnabled: true
@@ -408,7 +476,7 @@ Window {
             settings.showScrollBars: false
 
             // The unread badge reads Instagram's title, whatever is shown.
-            onTitleChanged: shell.title_changed(title)
+            onTitleChanged: root.unread = shell.title_changed(title)
 
             onNavigationRequested: function (request) {
                 root.routeNavigation(request);
@@ -470,7 +538,7 @@ Window {
             profile: session
             zoomFactor: view.zoomFactor
             backgroundColor: "#000000"
-            visible: root.current === page
+            visible: root.current === page && !root.repainting
 
             // Set once the page is granted the microphone or camera, which
             // for a page of its own means a call. A call is hidden rather
@@ -663,9 +731,7 @@ Window {
                      : "Installing instaCache " + root.updateVersion + "…"
             onClicked: {
                 if (root.updateState === "ready") {
-                    // Back on the same Instagram page, in a window that shows.
-                    if (shell.restart_for_update(false, view.url.toString()))
-                        root.quit();
+                    root.restartForUpdate();
                 } else if (root.updateState === "installable") {
                     shell.install_update();
                 }
@@ -708,7 +774,9 @@ Window {
     // Anything that happened off the UI thread: a second launch asking for
     // this window, a notification being clicked, an update check finishing.
     Timer {
-        interval: 250
+        // Faster while hidden: that is when a launch from the menu is waiting
+        // on this timer to show the window, and nothing else is going on.
+        interval: root.visible ? 250 : 80
         running: true
         repeat: true
         onTriggered: {

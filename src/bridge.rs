@@ -65,6 +65,10 @@ pub struct Shell {
     context_menu: qt_property!(bool; READ context_menu),
     /// Whether closing the window hides it instead of quitting.
     run_in_background: qt_property!(bool; READ run_in_background),
+    /// Whether to put an icon in the system tray while instaCache runs.
+    tray_icon: qt_property!(bool; READ tray_icon),
+    /// The icon theme name this profile's entry uses, for the tray icon.
+    icon_name: qt_property!(QString; READ icon_name),
     /// Started with `--background`: the window begins hidden. What a quiet
     /// restart for an update uses, so nothing appears on screen.
     start_hidden: qt_property!(bool; READ starts_hidden),
@@ -196,15 +200,20 @@ pub struct Shell {
         }
     ),
     /// The window was closed and is now only hidden. Says so, once ever.
+    /// `tray` says whether a tray icon is there to reopen it from, which
+    /// changes what the notice tells the user to do.
     window_hidden: qt_method!(
-        fn window_hidden(&self) {
-            self.note_hidden();
+        fn window_hidden(&self, tray: bool) {
+            self.note_hidden(tray);
         }
     ),
-    /// The main page's title changed; the unread badge follows it.
+    /// The main page's title changed; the unread badge follows it. Returns
+    /// the count, for the tray icon's tooltip.
     title_changed: qt_method!(
-        fn title_changed(&self, title: String) {
-            self.update_badge(unread_count(&title));
+        fn title_changed(&self, title: String) -> u32 {
+            let count = unread_count(&title);
+            self.update_badge(count);
+            count
         }
     ),
 
@@ -360,28 +369,36 @@ impl Shell {
         *self.updates.borrow_mut() = Some(updates::install_elevated_in_background(version));
     }
 
+    fn tray_icon(&self) -> bool {
+        self.config().tray_icon
+    }
+
+    fn icon_name(&self) -> QString {
+        let profile = self
+            .paths
+            .as_ref()
+            .map(|paths| paths.profile.clone())
+            .unwrap_or_else(|| crate::paths::DEFAULT_PROFILE.to_string());
+        profile_icon_name(&profile).into()
+    }
+
     fn instagram_shortcuts(&self) -> bool {
         urls::is_internal_in(&["instagram.com"], &self.config().home_url)
     }
 
-    fn note_hidden(&self) {
+    fn note_hidden(&self, tray: bool) {
         let Some(paths) = self.paths.as_ref() else {
             return;
         };
-        let marker = paths.background_notice_marker();
+        let marker = paths.background_notice_marker(tray);
         if marker.exists() {
             return;
         }
         if let Err(error) = std::fs::write(&marker, b"") {
             eprintln!("instacache: could not write {}: {error}", marker.display());
         }
-        self.send_toast(
-            format!("{APP_NAME} is still running"),
-            "It opens instantly and keeps your notifications coming. \
-             Ctrl+Q quits, and `run_in_background` turns this off."
-                .to_string(),
-            false,
-        );
+        let (title, body) = background_notice(tray);
+        self.send_toast(title, body, false);
     }
 
     /// An instance that stays in the background may run for weeks, and the
@@ -734,6 +751,31 @@ fn permission_granted(config: &Config, internal: bool, feature: &str) -> bool {
     }
 }
 
+/// The icon theme name for a profile: instaCache's own for the default one, the
+/// site's for a site added with `--add-site`.
+fn profile_icon_name(profile: &str) -> String {
+    if profile == crate::paths::DEFAULT_PROFILE {
+        ICON_NAME.to_string()
+    } else {
+        sites::icon_name(profile)
+    }
+}
+
+/// What the user is told the first time closing the window leaves instaCache
+/// running. Plain words and one thing to do; no setting names, which are
+/// documented in the README for whoever goes looking.
+fn background_notice(tray: bool) -> (String, String) {
+    let title = format!("{APP_NAME} is still running");
+    let body = if tray {
+        "Messages and notifications keep arriving. Click its icon in the system \
+         tray to open it again, or right-click the icon to quit."
+    } else {
+        "Messages and notifications keep arriving. Open it again from the \
+         application menu, or press Ctrl+Q in its window to quit."
+    };
+    (title, body.to_string())
+}
+
 /// Whether a running instance should ask again if an update check is due.
 ///
 /// Never once an update has been installed: the running binary is still the
@@ -944,6 +986,25 @@ mod tests {
         assert!(describe_update(&idle, &available, true)
             .unwrap()
             .contains("from the window"));
+    }
+
+    #[test]
+    fn the_background_notice_speaks_plainly() {
+        for tray in [true, false] {
+            let (title, body) = background_notice(tray);
+            assert!(title.contains("still running"));
+            for jargon in ["`", "run_in_background", "config"] {
+                assert!(!body.contains(jargon), "{jargon} in {body}");
+            }
+        }
+        assert!(background_notice(true).1.contains("tray"));
+        assert!(background_notice(false).1.contains("Ctrl+Q"));
+    }
+
+    #[test]
+    fn a_site_uses_its_own_icon_in_the_tray() {
+        assert_eq!(profile_icon_name("default"), "instacache");
+        assert_eq!(profile_icon_name("xcache"), "instacache-xcache");
     }
 
     #[test]

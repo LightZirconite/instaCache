@@ -71,9 +71,14 @@ impl Paths {
     }
 
     /// Present once the user has been told that closing the window leaves
-    /// instaCache running. The notice is worth giving once, not every time.
-    pub fn background_notice_marker(&self) -> PathBuf {
-        self.config.join("background-notice-shown")
+    /// instaCache running. The notice is worth giving once, not every time —
+    /// but once more when a tray icon changes what it has to say.
+    pub fn background_notice_marker(&self, tray: bool) -> PathBuf {
+        if tray {
+            self.config.join("tray-notice-shown")
+        } else {
+            self.config.join("background-notice-shown")
+        }
     }
 
     pub fn is_default_profile(&self) -> bool {

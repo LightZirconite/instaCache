@@ -23,6 +23,8 @@ QtObject {
     property bool run_in_background: true
     property bool instagram_shortcuts: true
     property bool start_hidden: false
+    property bool tray_icon: false
+    property string icon_name: "instacache"
     property string user_stylesheet: ""
     property string user_script: ""
     property string spell_check_languages: ""
@@ -73,6 +75,10 @@ QtObject {
     }
     function install_update() { installs++; update = "installing"; }
     function log(message) { console.log("shell.log: " + message); }
-    function window_hidden() { hidden++; }
-    function title_changed(title) { titles = titles.concat([title]); }
+    function window_hidden(tray) { hidden++; }
+    function title_changed(title) {
+        titles = titles.concat([title]);
+        var match = /^\((\d+)\+?\)/.exec(title.trim());
+        return match ? parseInt(match[1]) : 0;
+    }
 }

@@ -42,6 +42,7 @@ Item {
             main.runJavaScript("document.title = '(3) Instagram'");
             waitFor(function () { return win.shell.titles.indexOf("(3) Instagram") >= 0; }, 5000, "title_changed called");
             compare(win.title, "(3) Instagram");
+            compare(win.unread, 3, "the tray tooltip's count");
             main.runJavaScript("document.title = 'Instagram'");
         }
 
@@ -154,6 +155,7 @@ Item {
             compare(win.shell.hidden, 1);
             win.shell.pollResult = '{"present":true,"urls":[],"quit":false}';
             waitFor(function () { return win.visible; }, 3000, "a second launch shows it again");
+            waitFor(function () { return win.activeView().visible && !win.repainting; }, 2000, "the page is shown again after its repaint");
         }
 
         function test_12_a_closed_window_takes_an_update_quietly() {
