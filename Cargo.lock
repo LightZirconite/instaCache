@@ -489,6 +489,7 @@ dependencies = [
  "qttypes",
  "serde",
  "serde_json",
+ "zbus",
 ]
 
 [[package]]

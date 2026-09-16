@@ -70,6 +70,12 @@ impl Paths {
         self.data.join("cookies.sqlite")
     }
 
+    /// Present once the user has been told that closing the window leaves
+    /// instaCache running. The notice is worth giving once, not every time.
+    pub fn background_notice_marker(&self) -> PathBuf {
+        self.config.join("background-notice-shown")
+    }
+
     pub fn is_default_profile(&self) -> bool {
         self.profile == DEFAULT_PROFILE
     }

@@ -97,6 +97,21 @@ pub struct Config {
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
     pub notifications: bool,
+    /// Let Instagram use the microphone and camera, which is what voice and
+    /// video calls in Direct need. Only a host in `internal_domains` is ever
+    /// granted them; `false` refuses them everywhere.
+    pub calls: bool,
+    /// Keep running when the window is closed, so opening it again is instant
+    /// and notifications keep arriving. `Ctrl+Q` still quits for real.
+    ///
+    /// Most of a launch is spent before instaCache has any say in it: loading
+    /// Qt WebEngine, starting Chromium's processes and running Instagram's
+    /// own JavaScript. Keeping the window instead of rebuilding it is the one
+    /// thing that removes that time rather than shaving a little off it.
+    pub run_in_background: bool,
+    /// Show the number of unread items on the task bar icon, read from the
+    /// `(3)` Instagram puts in front of its page title.
+    pub unread_badge: bool,
     /// Hosts allowed to render inside the window, as an allow-list.
     ///
     /// This is the security boundary of the app: the window holds a logged-in
@@ -149,6 +164,9 @@ impl Default for Config {
             context_menu: false,
             developer_tools: false,
             notifications: true,
+            calls: true,
+            run_in_background: true,
+            unread_badge: true,
             internal_domains: crate::urls::INTERNAL_DOMAINS
                 .iter()
                 .map(|domain| (*domain).to_string())

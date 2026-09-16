@@ -21,7 +21,7 @@ use qmetaobject::*;
 
 use crate::config::{Config, WindowState};
 use crate::paths::Paths;
-use crate::{downloads, errorpage, instance, updates, urls};
+use crate::{badge, downloads, errorpage, instance, sites, updates, urls};
 use crate::{APP_NAME, ICON_NAME};
 
 /// Set by the termination signal handler, which may do nothing more than
@@ -32,6 +32,11 @@ pub static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 /// A renderer that dies on every load must not be reloaded forever.
 const MAX_CRASH_RELOADS: u32 = 3;
 const CRASH_WINDOW: Duration = Duration::from_secs(120);
+
+/// How often a long-running instance asks again whether an update check is
+/// due. Asking is reading one small file; whether to go to the network is
+/// still decided by `update_check_interval_hours`.
+const UPDATE_RECHECK: Duration = Duration::from_secs(3600);
 
 /// What the notification thread is asked to display.
 struct Toast {
@@ -58,6 +63,11 @@ pub struct Shell {
     notifications_enabled: qt_property!(bool; READ notifications_enabled),
     external_links_in_browser: qt_property!(bool; READ external_links_in_browser),
     context_menu: qt_property!(bool; READ context_menu),
+    /// Whether closing the window hides it instead of quitting.
+    run_in_background: qt_property!(bool; READ run_in_background),
+    /// Whether this window is Instagram, which is what the shortcuts that
+    /// jump to the feed, Explore, Reels and Direct are written for.
+    instagram_shortcuts: qt_property!(bool; READ instagram_shortcuts),
     /// The user's own CSS, or an empty string when there is none.
     user_stylesheet: qt_property!(QString; READ user_stylesheet),
     /// The user's own JavaScript, or an empty string when there is none.
@@ -72,6 +82,15 @@ pub struct Shell {
     is_internal: qt_method!(
         fn is_internal(&self, url: String) -> bool {
             urls::is_internal_in(&self.config().internal_domains, &url)
+        }
+    ),
+    /// Whether the page at `origin` may use `feature`, named after the
+    /// enumerator in `WebEngineView.Feature`.
+    grants_permission: qt_method!(
+        fn grants_permission(&self, origin: String, feature: String) -> bool {
+            let config = self.config();
+            let internal = urls::is_internal_in(&config.internal_domains, &origin);
+            permission_granted(&config, internal, &feature)
         }
     ),
     is_engine_scheme: qt_method!(
@@ -151,13 +170,29 @@ pub struct Shell {
             eprintln!("instacache: {message}");
         }
     ),
+    /// The window was closed and is now only hidden. Says so, once ever.
+    window_hidden: qt_method!(
+        fn window_hidden(&self) {
+            self.note_hidden();
+        }
+    ),
+    /// The main page's title changed; the unread badge follows it.
+    title_changed: qt_method!(
+        fn title_changed(&self, title: String) {
+            self.update_badge(unread_count(&title));
+        }
+    ),
 
     // --- Not visible to QML ----------------------------------------------
     config: Option<Rc<Config>>,
     paths: Option<Rc<Paths>>,
     listener: Option<UnixListener>,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
+    update_asked: Cell<Option<Instant>>,
+    update_installed: Cell<bool>,
     toasts: Option<Sender<Toast>>,
+    badge: Option<Sender<u32>>,
+    unread: Cell<u32>,
     activations: Option<Receiver<()>>,
     crash_attempts: Cell<u32>,
     crash_window_started: RefCell<Option<Instant>>,
@@ -173,13 +208,18 @@ impl Shell {
     ) -> Self {
         let update_check = updates::check_in_background(&config, &paths);
         let (toasts, activations) = spawn_notifier();
+        let badge = config
+            .unread_badge
+            .then(|| badge::spawn(sites::window_class(&paths.profile)));
 
         Self {
             config: Some(config),
             paths: Some(paths),
             listener,
             updates: RefCell::new(update_check),
+            update_asked: Cell::new(Some(Instant::now())),
             toasts: Some(toasts),
+            badge,
             activations: Some(activations),
             pending_url: RefCell::new(start_url),
             ..Default::default()
@@ -255,6 +295,70 @@ impl Shell {
 
     fn context_menu(&self) -> bool {
         self.config().context_menu
+    }
+
+    fn run_in_background(&self) -> bool {
+        self.config().run_in_background
+    }
+
+    fn instagram_shortcuts(&self) -> bool {
+        urls::is_internal_in(&["instagram.com"], &self.config().home_url)
+    }
+
+    fn note_hidden(&self) {
+        let Some(paths) = self.paths.as_ref() else {
+            return;
+        };
+        let marker = paths.background_notice_marker();
+        if marker.exists() {
+            return;
+        }
+        if let Err(error) = std::fs::write(&marker, b"") {
+            eprintln!("instacache: could not write {}: {error}", marker.display());
+        }
+        self.send_toast(
+            format!("{APP_NAME} is still running"),
+            "It opens instantly and keeps your notifications coming. \
+             Ctrl+Q quits, and `run_in_background` turns this off."
+                .to_string(),
+            false,
+        );
+    }
+
+    /// An instance that stays in the background may run for weeks, and the
+    /// startup check alone would then never run again.
+    fn recheck_updates(&self) {
+        // Runs four times a second, so nothing is cloned until a check is due.
+        let interval = self
+            .config
+            .as_deref()
+            .map(|config| config.update_check_interval_hours)
+            .unwrap_or_else(|| Config::default().update_check_interval_hours);
+        let now = Instant::now();
+        let pending = self.updates.borrow().is_some();
+        if pending
+            || !update_recheck_due(
+                self.update_asked.get(),
+                now,
+                self.update_installed.get(),
+                interval,
+            )
+        {
+            return;
+        }
+        self.update_asked.set(Some(now));
+        if let Some(paths) = self.paths.as_ref() {
+            *self.updates.borrow_mut() = updates::check_in_background(&self.config(), paths);
+        }
+    }
+
+    fn update_badge(&self, count: u32) {
+        if self.unread.replace(count) == count {
+            return;
+        }
+        if let Some(badge) = self.badge.as_ref() {
+            let _ = badge.send(count);
+        }
     }
 
     /// Read on every access rather than cached, so editing the file and
@@ -380,11 +484,16 @@ impl Shell {
             .and_then(|rx| rx.try_recv().ok());
         if let Some(outcome) = outcome {
             *self.updates.borrow_mut() = None;
+            if matches!(outcome, updates::Outcome::Installed { .. }) {
+                self.update_installed.set(true);
+            }
             if let Some((title, body)) = describe_update(&outcome) {
                 println!("instacache: {title} — {body}");
                 self.send_toast(title, body, false);
             }
         }
+
+        self.recheck_updates();
 
         serde_json::json!({
             "present": present,
@@ -415,7 +524,7 @@ fn describe_update(outcome: &updates::Outcome) -> Option<(String, String)> {
     match outcome {
         updates::Outcome::Installed { version } => Some((
             format!("{APP_NAME} {version} installed"),
-            "Restart instaCache to start using it.".to_string(),
+            "Quit instaCache with Ctrl+Q and open it again to start using it.".to_string(),
         )),
         updates::Outcome::Available { version } => Some((
             format!("{APP_NAME} {version} is available"),
@@ -466,6 +575,62 @@ fn spawn_notifier() -> (Sender<Toast>, Receiver<()>) {
     (toast_tx, activated_rx)
 }
 
+/// The permission policy, apart from the Qt types so it can be tested.
+///
+/// Anything not named here is refused: geolocation, screen capture, pointer
+/// lock, and whatever a newer Qt adds. A request from a host outside the
+/// window's allow-list is refused whatever it asks for.
+fn permission_granted(config: &Config, internal: bool, feature: &str) -> bool {
+    if !internal {
+        return false;
+    }
+    match feature {
+        "Notifications" => config.notifications,
+        // Backs "paste an image into a DM".
+        "ClipboardReadWrite" => true,
+        // Voice and video calls in Direct, which cannot work without them.
+        "MediaAudioCapture" | "MediaVideoCapture" | "MediaAudioVideoCapture" => config.calls,
+        _ => false,
+    }
+}
+
+/// Whether a running instance should ask again if an update check is due.
+///
+/// Never once an update has been installed: the running binary is still the
+/// old version, so every later check would find the same release "newer" and
+/// install it again. And never for an interval of `0`, which means "at every
+/// launch" and would otherwise mean "every hour".
+fn update_recheck_due(
+    asked: Option<Instant>,
+    now: Instant,
+    installed: bool,
+    interval_hours: u64,
+) -> bool {
+    if installed || interval_hours == 0 {
+        return false;
+    }
+    asked.is_none_or(|asked| now.saturating_duration_since(asked) >= UPDATE_RECHECK)
+}
+
+/// The unread count a page title announces: `(3) Instagram` is 3, and a
+/// title with no count in front is 0.
+///
+/// Only a count at the very start is read. A number in brackets further along
+/// is part of whatever the page is showing, not a count of anything.
+fn unread_count(title: &str) -> u32 {
+    let Some(rest) = title.trim_start().strip_prefix('(') else {
+        return 0;
+    };
+    let Some((inside, _)) = rest.split_once(')') else {
+        return 0;
+    };
+    let digits = inside.trim().trim_end_matches('+');
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return 0;
+    }
+    digits.parse().unwrap_or(u32::MAX)
+}
+
 /// Hands a URL to the system browser, without a shell in between.
 pub fn open_externally(uri: &str) {
     if urls::scheme_of(uri).is_none() {
@@ -497,6 +662,92 @@ mod tests {
             !shell.note_crash(),
             "past the limit the crash page is shown instead"
         );
+    }
+
+    #[test]
+    fn calls_get_the_microphone_and_camera_on_instagram_only() {
+        let config = Config::default();
+        for feature in [
+            "MediaAudioCapture",
+            "MediaVideoCapture",
+            "MediaAudioVideoCapture",
+        ] {
+            assert!(permission_granted(&config, true, feature), "{feature}");
+            assert!(!permission_granted(&config, false, feature), "{feature}");
+        }
+        let off = Config {
+            calls: false,
+            ..Config::default()
+        };
+        assert!(!permission_granted(&off, true, "MediaAudioCapture"));
+    }
+
+    #[test]
+    fn what_calls_do_not_need_stays_refused() {
+        let config = Config::default();
+        for feature in [
+            "Geolocation",
+            "DesktopVideoCapture",
+            "DesktopAudioVideoCapture",
+            "MouseLock",
+            "",
+        ] {
+            assert!(!permission_granted(&config, true, feature), "{feature}");
+        }
+        assert!(!permission_granted(&config, false, "Notifications"));
+    }
+
+    #[test]
+    fn the_unread_count_is_read_from_the_front_of_the_title() {
+        assert_eq!(unread_count("(3) Instagram"), 3);
+        assert_eq!(unread_count("(12) Inbox • Direct"), 12);
+        assert_eq!(unread_count("(99+) Instagram"), 99);
+        assert_eq!(unread_count("  (2) Instagram"), 2);
+        assert_eq!(unread_count("Instagram"), 0);
+        assert_eq!(unread_count(""), 0);
+        assert_eq!(unread_count("(0) Instagram"), 0);
+        assert_eq!(unread_count("Photo (3) by someone"), 0);
+        assert_eq!(unread_count("(new) Instagram"), 0);
+        assert_eq!(unread_count("(+) Instagram"), 0);
+        assert_eq!(unread_count("(4 Instagram"), 0);
+        assert_eq!(unread_count("(99999999999) Instagram"), u32::MAX);
+    }
+
+    #[test]
+    fn a_background_instance_asks_about_updates_hourly_until_one_is_installed() {
+        let start = Instant::now();
+        let later = start + UPDATE_RECHECK;
+        assert!(!update_recheck_due(Some(start), start, false, 24));
+        assert!(update_recheck_due(Some(start), later, false, 24));
+        assert!(!update_recheck_due(Some(start), later, true, 24));
+        assert!(!update_recheck_due(Some(start), later, false, 0));
+    }
+
+    #[test]
+    fn a_count_that_did_not_change_is_not_sent_again() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let shell = Shell {
+            badge: Some(tx),
+            ..shell()
+        };
+        shell.update_badge(0);
+        shell.update_badge(2);
+        shell.update_badge(2);
+        shell.update_badge(0);
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![2, 0]);
+    }
+
+    #[test]
+    fn instagram_shortcuts_are_for_instagram_only() {
+        assert!(shell().instagram_shortcuts());
+        let x = Shell {
+            config: Some(Rc::new(Config {
+                home_url: "https://x.com/".into(),
+                ..Config::default()
+            })),
+            ..Default::default()
+        };
+        assert!(!x.instagram_shortcuts());
     }
 
     #[test]

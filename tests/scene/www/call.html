@@ -1,0 +1,3 @@
+<!doctype html><title>Call</title><script>
+navigator.mediaDevices.getUserMedia({audio:true,video:true}).then(s=>{document.title='Call live '+s.getTracks().length;},e=>{document.title='Call ERR '+e.name;});
+</script>

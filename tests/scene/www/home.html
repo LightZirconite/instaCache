@@ -1,0 +1,7 @@
+<!doctype html><title>Instagram</title>
+<body style="margin:0;height:3000px">
+<a id="tab" target="_blank" href="/page.html">tab</a>
+<a href="/direct/inbox/" onclick="event.preventDefault(); document.title='inbox-link'">inbox</a>
+<script>
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.title = 'escape-reached'; });
+</script>

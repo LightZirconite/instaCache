@@ -4,6 +4,44 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Pages instead of tabs.** Whatever Instagram opens in a new tab or window —
+  a call above all — appears in the same window over Instagram, with a small
+  back button. Opening another page replaces it, so the window stays one
+  application.
+- **Calls keep running while you browse.** Going back from a call hides it
+  rather than ending it; a pill at the top of the window returns to it or ends
+  it, and the page closes by itself when the call does.
+- **Closing the window keeps instaCache running**, so opening it again is
+  instant and notifications keep arriving. `Ctrl+Q` quits. Measured with a warm
+  cache, a cold launch spends 2 to 2.5 seconds before the feed shows, almost all
+  of it in Qt WebEngine, Chromium and Instagram's own loading; this is the part
+  a reopened window skips. Off with `run_in_background`; you are told once.
+- **Unread count on the task bar icon**, read from Instagram's title and sent
+  through Unity's launcher API. Off with `unread_badge`.
+- `Ctrl+1` to `Ctrl+4` jump to the feed, Explore, Reels and Direct through
+  Instagram's own links, without reloading the page.
+- The mouse's back and forward buttons also leave a page or a call.
+- `tests/scene/run.sh` runs the QML scene under qmltestrunner, off screen,
+  with a stand-in for the Rust bridge.
+
+### Changed
+- `Ctrl+W` closes the page on top, and the window when there is none; it no
+  longer quits. `Ctrl+Q` still does.
+- An instance left running in the background asks every hour whether an update
+  check is due, instead of only at startup.
+- The French README is gone; the documentation is English only.
+
+### Fixed
+- Calls in Direct can use the microphone and camera. Both were refused to
+  every page, Instagram included. They are now granted to the hosts in
+  `internal_domains`, and the new `calls` setting turns that off.
+- `Esc` now reaches Instagram outside fullscreen. The shortcut took the key
+  even when it had nothing to do with it, so Instagram's dialogs did not close
+  on it.
+
 ## [2.2.1] - 2026-08-25
 
 ### Fixed
