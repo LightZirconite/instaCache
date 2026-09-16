@@ -9,7 +9,9 @@ there.
 One Qt Quick window hosting one Qt WebEngine view that displays Instagram,
 with the cache and session pinned to persistent XDG directories. The value is
 in the persistence and the desktop integration, not in any UI of our own.
-Resist adding chrome.
+Resist adding chrome: what exists is the loading bar, the back button shown
+over a page and the pill that returns to a call, and each of those is there
+because the window has no other way to offer it.
 
 ## Non-negotiables
 
@@ -50,7 +52,8 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/main.rs` | Argument parsing, process startup, termination signals. |
 | `src/lib.rs` | Module list and application constants. |
 | `src/bridge.rs` | Everything QML may ask Rust. The policy lives here. |
-| `src/qml/main.qml` | The window, the view, the loading bar, the shortcuts. |
+| `src/qml/main.qml` | The window, its pages, the loading bar, the shortcuts. |
+| `src/badge.rs` | The unread count on the task bar icon, over D-Bus. |
 | `src/chromium.rs` | Config settings translated into Chromium flags. |
 | `src/config.rs` | `config.json` and window geometry, both fault-tolerant. |
 | `src/paths.rs` | XDG locations and named profiles. |
@@ -64,6 +67,7 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/updates.rs` | Checking for and installing a newer release. |
 | `examples/snapshot.rs` | Renders a page to PNG, for verification. |
 | `examples/stress.rs` | Drives a page from inside, for reproducing crashes. |
+| `tests/scene/` | The QML scene under qmltestrunner, with a mock `shell`. |
 | `bench/` | The video-smoothness harness. Read its README first. |
 
 The library/binary split exists so the examples exercise the real `Shell`
@@ -338,6 +342,81 @@ content script does, needs `QWebEngineProfile::scripts()` from C++. Until
 somebody does that, `user.js` runs after the load finishes, which is fine for
 changing a page and useless for stopping something appearing.
 
+## Pages, calls and permissions
+
+The window shows one page at a time. `view` is Instagram and lives as long as
+the window. Anything opened with `target="_blank"` or `window.open` is adopted
+with `openIn` into a page laid over it, and opening another page closes the
+previous one, so the window never collects tabs. A page granted the
+microphone or camera is a call: going back only hides it, the pill brings it
+back, and it closes itself when the call's own `window.close()` arrives.
+
+Two things here are easy to break without noticing:
+
+- **Adopt before closing.** The request may come from the page about to be
+  replaced, and a page is destroyed with `Qt.callLater`, never from inside one
+  of its own handlers.
+- **Name the profile by an id no property shares.** `profile: profile` inside a
+  view created from a component gave it a private, session-less profile, and
+  `openIn` then killed the renderer without a word. The id is `session`.
+
+What a page may use is decided by `permission_granted` in `bridge.rs`: the
+microphone and camera for calls, notifications, the clipboard, and only for a
+host in `internal_domains`. Everything else is refused. Refusing the
+microphone to every page is what once broke calls in Direct.
+
+## Testing the scene
+
+`bridge.rs` has unit tests; the scene has `tests/scene/run.sh`. It builds a
+copy of `main.qml` with `shell` replaced by `MockShell.qml`, serves stand-in
+pages from `tests/scene/www` on `127.0.0.1:8791`, and drives the real scene
+with qmltestrunner: pages opening and closing, a call surviving the back
+button, the pill, the mouse's back button, `Ctrl+W`, `Escape`, the Direct
+shortcut and closing to the background. It runs offscreen with a fake camera
+and microphone, so nothing appears on screen and no device is opened.
+
+```sh
+tests/scene/run.sh
+```
+
+A new `shell` property or method has to be added to `MockShell.qml` too. A
+missing one does not stop the scene loading; it throws only when called.
+
+To check the real binary and the real bridge together, still off screen:
+
+```sh
+QT_QPA_PLATFORM=offscreen \
+QTWEBENGINE_CHROMIUM_FLAGS=--use-fake-device-for-media-stream \
+INSTACACHE_CONFIG_HOME=… INSTACACHE_DATA_HOME=… INSTACACHE_CACHE_HOME=… \
+./target/debug/instacache --profile scenetest
+```
+
+with that profile's `home_url` and `internal_domains` pointing at a local
+server. Leave `XDG_RUNTIME_DIR` alone: the instance socket lives there, and a
+long scratch path exceeds the socket path limit. Pages served without cache
+headers are cached, so clear the profile's cache directory when the pages
+change.
+
+The unread badge can be watched without any task bar:
+
+```sh
+dbus-monitor --session "type='signal',interface='com.canonical.Unity.LauncherEntry'"
+```
+
+## Closing to the background
+
+With `run_in_background`, closing the window hides it and the process keeps
+running; `Ctrl+Q`, a termination signal and the session ending still quit.
+Two consequences to keep in mind:
+
+- `Qt.quit()` sends a close event to the window first, and a close the scene
+  refuses cancels the quit. `root.quit()` sets `quitting` before calling it for
+  exactly that reason; quit through it, never through `Qt.quit()` directly.
+- The update check used to run only at startup, and an instance that is never
+  restarted would never check again. `bridge.rs` asks hourly whether a check is
+  due, and stops once an update is installed, because the running binary would
+  otherwise keep finding the same release newer and install it again.
+
 ## A test launch that does nothing
 
 `instance.rs` gives one window per profile, and a second launch of the same
@@ -347,7 +426,9 @@ every launch after it, so the app appears to do nothing and the bench records
 nothing.
 
 It cost a wrong conclusion here — a change was blamed for breaking rendering
-when it had simply never run. Give each test its own profile name, and check:
+when it had simply never run. A window closed to the background is exactly
+such an instance, and it looks like nothing is running at all. Give each test
+its own profile name, and check:
 
 ```sh
 pgrep -ax instacache; ls "$XDG_RUNTIME_DIR"/instacache-*.sock

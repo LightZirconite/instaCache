@@ -10,8 +10,6 @@ A single 2.1 MB binary. No Electron, no Node, no Python.
 
 [Install](#install) · [Why](#why) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Build](#build-from-source)
 
-*[Lire ce document en français](docs/README.fr.md)*
-
 </div>
 
 ---
@@ -78,8 +76,23 @@ instant. It is not a lightweight way to *view* Instagram — it is a lightweight
   arriving late per 40-second run, where the WebKitGTK engine this app used
   until now produced **78**. VA-API decoding is switched on as well, which
   Chromium leaves off on Linux by default.
-- **Real keyboard navigation.** Reload, hard reload, back, forward, home, zoom,
-  fullscreen.
+- **Opens instantly after the first time.** Closing the window leaves
+  instaCache running, so opening it again skips the part of a launch that is
+  Chromium starting and Instagram loading — 2 to 2.5 seconds before the feed
+  shows, measured with a warm cache — and notifications keep arriving. `Ctrl+Q` quits for
+  real; `run_in_background` turns this off.
+- **Calls in Direct.** Voice and video calls get the microphone and camera. A
+  call keeps running while you go back to Instagram: a pill at the top of the
+  window returns to it, or ends it.
+- **Pages, not tabs.** Something Instagram opens in a new tab or window shows up
+  in the same window with a small back button, and opening another one replaces
+  it. The window stays one application rather than turning into a browser.
+- **Unread count on the icon.** The number Instagram puts in its title appears on
+  the task bar icon, on docks that read Unity's launcher API — KDE Plasma,
+  Dash to Dock, Plank.
+- **Real keyboard and mouse navigation.** Reload, hard reload, back, forward,
+  home, zoom, fullscreen, jumps to the feed, Explore, Reels and Direct, and the
+  back and forward buttons on a mouse.
 - **External links leave.** Anything that is not Instagram — or one of the Meta
   hosts its login flow needs — opens in your default browser.
 - **Desktop notifications.** Web notifications become real notifications;
@@ -152,8 +165,9 @@ package manager — so it updates itself.
 On startup it asks GitHub once a day whether a newer release exists. If there
 is one, and your install is in `~/.local` where no root is needed, it is
 downloaded, checked against its SHA-256 and installed in the background. You
-get a notification saying to restart. Nothing is ever replaced while you are
-looking at it.
+get a notification saying to quit with `Ctrl+Q` and open it again. Nothing is
+ever replaced while you are looking at it. An instance left running in the
+background asks again every hour whether a check is due.
 
 To check right now:
 
@@ -227,14 +241,19 @@ resort for a window that renders wrong.
 |---|---|
 | `Ctrl+R` · `F5` | Reload (the cache is used — this is the fast path) |
 | `Ctrl+Shift+R` · `Shift+F5` | Reload, bypassing the cache |
-| `Alt+←` · `Alt+→` | Back · Forward |
-| `Ctrl+H` · `Alt+Home` | Go to your feed |
+| `Alt+←` · `Alt+→` | Back · Forward — out of a page, or out of a call without ending it |
+| `Ctrl+H` · `Alt+Home` | Reload your feed |
+| `Ctrl+1` · `Ctrl+2` · `Ctrl+3` · `Ctrl+4` | Feed · Explore · Reels · Direct, without reloading |
 | `Ctrl+=` · `Ctrl+-` · `Ctrl+0` | Zoom in · out · reset |
 | `F11` · `Esc` | Enter · leave fullscreen |
-| `Ctrl+W` · `Ctrl+Q` | Quit |
+| `Ctrl+W` | Close the page on top, or the window when there is none |
+| `Ctrl+Q` | Quit, including from the background |
 | `Ctrl+Shift+I` · `F12` | Web Inspector (when enabled in the config) |
 
-Two-finger swipe on a touchpad also goes back and forward.
+The back and forward buttons on a mouse do what `Alt+←` and `Alt+→` do. A
+two-finger swipe on a touchpad goes back and forward through a page's history.
+`Esc` is only taken in fullscreen; otherwise it reaches Instagram, which closes
+its own dialogs with it.
 
 ## Command line
 
@@ -257,7 +276,8 @@ instacache [OPTIONS] [URL]
 ```
 
 Launching instaCache twice with the same profile focuses the existing window
-instead of starting a second copy.
+instead of starting a second copy — including a window closed to the
+background, which is what makes opening it again instant.
 
 ## Another site in its own window
 
@@ -313,6 +333,9 @@ its default. Edit it and restart.
 | `context_menu` | `false` | Show the engine's right-click menu. Off, because in a one-application window it is browser chrome — Back, Forward, View Source — and it covers the page. Turning it off also removes "Save image as" and "Copy link address"; set `true` to get them back. |
 | `developer_tools` | `false` | Enables the Web Inspector and console output. |
 | `notifications` | `true` | Forward web notifications to your desktop. |
+| `calls` | `true` | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
+| `run_in_background` | `true` | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
+| `unread_badge` | `true` | Show the unread count from Instagram's title on the task bar icon. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
 | `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
@@ -418,7 +441,8 @@ src/
   main.rs        argument parsing, process startup, termination signals
   lib.rs         module wiring and the application constants
   bridge.rs      everything QML may ask Rust -- the policy lives here
-  qml/main.qml   the window, the view, the loading bar, the shortcuts
+  qml/main.qml   the window, its pages, the loading bar, the shortcuts
+  badge.rs       the unread count on the task bar icon
   chromium.rs    settings translated into Chromium command-line flags
   config.rs      config.json and window geometry
   paths.rs       XDG locations and profiles
@@ -430,6 +454,7 @@ src/
 examples/
   snapshot.rs    render a page to PNG, for verification
   stress.rs      drive a page from inside, for reproducing crashes
+tests/scene/     the QML scene under qmltestrunner, with Rust stood in for
 bench/           the video-smoothness harness
 ```
 
@@ -443,8 +468,12 @@ The scene is compiled into the binary, so there is still one file to ship.
 - instaCache renders Instagram's own website. If Instagram changes something,
   instaCache follows automatically — but it also inherits any feature Instagram
   does not offer on the web.
-- Camera, microphone, geolocation and pointer-lock permission requests are
-  refused outright. The web app does not need them.
+- The microphone and camera are granted to Instagram for calls (see `calls`).
+  Geolocation, screen sharing and pointer-lock requests are refused outright.
+- Screen sharing during a call is not available, for the same reason.
+- There is no tray icon. A window closed to the background is reopened from the
+  application menu or by launching `instacache` again, and quit with `Ctrl+Q`
+  or `pkill -x instacache`, which still saves the window's size and position.
 - This is an unofficial client. It is not affiliated with, endorsed by, or
   connected to Instagram or Meta. Instagram is a trademark of Meta Platforms, Inc.
 
