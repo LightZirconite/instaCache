@@ -79,8 +79,12 @@ instant. It is not a lightweight way to *view* Instagram — it is a lightweight
 - **Opens instantly after the first time.** Closing the window leaves
   instaCache running, so opening it again skips the part of a launch that is
   Chromium starting and Instagram loading — 2 to 2.5 seconds before the feed
-  shows, measured with a warm cache — and notifications keep arriving. `Ctrl+Q` quits for
-  real; `run_in_background` turns this off.
+  shows, measured with a warm cache — and notifications keep arriving. `Ctrl+Q`
+  quits for real; `run_in_background` turns this off.
+- **An icon in the system tray** for as long as instaCache runs, like Spotify's
+  or Discord's, so a closed window is never a mystery. Click it to open or hide
+  the window; right-click it to quit, or to restart into an update. The tooltip
+  shows the unread count.
 - **Calls in Direct.** Voice and video calls get the microphone and camera. A
   call keeps running while you go back to Instagram: a pill at the top of the
   window returns to it, or ends it.
@@ -345,6 +349,7 @@ its default. Edit it and restart.
 | `calls` | `true` | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
 | `run_in_background` | `true` | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
 | `unread_badge` | `true` | Show the unread count from Instagram's title on the task bar icon. |
+| `tray_icon` | `true` | An icon in the system tray while instaCache runs. Needs a desktop with a tray: KDE Plasma, Cinnamon, XFCE and most others have one; GNOME needs the AppIndicator extension. Without a tray nothing breaks, there is simply no icon. |
 | `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
 | `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
@@ -480,9 +485,14 @@ The scene is compiled into the binary, so there is still one file to ship.
 - The microphone and camera are granted to Instagram for calls (see `calls`).
   Geolocation, screen sharing and pointer-lock requests are refused outright.
 - Screen sharing during a call is not available, for the same reason.
-- There is no tray icon. A window closed to the background is reopened from the
-  application menu or by launching `instacache` again, and quit with `Ctrl+Q`
-  or `pkill -x instacache`, which still saves the window's size and position.
+- On a desktop without a system tray, a window closed to the background is
+  reopened from the application menu or by launching `instacache` again, and
+  quit with `Ctrl+Q` or `pkill -x instacache`, which still saves the window's
+  size and position.
+- On Wayland, a window brought back by launching instaCache again may not take
+  the keyboard focus: the compositor wants an activation token from the
+  launcher, and handing it to the running copy needs Qt API newer than the
+  6.4 baseline. The tray icon does not have this problem.
 - This is an unofficial client. It is not affiliated with, endorsed by, or
   connected to Instagram or Meta. Instagram is a trademark of Meta Platforms, Inc.
 

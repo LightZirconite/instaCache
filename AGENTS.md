@@ -10,8 +10,8 @@ One Qt Quick window hosting one Qt WebEngine view that displays Instagram,
 with the cache and session pinned to persistent XDG directories. The value is
 in the persistence and the desktop integration, not in any UI of our own.
 Resist adding chrome: what exists is the loading bar, the back button shown
-over a page and the pill that returns to a call, and each of those is there
-because the window has no other way to offer it.
+over a page, the pills for a call and an update, and the tray icon, and each
+of those is there because the window has no other way to offer it.
 
 ## Non-negotiables
 
@@ -444,6 +444,48 @@ binary, which knows it, but a test that "updates" a build to an *older*
 published release sees that release reject the option. That is the test, not
 the updater.
 
+## The tray icon
+
+It is `SystemTrayIcon` from `Qt.labs.platform`, created with
+`Qt.createQmlObject` from a string in `Component.onCompleted` rather than
+declared in the scene. That is deliberate: a missing module in a declared
+import stops the whole scene loading, silently (see "A live process, no window
+and no error"), and a tray icon is not worth that risk. A failure is caught
+and logged, and the window works without it.
+
+The string cannot see `shell` in the test harness, where `shell` is a property
+of the root window rather than a context property, so everything it shows is
+read through `root` (`root.trayIconName`, `root.unread`, …). Keep it that way.
+
+With plain `QGuiApplication` the icon comes from the platform theme: on KDE,
+`KDEPlasmaPlatformTheme6` exports a StatusNotifierItem with a D-Bus menu. It
+can be checked without looking at the panel, with a profile of its own:
+
+```sh
+qdbus6 org.kde.StatusNotifierWatcher /StatusNotifierWatcher \
+    org.kde.StatusNotifierWatcher.RegisteredStatusNotifierItems
+```
+
+then `org.freedesktop.DBus.Properties.GetAll` on the new item and
+`com.canonical.dbusmenu.GetLayout` on its `Menu` path. A site profile without
+an installed icon still shows instaCache's: the icon theme falls back from
+`instacache-<profile>` to `instacache` by itself.
+
+## A window shown again comes back blank
+
+Closing a window hides it, and a hidden window loses its graphics. When it is
+shown again, Chromium's last frame is gone and Chromium does not know it, so
+the page stays blank — black here, Instagram's grey for a user — until an
+input event makes it draw. `root.repaint()` hides the view for 30 ms after a
+show, which makes Chromium send a new frame.
+
+It is not reproducible by starting with `--background` and showing the window:
+it needs a window that was shown, closed, and left hidden for a while. On the
+reference machine, closed for 25 or 40 seconds, the page came back black in
+two runs out of two without the repaint and correct in two out of two with it,
+both in `grabToImage` and on screen. Test it that way, with a solid-colour page
+and a profile of its own, and never with a click in between.
+
 ## A test launch that does nothing
 
 `instance.rs` gives one window per profile, and a second launch of the same
@@ -454,8 +496,9 @@ nothing.
 
 It cost a wrong conclusion here — a change was blamed for breaking rendering
 when it had simply never run. A window closed to the background is exactly
-such an instance, and it looks like nothing is running at all. Give each test
-its own profile name, and check:
+such an instance, and it looks like nothing is running at all — and a test
+launched with the default profile while the user's own instaCache runs goes to
+*their* window and raises it. Give each test its own profile name, and check:
 
 ```sh
 pgrep -ax instacache; ls "$XDG_RUNTIME_DIR"/instacache-*.sock
