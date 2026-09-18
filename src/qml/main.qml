@@ -113,7 +113,10 @@ Window {
     // timers run at full speed and its videos keep playing, sound included.
     // So the views are hidden explicitly, which is what makes Chromium
     // throttle the page, and whatever is playing is paused first.
-    property bool backgrounded: false
+    // Started with `--background`, the window is hidden from the first frame,
+    // and the page has to be hidden with it or Chromium keeps drawing and
+    // playing for a window nobody can see.
+    property bool backgrounded: shell.start_hidden
 
     function hideToBackground() {
         root.writeState();
@@ -173,12 +176,27 @@ Window {
     property int frameWaits: 0
     function waitForFrames() {
         root.frameWaits = 0;
+        // Counting frames is not enough on its own: Chromium only draws when
+        // something changed, and a page that has not changed since it was
+        // hidden draws nothing — the window then keeps showing a frame whose
+        // GPU image Chromium has already dropped, which is the blank page
+        // users saw until they clicked. So a two-pixel square in the corner
+        // is nudged for a few frames, which is a change, and each change is a
+        // frame Qt can show.
         root.activeView().runJavaScript(
-            "window.__instacacheFrames = 0;" +
-            "requestAnimationFrame(function () {" +
-            "  window.__instacacheFrames = 1;" +
-            "  requestAnimationFrame(function () { window.__instacacheFrames = 2; });" +
-            "});");
+            "(function () {" +
+            "  window.__instacacheFrames = 0;" +
+            "  var mark = document.createElement('div');" +
+            "  mark.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;" +
+            "z-index:2147483647;pointer-events:none;background:rgba(127,127,127,0.01)';" +
+            "  document.documentElement.appendChild(mark);" +
+            "  var n = 0;" +
+            "  (function step() {" +
+            "    mark.style.opacity = (n % 2) ? '0.99' : '0.98';" +
+            "    window.__instacacheFrames = n;" +
+            "    if (++n < 8) requestAnimationFrame(step); else mark.remove();" +
+            "  })();" +
+            "})();");
         frameWatch.restart();
     }
     Timer {
@@ -493,7 +511,7 @@ Window {
                 return;
             lastNotification = notification;
             // A message, or a call, which rings until somebody acts on it.
-            shell.notify_page(notification.title, notification.message);
+            shell.notify_page(notification.title, notification.message, root.active);
             notification.show();
         }
 
@@ -583,7 +601,10 @@ Window {
             // microphone here is a voice message, not a call: calls open a
             // page of their own. See `permission_granted` in bridge.rs.
             onFeaturePermissionRequested: function (securityOrigin, feature) {
-                root.answerPermission(view, securityOrigin, feature);
+                // The microphone here means a call answered in place, or a
+                // voice message: either way nothing should still be ringing.
+                if (root.answerPermission(view, securityOrigin, feature).indexOf("Media") === 0)
+                    shell.stop_ringing();
             }
 
             onFullScreenRequested: function (request) {

@@ -161,8 +161,8 @@ pub struct Shell {
     /// A notification a page posted: a message, or an incoming call, which
     /// rings. Only whether it was a call is logged, never what it said.
     notify_page: qt_method!(
-        fn notify_page(&self, title: String, body: String) {
-            self.page_notification(title, body);
+        fn notify_page(&self, title: String, body: String, window_active: bool) {
+            self.page_notification(title, body, window_active);
         }
     ),
     /// The window was opened, or a call answered: whatever was ringing stops.
@@ -583,14 +583,22 @@ impl Shell {
         }
     }
 
-    fn page_notification(&self, title: String, body: String) {
+    fn page_notification(&self, title: String, body: String, window_active: bool) {
         let config = self.config();
         if !config.notifications {
             return;
         }
         let kind = alerts::classify(&title, &body, config.ring_for_calls);
+        let sound = should_sound(kind, config.notification_sounds, window_active);
         if kind == alerts::Kind::Call {
-            eprintln!("instacache: incoming call; ringing");
+            eprintln!(
+                "instacache: incoming call ({})",
+                if sound {
+                    "ringing"
+                } else {
+                    "the window is in front, so the page rings, not us"
+                }
+            );
         }
         if let Some(alerts) = self.alerts.as_ref() {
             let _ = alerts.toasts.send(alerts::Toast {
@@ -598,7 +606,7 @@ impl Shell {
                 body,
                 clickable: true,
                 kind,
-                sound: config.notification_sounds,
+                sound,
             });
         }
     }
@@ -813,6 +821,18 @@ fn background_notice(tray: bool) -> (String, String) {
     (title, body.to_string())
 }
 
+/// Whether a notification makes a sound of its own.
+///
+/// Never for a call the user is already looking at: the page rings by itself
+/// in front of them, and ringing over it was heard as a beep during the call.
+/// A message still pings, the way a chat application pings in an open window.
+fn should_sound(kind: alerts::Kind, sounds_enabled: bool, window_active: bool) -> bool {
+    if !sounds_enabled {
+        return false;
+    }
+    kind != alerts::Kind::Call || !window_active
+}
+
 /// Whether `/proc/self/exe` says the running binary's file was replaced —
 /// by `instacache --update`, `install.sh` or a package manager — which the
 /// kernel reports by appending ` (deleted)` to the link.
@@ -1015,6 +1035,22 @@ mod tests {
             restart.arguments("work"),
             vec!["--profile", "work", "--background"]
         );
+    }
+
+    #[test]
+    fn a_call_does_not_ring_over_the_window_it_is_already_in() {
+        use alerts::Kind;
+        assert!(should_sound(Kind::Call, true, false), "nobody is looking");
+        assert!(
+            !should_sound(Kind::Call, true, true),
+            "the window is in front"
+        );
+        assert!(
+            should_sound(Kind::Message, true, true),
+            "a message still pings"
+        );
+        assert!(!should_sound(Kind::Message, false, false));
+        assert!(!should_sound(Kind::Call, false, false));
     }
 
     #[test]

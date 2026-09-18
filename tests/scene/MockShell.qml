@@ -78,7 +78,11 @@ QtObject {
     function window_hidden(tray) { hidden++; }
     property var notifications: []
     property int ringStops: 0
-    function notify_page(title, body) { notifications = notifications.concat([title]); }
+    property var ringing: []
+    function notify_page(title, body, windowActive) {
+        notifications = notifications.concat([title]);
+        ringing = ringing.concat([windowActive]);
+    }
     function stop_ringing() { ringStops++; }
     function title_changed(title) {
         titles = titles.concat([title]);

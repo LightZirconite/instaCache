@@ -490,8 +490,11 @@ So closing to the background does three things, in `hideToBackground`:
    is hidden: measured, `visibilityState` becomes `hidden`, timers throttle,
    videos stay paused.
 
-`bringToFront` shows the snapshot, shows the window, unhides the views and
-waits for two animation frames to run in the page — which only happens once
+`bringToFront` shows the snapshot, shows the window, unhides the views, nudges
+a two-pixel square in the page for a few frames — Chromium draws only what
+changed, and a page unchanged since it was hidden would otherwise draw nothing
+and keep a frame whose GPU image is gone, which is the blank page — and waits
+for two animation frames to run in the page — which only happens once
 Chromium composites again — before fading the snapshot out, with a two-second
 cap. On the reference machine, closed for 20 seconds: the live page took over
 78 and 308 ms after the window showed, and the screen was never blank.
@@ -524,8 +527,10 @@ the `sound` capability, so the server plays it and honours Do Not Disturb, and
 plays it locally otherwise. A call rings locally, `phone-incoming-call` on
 repeat, because no server repeats a sound; it checks the server's `Inhibited`
 property first. Ringing stops when the notification is clicked or dismissed,
-when the window becomes active, when a page is granted the microphone or
-camera, or after thirty seconds.
+when the window becomes active, when any view is granted the microphone or
+camera, or after thirty seconds — and it never starts while the window is
+already active, where the page rings by itself and ringing over it is heard as
+a noise during the call (`should_sound`).
 
 Instagram does not mark a call notification, so `alerts::classify` reads its
 words. Extend `CALL_PHRASES` rather than loosening the match: a message that

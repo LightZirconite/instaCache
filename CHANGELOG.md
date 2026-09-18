@@ -4,6 +4,20 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- A call no longer rings over a window that is already in front: the page
+  rings there by itself, and instaCache ringing over it was heard as a noise
+  during the call. Answering in the main window also stops any ringing.
+- A window opened again is nudged into drawing: Chromium draws only when
+  something changed, so a page that had not changed since it was hidden could
+  keep showing a frame whose GPU image was already gone — a blank page until a
+  click. A two-pixel square in a corner is now changed for a few frames.
+- Started with `--background`, the page is hidden from Chromium as well as
+  from the screen; it was left thinking it was visible, drawing and playing
+  for a window nobody could see.
+
 ## [2.6.0] - 2026-09-16
 
 ### Added
