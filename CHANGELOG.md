@@ -4,7 +4,7 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.6.1] - 2026-09-18
 
 ### Fixed
 - A call no longer rings over a window that is already in front: the page
