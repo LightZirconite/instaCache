@@ -240,7 +240,19 @@ fi
 step "Committing and tagging"
 
 run git add -A
-run git commit -m "release: $VERSION"
+# Nothing to commit is not a failure: the version bump and the changelog entry
+# may already be in, which is exactly what happens when a release is cut a
+# second time after a problem. Under `set -e` an empty commit used to abort the
+# script here, after the version had been written and before anything was
+# tagged or pushed -- the one state that looks like a released version and is
+# not one.
+if [ "$DRY_RUN" = 1 ]; then
+    run git commit -m "release: $VERSION"
+elif git diff --cached --quiet; then
+    ok "already committed at $VERSION; nothing to add"
+else
+    run git commit -m "release: $VERSION"
+fi
 run git tag -a "$TAG" -m "instaCache $VERSION"
 
 step "Pushing to '$REMOTE'"
