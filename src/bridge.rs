@@ -21,7 +21,7 @@ use qmetaobject::*;
 
 use crate::config::{Config, WindowState};
 use crate::paths::Paths;
-use crate::{alerts, badge, downloads, errorpage, instance, sites, updates, urls};
+use crate::{alerts, autostart, badge, downloads, errorpage, instance, sites, updates, urls};
 use crate::{APP_NAME, ICON_NAME};
 
 /// Set by the termination signal handler, which may do nothing more than
@@ -42,6 +42,22 @@ const UPDATE_RECHECK: Duration = Duration::from_secs(3600);
 /// one `readlink`.
 const REPLACED_CHECK: Duration = Duration::from_secs(20);
 
+/// How long after a page load a rising unread count means "this is what was
+/// waiting for you" rather than "this just arrived".
+///
+/// Instagram's title says `Instagram` while it loads and grows its `(3)` a
+/// second or two later, when its socket has caught up. Without this, every
+/// launch would announce messages that have been sitting there for days.
+const UNREAD_SETTLE: Duration = Duration::from_secs(12);
+
+/// How long a notification the page posted itself keeps the unread count
+/// quiet.
+///
+/// Both describe the same arrival, but the page's carries who it was from.
+/// Once one has been shown, the count moving is its echo, not a second
+/// message.
+const PAGE_NOTIFICATION_ECHO: Duration = Duration::from_secs(20);
+
 #[derive(QObject, Default)]
 pub struct Shell {
     base: qt_base_class!(trait QObject),
@@ -57,6 +73,12 @@ pub struct Shell {
     remember_window_state: qt_property!(bool; READ remember_window_state),
     autoplay_without_gesture: qt_property!(bool; READ autoplay_without_gesture),
     notifications_enabled: qt_property!(bool; READ notifications_enabled),
+    /// Whether the session should register with the browser's push service,
+    /// which is what lets a message or a call reach the desktop while nobody
+    /// is looking at the window. Off, `PushManager.subscribe()` fails and
+    /// Instagram never delivers anything. See `push_notifications` in
+    /// `config.rs`.
+    push_service_enabled: qt_property!(bool; READ push_service_enabled),
     external_links_in_browser: qt_property!(bool; READ external_links_in_browser),
     context_menu: qt_property!(bool; READ context_menu),
     /// Whether closing the window hides it instead of quitting.
@@ -161,8 +183,41 @@ pub struct Shell {
     /// A notification a page posted: a message, or an incoming call, which
     /// rings. Only whether it was a call is logged, never what it said.
     notify_page: qt_method!(
-        fn notify_page(&self, title: String, body: String, window_active: bool) {
-            self.page_notification(title, body, window_active);
+        fn notify_page(&self, title: String, body: String, tag: String, window_active: bool) {
+            self.page_notification(title, body, tag, window_active);
+        }
+    ),
+    /// A switchable setting, by name. The tray menu shows what these say, so
+    /// a name this does not know reads as off rather than as a crash.
+    setting: qt_method!(
+        fn setting(&self, name: String) -> bool {
+            read_setting(&self.config(), &name)
+        }
+    ),
+    /// Changes one and writes it to `config.json`. Anything not named here is
+    /// ignored: the tray is not a way for a page to rewrite the settings.
+    set_setting: qt_method!(
+        fn set_setting(&self, name: String, value: bool) {
+            self.update_config(|config| write_setting(config, &name, value));
+        }
+    ),
+    /// Whether instaCache starts with the desktop session. Read from the
+    /// autostart entry rather than from the config, so the desktop's own
+    /// startup panel is believed. See `autostart.rs`.
+    starts_with_session: qt_method!(
+        fn starts_with_session(&self) -> bool {
+            autostart::is_enabled(self.profile())
+        }
+    ),
+    /// Turns it on or off from the tray menu. Returns whether it worked, so
+    /// the menu can show what is actually true rather than what was asked.
+    set_start_with_session: qt_method!(
+        fn set_start_with_session(&self, enabled: bool) -> bool {
+            if let Err(message) = autostart::set(self.profile(), enabled) {
+                eprintln!("instacache: {message}");
+                return autostart::is_enabled(self.profile());
+            }
+            enabled
         }
     ),
     /// The window was opened, or a call answered: whatever was ringing stops.
@@ -218,18 +273,30 @@ pub struct Shell {
             self.note_hidden(tray);
         }
     ),
-    /// The main page's title changed; the unread badge follows it. Returns
-    /// the count, for the tray icon's tooltip.
+    /// The main page's title changed; the unread badge follows it, and a
+    /// count that went up is a new message. Returns the count, for the tray
+    /// icon's tooltip.
     title_changed: qt_method!(
-        fn title_changed(&self, title: String) -> u32 {
+        fn title_changed(&self, title: String, window_active: bool) -> u32 {
             let count = unread_count(&title);
-            self.update_badge(count);
+            self.unread_changed(count, window_active);
             count
+        }
+    ),
+    /// The main page started loading. The unread count it is about to
+    /// announce is what was already waiting, not something that just arrived.
+    main_page_loading: qt_method!(
+        fn main_page_loading(&self) {
+            self.unread_settles_at
+                .set(Some(Instant::now() + UNREAD_SETTLE));
         }
     ),
 
     // --- Not visible to QML ----------------------------------------------
-    config: Option<Rc<Config>>,
+    /// Behind a `RefCell` because the tray menu changes settings while the
+    /// app runs. Everything reads it through `config()`, which clones, so a
+    /// borrow is never held across anything that could re-enter.
+    config: Option<Rc<RefCell<Config>>>,
     paths: Option<Rc<Paths>>,
     listener: Option<UnixListener>,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
@@ -241,6 +308,15 @@ pub struct Shell {
     alerts: Option<alerts::Alerts>,
     badge: Option<Sender<u32>>,
     unread: Cell<u32>,
+    /// Until when a rising unread count is Instagram catching up with what was
+    /// already there, rather than something new. See `UNREAD_SETTLE`.
+    unread_settles_at: Cell<Option<Instant>>,
+    /// When the page last posted a notification of its own, which said more
+    /// than a count ever can and has already been heard.
+    page_notified_at: Cell<Option<Instant>>,
+    /// Whether the page has *ever* posted one. Once it has, push is working
+    /// and the count is only ever a second telling of the same thing.
+    page_notified_ever: Cell<bool>,
     activations: Option<Receiver<()>>,
     crash_attempts: Cell<u32>,
     crash_window_started: RefCell<Option<Instant>>,
@@ -249,7 +325,7 @@ pub struct Shell {
 
 impl Shell {
     pub fn new(
-        config: Rc<Config>,
+        config: Config,
         paths: Rc<Paths>,
         listener: Option<UnixListener>,
         start_url: Option<String>,
@@ -270,7 +346,7 @@ impl Shell {
             .then(|| badge::spawn(sites::window_class(&paths.profile)));
 
         Self {
-            config: Some(config),
+            config: Some(Rc::new(RefCell::new(config))),
             paths: Some(paths),
             listener,
             updates: RefCell::new(update_check),
@@ -278,6 +354,9 @@ impl Shell {
             alerts: Some(alerts),
             badge,
             activations: Some(activations),
+            // Nothing Instagram announces in its first seconds is news; the
+            // scene renews this on every load of the main page.
+            unread_settles_at: Cell::new(Some(Instant::now() + UNREAD_SETTLE)),
             pending_url: RefCell::new(start_url),
             hidden_at_start: start_hidden,
             ..Default::default()
@@ -290,7 +369,36 @@ impl Shell {
     }
 
     fn config(&self) -> Config {
-        self.config.as_deref().cloned().unwrap_or_default()
+        self.config
+            .as_deref()
+            .map(|config| config.borrow().clone())
+            .unwrap_or_default()
+    }
+
+    /// Changes a setting and writes `config.json`, so it survives a restart.
+    ///
+    /// The whole file is rewritten, which expands every default into it. That
+    /// is what `load_or_create` already does on a first run, and a settings
+    /// file that names what it can do is easier to edit by hand, not harder.
+    fn update_config(&self, mutate: impl FnOnce(&mut Config)) {
+        let Some(config) = self.config.as_deref() else {
+            return;
+        };
+        mutate(&mut config.borrow_mut());
+        let Some(paths) = self.paths.as_ref() else {
+            return;
+        };
+        let written = config.borrow().clone();
+        if let Err(error) = crate::config::write(&paths.config_file(), &written) {
+            eprintln!("instacache: could not save the setting: {error}");
+        }
+    }
+
+    fn profile(&self) -> &str {
+        self.paths
+            .as_deref()
+            .map(|paths| paths.profile.as_str())
+            .unwrap_or(crate::paths::DEFAULT_PROFILE)
     }
 
     fn home_url(&self) -> QString {
@@ -350,6 +458,13 @@ impl Shell {
 
     fn notifications_enabled(&self) -> bool {
         self.config().notifications
+    }
+
+    fn push_service_enabled(&self) -> bool {
+        let config = self.config();
+        // Subscribing to push is only ever useful to post a notification, so
+        // it follows the setting that decides whether one may be posted.
+        config.notifications && config.push_notifications
     }
 
     fn external_links_in_browser(&self) -> bool {
@@ -458,7 +573,7 @@ impl Shell {
         let interval = self
             .config
             .as_deref()
-            .map(|config| config.update_check_interval_hours)
+            .map(|config| config.borrow().update_check_interval_hours)
             .unwrap_or_else(|| Config::default().update_check_interval_hours);
         let now = Instant::now();
         let pending = self.updates.borrow().is_some();
@@ -473,6 +588,95 @@ impl Shell {
         if let Some(paths) = self.paths.as_ref() {
             *self.updates.borrow_mut() = updates::check_in_background(&self.config(), paths);
         }
+    }
+
+    /// The badge, and the alert that goes with a count that went up.
+    ///
+    /// The count is the one signal Instagram gives a window that is open, and
+    /// it is why this exists at all: a message that arrives while instaCache
+    /// is running is not pushed — the page is already connected, so it simply
+    /// changes its title. Without this the badge moved and nothing was ever
+    /// heard, which is exactly what a messenger must not do.
+    fn unread_changed(&self, count: u32, window_active: bool) {
+        let before = self.unread.get();
+        self.update_badge(count);
+        if count <= before || !self.announces_unread(count) {
+            return;
+        }
+        // Over a window that is already in front, the message is on screen in
+        // the page: a notification over the top would say nothing it does not
+        // already say. It is still heard, the way a chat application is.
+        if window_active {
+            self.ping();
+            return;
+        }
+        // Away from the window, Instagram's own push is the better telling —
+        // it names who it is from, which a count cannot. Showing both is the
+        // "and by the way, you have an unread message" second notification
+        // that made this feel broken rather than helpful. So the count only
+        // speaks for itself when push has never delivered at all, which is
+        // the case this was written for: an account with web notifications
+        // switched off, where otherwise nothing would ever be heard.
+        if self.page_notified_ever.get() {
+            return;
+        }
+        self.unread_toast(count - before);
+    }
+
+    fn ping(&self) {
+        let config = self.config();
+        if !config.notifications || !config.notification_sounds {
+            return;
+        }
+        if let Some(alerts) = self.alerts.as_ref() {
+            alerts.ping();
+        }
+    }
+
+    /// Whether a count that rose to `count` should be announced, or is an
+    /// echo of something already said. Consumes the settling window, so the
+    /// first count after a load seeds the badge silently and the next one is
+    /// a real arrival.
+    fn announces_unread(&self, count: u32) -> bool {
+        let now = Instant::now();
+        if self
+            .unread_settles_at
+            .get()
+            .is_some_and(|until| now < until)
+        {
+            // Once Instagram has announced a count, it has caught up.
+            if count > 0 {
+                self.unread_settles_at.set(None);
+            }
+            return false;
+        }
+        self.unread_settles_at.set(None);
+        !self
+            .page_notified_at
+            .get()
+            .is_some_and(|at| now.saturating_duration_since(at) < PAGE_NOTIFICATION_ECHO)
+    }
+
+    fn unread_toast(&self, arrived: u32) {
+        let config = self.config();
+        if !config.notifications {
+            return;
+        }
+        let Some(alerts) = self.alerts.as_ref() else {
+            return;
+        };
+        alerts.show(alerts::Toast {
+            // One tag for all of them: a second "2 new messages" replaces the
+            // first rather than piling up behind it.
+            tag: "instacache-unread".to_string(),
+            title: unread_summary(arrived),
+            // Nobody is named: the count is all the title said. Instagram's
+            // own notification, when one is pushed, carries the sender.
+            body: String::new(),
+            clickable: true,
+            kind: alerts::Kind::Message,
+            sound: config.notification_sounds,
+        });
     }
 
     fn update_badge(&self, count: u32) {
@@ -573,22 +777,40 @@ impl Shell {
             return;
         }
         if let Some(alerts) = self.alerts.as_ref() {
-            let _ = alerts.toasts.send(alerts::Toast {
+            alerts.show(alerts::Toast {
                 title,
                 body,
                 clickable,
                 kind: alerts::Kind::Plain,
                 sound: false,
+                tag: String::new(),
             });
         }
     }
 
-    fn page_notification(&self, title: String, body: String, window_active: bool) {
+    fn page_notification(&self, title: String, body: String, tag: String, window_active: bool) {
         let config = self.config();
         if !config.notifications {
             return;
         }
+        // Whatever the page said, it said it first and said it better; the
+        // unread count moving after this is the same arrival counted twice.
+        self.page_notified_at.set(Some(Instant::now()));
+        self.page_notified_ever.set(true);
         let kind = alerts::classify(&title, &body, config.ring_for_calls);
+        // Off by default, and deliberately: what a notification says is
+        // nobody's business, including this log. It is here because the only
+        // way to find out why a real call did not ring is to see the words
+        // Instagram actually sent, and asking somebody to run `dbus-monitor`
+        // to get them is asking too much.
+        //
+        //   INSTACACHE_LOG_NOTIFICATIONS=1 instacache
+        //   journalctl --user -f | grep 'instacache: notification'
+        if std::env::var_os("INSTACACHE_LOG_NOTIFICATIONS").is_some() {
+            eprintln!(
+                "instacache: notification kind={kind:?} tag={tag:?} title={title:?} body={body:?}"
+            );
+        }
         let sound = should_sound(kind, config.notification_sounds, window_active);
         if kind == alerts::Kind::Call {
             eprintln!(
@@ -601,12 +823,13 @@ impl Shell {
             );
         }
         if let Some(alerts) = self.alerts.as_ref() {
-            let _ = alerts.toasts.send(alerts::Toast {
+            alerts.show(alerts::Toast {
                 title,
                 body,
                 clickable: true,
                 kind,
                 sound,
+                tag,
             });
         }
     }
@@ -777,6 +1000,47 @@ fn quiet_restart_allowed(state: &UpdateState, window_visible: bool, in_call: boo
     matches!(state, UpdateState::Ready(_)) && !window_visible && !in_call
 }
 
+/// The settings the tray menu may show and change, by name.
+///
+/// An allow-list rather than reflection over the struct: `internal_domains`
+/// is the security boundary of the app and `developer_tools` opens the
+/// inspector, and neither belongs one click away in a menu.
+const SWITCHABLE: &[&str] = &[
+    "notifications",
+    "notification_sounds",
+    "ring_for_calls",
+    "unread_badge",
+    "run_in_background",
+];
+
+fn read_setting(config: &Config, name: &str) -> bool {
+    if !SWITCHABLE.contains(&name) {
+        return false;
+    }
+    match name {
+        "notifications" => config.notifications,
+        "notification_sounds" => config.notification_sounds,
+        "ring_for_calls" => config.ring_for_calls,
+        "unread_badge" => config.unread_badge,
+        "run_in_background" => config.run_in_background,
+        _ => false,
+    }
+}
+
+fn write_setting(config: &mut Config, name: &str, value: bool) {
+    if !SWITCHABLE.contains(&name) {
+        return;
+    }
+    match name {
+        "notifications" => config.notifications = value,
+        "notification_sounds" => config.notification_sounds = value,
+        "ring_for_calls" => config.ring_for_calls = value,
+        "unread_badge" => config.unread_badge = value,
+        "run_in_background" => config.run_in_background = value,
+        _ => {}
+    }
+}
+
 /// The permission policy, apart from the Qt types so it can be tested.
 ///
 /// Anything not named here is refused: geolocation, screen capture, pointer
@@ -877,6 +1141,19 @@ fn unread_count(title: &str) -> u32 {
     digits.parse().unwrap_or(u32::MAX)
 }
 
+/// What a notification says about a count that went up by `arrived`.
+///
+/// The title is all instaCache has when the message did not come through a
+/// push — Instagram's own notification names the sender, this one cannot, so
+/// it says only what it knows.
+fn unread_summary(arrived: u32) -> String {
+    if arrived == 1 {
+        "New message".to_string()
+    } else {
+        format!("{arrived} new messages")
+    }
+}
+
 /// Hands a URL to the system browser, without a shell in between.
 pub fn open_externally(uri: &str) {
     if urls::scheme_of(uri).is_none() {
@@ -892,10 +1169,36 @@ mod tests {
     use super::*;
 
     fn shell() -> Shell {
+        with_config(Config::default())
+    }
+
+    fn with_config(config: Config) -> Shell {
         Shell {
-            config: Some(Rc::new(Config::default())),
+            config: Some(Rc::new(RefCell::new(config))),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn only_the_listed_settings_are_switchable() {
+        let mut config = Config::default();
+        for name in SWITCHABLE {
+            assert!(
+                read_setting(&config, name) || !read_setting(&config, name),
+                "{name} is readable"
+            );
+            write_setting(&mut config, name, false);
+            assert!(!read_setting(&config, name), "{name} turned off");
+            write_setting(&mut config, name, true);
+            assert!(read_setting(&config, name), "{name} turned back on");
+        }
+
+        // The security boundary and the inspector are not one click away.
+        let before = config.developer_tools;
+        write_setting(&mut config, "developer_tools", true);
+        assert_eq!(config.developer_tools, before, "not switchable from a menu");
+        assert!(!read_setting(&config, "developer_tools"));
+        assert!(!read_setting(&config, "internal_domains"));
     }
 
     #[test]
@@ -1109,15 +1412,81 @@ mod tests {
     }
 
     #[test]
+    fn what_was_already_waiting_at_startup_is_not_announced() {
+        let shell = shell();
+        // The scene opens the settling window on every load of the main page.
+        shell.main_page_loading();
+        assert!(
+            !shell.announces_unread(4),
+            "four unread on a fresh page have been there all along"
+        );
+        assert!(
+            shell.announces_unread(5),
+            "the next one arrived while we were watching"
+        );
+    }
+
+    #[test]
+    fn a_page_that_said_it_first_keeps_the_count_quiet() {
+        let shell = shell();
+        shell.unread_settles_at.set(None);
+        shell.page_notified_at.set(Some(Instant::now()));
+        assert!(
+            !shell.announces_unread(1),
+            "the push named the sender; the count is the same message"
+        );
+
+        shell
+            .page_notified_at
+            .set(Instant::now().checked_sub(PAGE_NOTIFICATION_ECHO * 2));
+        assert!(shell.announces_unread(2), "long enough ago to be news");
+    }
+
+    #[test]
+    fn only_a_count_that_went_up_is_a_message() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let shell = Shell {
+            badge: Some(tx),
+            ..shell()
+        };
+        shell.unread_settles_at.set(None);
+        // With no alerts channel nothing can be sent; the badge still moves,
+        // which is what tells reading a thread from receiving one apart.
+        shell.unread_changed(3, false);
+        shell.unread_changed(3, false);
+        shell.unread_changed(1, false);
+        shell.unread_changed(0, true);
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![3, 1, 0]);
+    }
+
+    #[test]
+    fn a_count_says_how_many_arrived_and_nothing_it_cannot_know() {
+        assert_eq!(unread_summary(1), "New message");
+        assert_eq!(unread_summary(3), "3 new messages");
+    }
+
+    #[test]
+    fn push_follows_the_notification_setting() {
+        assert!(shell().push_service_enabled());
+        let quiet = with_config(Config {
+            notifications: false,
+            ..Config::default()
+        });
+        assert!(!quiet.push_service_enabled());
+        let unpushed = with_config(Config {
+            push_notifications: false,
+            ..Config::default()
+        });
+        assert!(!unpushed.push_service_enabled());
+    }
+
+    #[test]
     fn instagram_shortcuts_are_for_instagram_only() {
         assert!(shell().instagram_shortcuts());
-        let x = Shell {
-            config: Some(Rc::new(Config {
-                home_url: "https://x.com/".into(),
-                ..Config::default()
-            })),
-            ..Default::default()
-        };
+        let x = with_config(Config {
+            home_url: "https://x.com/".into(),
+            ..Config::default()
+        });
         assert!(!x.instagram_shortcuts());
     }
 

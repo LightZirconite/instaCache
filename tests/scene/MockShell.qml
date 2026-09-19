@@ -18,12 +18,13 @@ QtObject {
     property bool remember_window_state: true
     property bool autoplay_without_gesture: true
     property bool notifications_enabled: false
+    property bool push_service_enabled: false
     property bool external_links_in_browser: true
     property bool context_menu: false
     property bool run_in_background: true
     property bool instagram_shortcuts: true
     property bool start_hidden: false
-    property bool tray_icon: false
+    property bool tray_icon: true
     property string icon_name: "instacache"
     property string user_stylesheet: ""
     property string user_script: ""
@@ -79,14 +80,28 @@ QtObject {
     property var notifications: []
     property int ringStops: 0
     property var ringing: []
-    function notify_page(title, body, windowActive) {
+    function notify_page(title, body, tag, windowActive) {
         notifications = notifications.concat([title]);
         ringing = ringing.concat([windowActive]);
     }
     function stop_ringing() { ringStops++; }
-    function title_changed(title) {
+    function title_changed(title, windowActive) {
         titles = titles.concat([title]);
         var match = /^\((\d+)\+?\)/.exec(title.trim());
         return match ? parseInt(match[1]) : 0;
     }
+    property int mainPageLoads: 0
+    function main_page_loading() { mainPageLoads++; }
+
+    // The tray's settings. The real ones live in config.json and in
+    // ~/.config/autostart; here they are just remembered.
+    property bool autostart: false
+    property var settings: ({
+        notifications: true, notification_sounds: true, ring_for_calls: true,
+        unread_badge: true, run_in_background: true
+    })
+    function starts_with_session() { return autostart; }
+    function set_start_with_session(on) { autostart = on; return on; }
+    function setting(name) { return settings[name] === true; }
+    function set_setting(name, value) { settings[name] = value; }
 }

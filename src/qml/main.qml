@@ -240,16 +240,52 @@ Window {
     readonly property string trayIconName: shell.icon_name
     readonly property string trayTitle: shell.window_title
 
+    // Whether the user is really looking at the window: shown, not closed to
+    // the background, and focused. What decides whether an alert is something
+    // they can already see -- so it must not be true of a hidden window, which
+    // some compositors still report as active.
+    readonly property bool inFront: root.visible && root.active && !root.backgrounded
+
     function toggleFromTray() {
-        if (root.visible && root.active)
+        if (root.inFront)
             root.hideToBackground();
         else
             root.bringToFront();
     }
 
+    // What the tray icon says instaCache is doing. The point of the icon is
+    // that a closed window is not a closed application: without a line saying
+    // so, a user who closed the window and still hears a notification has no
+    // way to tell whether it is running or haunted.
+    function trayState() {
+        var where = root.visible ? "Window open" : "Running in the background";
+        return root.unread > 0 ? where + " — " + root.unread + " unread" : where;
+    }
+
+    // Read once when the menu is built and after every change, because the
+    // autostart entry lives on disk and a desktop's own startup panel can
+    // turn it off behind us. See `autostart.rs`.
+    property bool startsWithSession: false
+    function refreshStartsWithSession() {
+        root.startsWithSession = shell.starts_with_session();
+    }
+
+    // Settings the tray may switch, by the names `bridge.rs` accepts.
+    function toggleSetting(name) {
+        shell.set_setting(name, !shell.setting(name));
+        root.settingsRevision++;
+    }
+    // Bumped so the menu's bindings re-read `shell.setting`, which is a plain
+    // method and notifies nothing on its own.
+    property int settingsRevision: 0
+    function settingIsOn(name) {
+        return root.settingsRevision >= 0 && shell.setting(name);
+    }
+
     Component.onCompleted: {
         if (!shell.tray_icon)
             return;
+        root.refreshStartsWithSession();
         try {
             root.tray = Qt.createQmlObject(
                 "import QtQuick\n" +
@@ -257,13 +293,44 @@ Window {
                 "SystemTrayIcon {\n" +
                 "    visible: available\n" +
                 "    icon.name: root.trayIconName\n" +
-                "    tooltip: root.unread > 0 ? root.trayTitle + ' — ' + root.unread + ' unread' : root.trayTitle\n" +
+                "    tooltip: root.trayTitle + ' — ' + root.trayState()\n" +
                 "    onActivated: function (reason) {\n" +
                 "        if (reason !== SystemTrayIcon.Context) root.toggleFromTray();\n" +
                 "    }\n" +
                 "    menu: Menu {\n" +
-                "        MenuItem { text: root.visible ? 'Hide' : 'Open'; onTriggered: root.toggleFromTray() }\n" +
+                // Not a title: Qt.labs.platform's Menu has no title item that
+                // every tray implementation draws, and a disabled entry is
+                // shown greyed by all of them.
+                "        MenuItem { text: root.trayState(); enabled: false }\n" +
+                "        MenuSeparator {}\n" +
+                "        MenuItem { text: root.visible ? 'Hide window' : 'Open window'; onTriggered: root.toggleFromTray() }\n" +
                 "        MenuItem { text: 'Restart to update'; visible: root.updateState === 'ready'; onTriggered: root.restartForUpdate() }\n" +
+                "        MenuSeparator {}\n" +
+                "        MenuItem {\n" +
+                "            text: 'Start at login'; checkable: true\n" +
+                "            checked: root.startsWithSession\n" +
+                "            onTriggered: { shell.set_start_with_session(!root.startsWithSession); root.refreshStartsWithSession(); }\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Notifications'; checkable: true\n" +
+                "            checked: root.settingIsOn('notifications')\n" +
+                "            onTriggered: root.toggleSetting('notifications')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Notification sounds'; checkable: true\n" +
+                "            checked: root.settingIsOn('notification_sounds')\n" +
+                "            onTriggered: root.toggleSetting('notification_sounds')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Ring for calls'; checkable: true\n" +
+                "            checked: root.settingIsOn('ring_for_calls')\n" +
+                "            onTriggered: root.toggleSetting('ring_for_calls')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Keep running when closed'; checkable: true\n" +
+                "            checked: root.settingIsOn('run_in_background')\n" +
+                "            onTriggered: root.toggleSetting('run_in_background')\n" +
+                "        }\n" +
                 "        MenuSeparator {}\n" +
                 "        MenuItem { text: 'Quit'; onTriggered: root.quit() }\n" +
                 "    }\n" +
@@ -504,6 +571,27 @@ Window {
         spellCheckLanguages: shell.spell_check_languages === ""
                              ? [] : shell.spell_check_languages.split(",")
 
+        // Instagram delivers a message or a call through Web Push, from its
+        // service worker, and Qt WebEngine refuses to register with any push
+        // service unless it is asked to: without this,
+        // `PushManager.subscribe()` fails with "push service not available",
+        // so nothing is ever pushed and the notification below never happens.
+        //
+        // Assigned rather than declared because the property arrived in Qt
+        // 6.5 and the baseline is 6.4 -- see the non-negotiables in AGENTS.md.
+        // Declaring it would stop the whole scene loading on 6.4; assigning it
+        // there throws, and an older Qt simply has no push service.
+        Component.onCompleted: {
+            if (!shell.push_service_enabled)
+                return;
+            try {
+                session.isPushServiceEnabled = true;
+            } catch (e) {
+                shell.log("this Qt has no push service; "
+                          + "notifications arrive only while the page is open");
+            }
+        }
+
         // Instagram posts web notifications; without a presenter Qt drops
         // them silently.
         onPresentNotification: function (notification) {
@@ -511,7 +599,8 @@ Window {
                 return;
             lastNotification = notification;
             // A message, or a call, which rings until somebody acts on it.
-            shell.notify_page(notification.title, notification.message, root.active);
+            shell.notify_page(notification.title, notification.message,
+                              notification.tag, root.inFront);
             notification.show();
         }
 
@@ -563,8 +652,11 @@ Window {
             settings.screenCaptureEnabled: false
             settings.showScrollBars: false
 
-            // The unread badge reads Instagram's title, whatever is shown.
-            onTitleChanged: root.unread = shell.title_changed(title)
+            // The unread badge reads Instagram's title, whatever is shown --
+            // and so does the alert for a message that arrived while the page
+            // was already open, which is never pushed because the page is
+            // connected and only changes its title.
+            onTitleChanged: root.unread = shell.title_changed(title, root.inFront)
 
             onNavigationRequested: function (request) {
                 root.routeNavigation(request);
@@ -573,6 +665,10 @@ Window {
                 root.openRequest(request);
             }
             onLoadingChanged: function (info) {
+                // The count Instagram is about to announce is what was
+                // already waiting, so it must not be heard as an arrival.
+                if (info.status === WebEngineView.LoadStartedStatus)
+                    shell.main_page_loading();
                 root.handleLoad(view, info);
             }
 

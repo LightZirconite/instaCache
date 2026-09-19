@@ -11,8 +11,8 @@ use qmetaobject::qtcore::core_application::QCoreApplication;
 use qmetaobject::{QObjectPinned, QmlEngine};
 
 use instacache::bridge::{Shell, SHUTDOWN};
-use instacache::{chromium, config, instance, paths, sites, updates, urls};
-use instacache::{APP_NAME, VERSION};
+use instacache::{autostart, chromium, config, instance, paths, sites, updates, urls};
+use instacache::{APP_NAME, LICENSE_NOTICE, VERSION};
 
 /// The scene is compiled into the binary rather than installed beside it, so
 /// there is still exactly one file to ship and no way for the two to drift
@@ -36,6 +36,7 @@ fn main() -> ExitCode {
         }
         Mode::Version => {
             println!("{APP_NAME} {VERSION}");
+            println!("{LICENSE_NOTICE}");
             return ExitCode::SUCCESS;
         }
         Mode::Update => {
@@ -142,7 +143,14 @@ instacache --profile {}",
     // path to restart is taken before any update can happen.
     let executable = std::env::current_exe().ok();
 
-    let config = Rc::new(config::Config::load_or_create(&paths));
+    let config = config::Config::load_or_create(&paths);
+
+    // The first run of a profile is the only one that writes the session's
+    // autostart entry; after that the entry itself decides, so a user who
+    // turned it off in their desktop's startup panel stays turned off. See
+    // `autostart.rs`.
+    autostart::apply_default_once(&paths.config, &paths.profile, config.start_with_session);
+
     let profile = paths.profile.clone();
     let paths = Rc::new(paths);
 

@@ -106,6 +106,23 @@ pub struct Config {
     pub developer_tools: bool,
     /// Forward web notifications to the desktop notification daemon.
     pub notifications: bool,
+    /// Register with the browser's push service, so a message or a call
+    /// reaches the desktop when nobody is looking at the window.
+    ///
+    /// Instagram delivers both over Web Push, from a service worker, and Qt
+    /// WebEngine's push service is off unless it is asked for: without it
+    /// `PushManager.subscribe()` fails with "push service not available",
+    /// Instagram never registers, no push ever arrives, and the service
+    /// worker that would post the notification never runs. That is the whole
+    /// reason the unread badge could move while nothing rang.
+    ///
+    /// Turning it on holds one connection to Google's push servers, the same
+    /// one Chrome holds. Turning it off is the setting for someone who would
+    /// rather not have it, at the cost of hearing nothing while the window is
+    /// closed.
+    ///
+    /// Needs Qt 6.5. On 6.4 the property does not exist and this does nothing.
+    pub push_notifications: bool,
     /// A short sound with a message's notification, the way a chat
     /// application has one. The notification server plays it where it can,
     /// and Do Not Disturb silences it.
@@ -135,6 +152,18 @@ pub struct Config {
     /// Show the number of unread items on the task bar icon, read from the
     /// `(3)` Instagram puts in front of its page title.
     pub unread_badge: bool,
+    /// Start with the desktop session, in the background, the way Discord and
+    /// Telegram do — so a message that arrives before you have opened
+    /// anything still reaches you.
+    ///
+    /// This decides what the **first** run of a profile puts in
+    /// `~/.config/autostart`, and nothing after that: from then on the entry
+    /// itself is the truth, so turning instaCache off in your desktop's own
+    /// startup panel stays turned off. See `autostart.rs`.
+    ///
+    /// On for Instagram and off for another site by default: a site you open
+    /// and close has no reason to be running before you ask for it.
+    pub start_with_session: bool,
     /// An icon in the system tray for as long as instaCache runs, the way
     /// Spotify or Discord have one: it shows that a closed window is still
     /// running, and opens or quits it. Where the desktop has no tray, the
@@ -194,11 +223,13 @@ impl Default for Config {
             context_menu: false,
             developer_tools: false,
             notifications: true,
+            push_notifications: true,
             notification_sounds: true,
             ring_for_calls: true,
             calls: true,
             run_in_background: true,
             unread_badge: true,
+            start_with_session: true,
             tray_icon: true,
             internal_domains: crate::urls::INTERNAL_DOMAINS
                 .iter()
@@ -234,6 +265,11 @@ impl Config {
             config.ring_for_calls = false;
             config.run_in_background = false;
             config.tray_icon = false;
+            config.start_with_session = false;
+            // A window that stops running when it is closed has nothing to
+            // deliver a push to, so the connection to the push service would
+            // be held for nothing.
+            config.push_notifications = false;
         }
         config
     }
@@ -546,12 +582,24 @@ mod tests {
             Config::from_json(r#"{"home_url": "https://x.com/", "internal_domains": ["x.com"]}"#)
                 .unwrap();
         assert!(!x.run_in_background && !x.tray_icon && !x.calls && !x.ring_for_calls);
+        assert!(
+            !x.start_with_session,
+            "a site you open and close has no reason to run before you ask"
+        );
+        assert!(
+            !x.push_notifications,
+            "a window that stops running when it is closed has nothing to push to"
+        );
         // What every window shares.
         assert!(x.notification_sounds && x.unread_badge && x.notifications);
 
         let instagram = Config::from_json(r#"{"home_url": "https://www.instagram.com/"}"#).unwrap();
         assert!(instagram.run_in_background && instagram.tray_icon && instagram.calls);
-        assert!(instagram.ring_for_calls);
+        assert!(instagram.ring_for_calls && instagram.start_with_session);
+        assert!(
+            instagram.push_notifications,
+            "a config written before the key existed still gets the push service"
+        );
 
         let chosen =
             Config::from_json(r#"{"home_url": "https://x.com/", "tray_icon": true}"#).unwrap();

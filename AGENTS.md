@@ -540,6 +540,226 @@ is logged, only that a call rang.
 Check it without Instagram, on a local page that posts `new Notification(…)`,
 by watching `Notify` with `dbus-monitor` and the player with `pgrep`.
 
+## One arrival, one notification
+
+Two rules, both learned from a real inbox rather than from reading the code.
+
+**The tag is not decoration.** The Notification API says two notifications
+sharing a `tag` are the same notification and the second replaces the first.
+Instagram uses it the way a phone does: a ringing call is re-posted every few
+seconds under one tag. instaCache ignored `QWebEngineNotification::tag`, so a
+single call filled the screen with copies of itself. `alerts.rs` now keeps a
+`tag -> notification id` map and passes the id as `replaces_id`, which is the
+whole fix. Verified on D-Bus: the second and third notification under one tag
+carry the first one's id, and a different tag gets its own.
+
+**The unread count must not repeat what push already said.** The count-derived
+alert exists for an account where push never delivers; once the page has
+posted a notification of its own, push works and the count is a second telling
+of the same arrival — which arrives as "and by the way, you have an unread
+message" a moment after the real one. So `page_notified_ever` latches, and
+after that the count only ever *pings* over a window in front, never posts.
+The twenty-second echo window is not enough on its own: a backgrounded page is
+throttled by Chromium and can update its title minutes after the push landed.
+
+## Instagram does not say "call" in any language you guessed
+
+`alerts::classify` reads `CALL_PHRASES` out of the notification's words
+because Instagram publishes no marker for a call. **The list is not known to
+match what Instagram actually sends** — on a French-language account, a real
+incoming call produced a screen of notifications and no ring at all, and the
+journal carried no `instacache: incoming call` line, which is how you know
+`classify` never returned `Kind::Call`.
+
+Do not extend the list by guessing. Capture what arrives first — from
+instaCache itself, which is the shortest route:
+
+```sh
+INSTACACHE_LOG_NOTIFICATIONS=1 instacache
+journalctl --user -f | grep 'instacache: notification'
+```
+
+That prints the kind, tag, title and body of every notification a page posts.
+It is **off by default and must stay off**: what a notification says is
+nobody's business, this log included. It exists because the only way to learn
+why a real call did not ring is to see the words Instagram actually sent.
+
+`dbus-monitor --session "interface='org.freedesktop.Notifications',member='Notify'"`
+shows the same thing from the other side. Beware of reading back your own
+fixtures there: a local test page posting `showNotification` looks identical
+on D-Bus to the real thing, so clear the log before the real attempt. That
+mistake was made here once already.
+
+A repeated notification under one tag is tempting as a language-independent
+"this is a call" signal, and it is what a ringing call looks like. It is not
+safe on its own: Instagram coalesces a thread's messages under a tag too, so a
+chatty friend would ring. Get the text.
+
+## Nothing is notified unless the push service is on
+
+This is where the whole feature lived or died for two releases, and the
+symptom was misleading: the unread badge moved and nothing was ever heard, so
+`alerts.rs` looked broken when it was simply never reached.
+
+Instagram sends a message or a call over **Web Push**, from its service
+worker. Qt WebEngine registers with no push service unless the profile asks:
+`WebEngineProfile.isPushServiceEnabled` is **off** by default. Without it
+`PushManager.subscribe()` rejects with `AbortError: Registration failed - push
+service not available`, Instagram never registers, no push arrives, its
+service worker never runs, `onPresentNotification` never fires. The badge kept
+working the whole time because it is read from the page title, which needs no
+push at all.
+
+Two traps in one property:
+
+- The QML name is **`isPushServiceEnabled`**, not `pushServiceEnabled`.
+  Assigning the latter throws "Cannot assign to non-existent property" and an
+  otherwise correct fix does nothing.
+- It arrived in **Qt 6.5** and the baseline is 6.4, so it must be *assigned*
+  from `Component.onCompleted` inside a `try`, never declared. A declared
+  property Qt 6.4 does not know stops the entire scene loading — see "A live
+  process, no window and no error".
+
+Measure it rather than reasoning about it. A local page with a service worker
+and any VAPID key tells you in one run which side of the line you are on:
+
+```sh
+# with the property set, subscribe() resolves with an fcm/send endpoint;
+# without it, it rejects with "push service not available"
+QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen ./target/debug/instacache --profile pushcheck
+```
+
+`QT_FORCE_STDERR_LOGGING=1` is not optional: Qt sends `qDebug` and the page's
+console to journald otherwise, and a run that proves nothing looks like a run
+that printed nothing. Only warnings and errors from the page appear at all, so
+make a test page report with `console.error`.
+
+`user_prefs.json` in the profile's data directory is the other witness:
+`gcm.push_messaging_application_id_map` stays `{}` for as long as no
+subscription exists.
+
+## The unread count is the second half of it
+
+A message that arrives while the page is open is *not* pushed — the page is
+already connected, and Instagram only changes its title. So the count is the
+one signal an open window gets, and `unread_changed` in `bridge.rs` turns a
+rise in it into an alert. Two rules keep that honest, and both are tested:
+
+- Nothing is announced for `UNREAD_SETTLE` after a load. Instagram's title
+  says `Instagram` while it loads and grows its `(3)` a second or two later;
+  without the wait, every launch announces messages from last week.
+- A rise within `PAGE_NOTIFICATION_ECHO` of the page's own notification is
+  that same arrival counted twice, and is dropped. The page's version names
+  the sender; this one can only count.
+
+Over a window that is really in front the count plays the sound and shows
+nothing, because the page already shows the message — the same reasoning that
+stopped instaCache ringing over an answered call in 2.6.1. "Really in front"
+is `root.inFront` in the scene: shown, focused, and not closed to the
+background. `root.active` alone is not enough.
+
+## Starting with the session, and the tray's settings
+
+`autostart.rs` writes one file into `~/.config/autostart`. Every desktop reads
+the same XDG entry, so there is nothing per-desktop here and nothing to detect.
+
+The rule that is easy to get wrong: **the entry is the truth, not the
+setting.** `start_with_session` in `config.json` decides only what the *first*
+run of a profile puts there, guarded by an `autostart-applied` marker beside
+it. After that, `is_enabled()` reads the file. A user who turns instaCache off
+in their desktop's own startup panel must stay off, and a setting that
+re-created the file at every launch would silently undo them. Plasma and GNOME
+disable an entry by writing `Hidden=true` or
+`X-GNOME-Autostart-enabled=false` into it rather than deleting it, which is
+why the contents are read and not just the file's existence.
+
+The entry uses `--background` on purpose: logging in should leave a warm page
+behind a tray icon, not a window over whatever you opened the machine to do.
+
+The tray menu also switches settings, through `setting` / `set_setting` in
+`bridge.rs`. `SWITCHABLE` is an allow-list and is load-bearing — both the
+getter and the setter refuse a name that is not in it. `internal_domains` is
+the security boundary of the app and `developer_tools` opens the inspector;
+neither belongs one click away in a menu. `Shell` holds its `Config` behind a
+`RefCell` for this, and `update_config` rewrites the whole `config.json`,
+which is what `load_or_create` already does on a first run.
+
+The menu itself is built from a **QML string**, because `Qt.labs.platform` may
+not be installed and a failed import in the scene would stop the window
+appearing at all. Nothing checks that string at compile time, so a typo costs
+the entire tray, silently, with a missing icon as the only symptom.
+`test_01c_the_tray_menu_is_valid_qml` in the scene tests exists for exactly
+that: it builds the object and fails if `createQmlObject` throws. Run the
+scene tests after touching it.
+
+A method is not a property: a binding on `shell.setting(name)` never
+re-evaluates on its own. That is what `settingsRevision` is for — bump it and
+the bindings re-read. A binding on `trayState()` *does* track `root.visible`
+and `root.unread`, because QML captures property reads through a function
+call; only the `shell` method needs the manual nudge.
+
+## Packaging for the AUR
+
+`packaging/aur/PKGBUILD.in` is a template; `render.sh` fills in the version
+and the two checksums and writes `PKGBUILD` and `.SRCINFO`. The Release
+workflow runs it after the GitHub Release exists, because the checksums are
+**read from the published `.sha256` files** rather than recomputed — the
+package then verifies exactly what was released, and a missing archive fails
+the job instead of producing a PKGBUILD with a placeholder in it.
+
+`.SRCINFO` is written by hand because the runner has no `makepkg`. It is
+verified to be byte-identical to `makepkg --printsrcinfo` for a real release;
+if you change `PKGBUILD.in`, check that again:
+
+```sh
+./packaging/aur/render.sh 2.7.0 /tmp/aur && cd /tmp/aur
+diff <(cat .SRCINFO) <(makepkg --printsrcinfo)
+makepkg --nodeps --noconfirm && bsdtar -tf *.pkg.tar.zst
+```
+
+The push step is skipped when `AUR_SSH_PRIVATE_KEY` is not configured, so a
+fork still releases. On this repository it is already set, along with the
+`AUR_USERNAME` and `AUR_EMAIL` variables; the key pair lives in
+`~/.ssh/aur_instacache` and exists for nothing but this.
+
+### Nobody reviews an AUR package
+
+There is no review queue and no approval. A push to
+`ssh://aur@aur.archlinux.org/<name>.git` publishes, and the first push creates
+the repository if the name is free. The Package Maintainers only step in after
+the fact, through orphan, deletion and merge requests. That is exactly why the
+checks in this pipeline are worth having: nothing else is going to catch a
+PKGBUILD that installs the wrong files or verifies the wrong archive.
+
+The conventions that are actually enforced, socially: a package built from a
+released binary must end in `-bin`, it must `provides`/`conflicts` the name it
+stands in for, and it must not duplicate something already in the official
+repositories.
+
+### The push does not use a third-party action
+
+It is plain `git` in the workflow. The AUR key is the one credential here that
+can publish under somebody's name, and handing it to an action nobody in this
+repository reviews is a larger risk than writing eight lines of shell.
+
+The host keys are fetched with `ssh-keyscan` and then **verified against the
+fingerprints the AUR publishes**, and all three must be present — a bare
+keyscan trusts whatever answers on the network, which is the whole attack. The
+fingerprints are in the workflow. If the AUR rotates a key this fails loudly
+rather than trusting the new one; update the list from
+<https://aur.archlinux.org/> and satisfy yourself about why it changed.
+
+Both halves are tested: the real keys pass, a foreign key injected among them
+is rejected, and a downgrade to a single key is rejected.
+
+**A packaged copy must not update itself.** `updates::is_package_managed()`
+is how it knows: `install.sh` puts `update.sh` under the same prefix as the
+binary and a distribution package does not, so "no updater beside it, in a
+prefix the user cannot write" means pacman owns this copy. Without that check
+an AUR user is offered an update whose only route is `sudo instacache
+--update`, which overwrites files pacman owns and is reverted by the next
+`-Syu`.
+
 ## A binary replaced under a running copy
 
 `/proc/self/exe` ends in ` (deleted)` once the file was replaced. `bridge.rs`

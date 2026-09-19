@@ -46,6 +46,46 @@ Item {
             main.runJavaScript("document.title = 'Instagram'");
         }
 
+        // The count Instagram announces just after a load is what was already
+        // waiting, and bridge.rs only knows that if the scene says a load
+        // started. Without this the app would announce old messages at every
+        // launch.
+        function test_01b_a_load_of_the_main_page_is_reported() {
+            verify(win.shell.mainPageLoads > 0, "main_page_loading called for the home page");
+            var before = win.shell.mainPageLoads;
+            var main = win.activeView();
+            main.reload();
+            waitFor(function () { return win.shell.mainPageLoads > before; }, 8000,
+                    "a reload is reported too");
+            waitFor(function () { return !main.loading && main.title === "Instagram"; }, 15000,
+                    "home loads again");
+        }
+
+        // The tray menu is built from a QML string, so nothing checks it at
+        // compile time: a typo in it costs the whole tray, silently, and the
+        // only symptom is a missing icon. Building it is the test.
+        function test_01c_the_tray_menu_is_valid_qml() {
+            verify(win.tray !== null, "the tray object was created");
+            verify(win.tray.menu !== null, "it has a menu");
+            verify(win.trayState().length > 0, "the state line says something");
+
+            // The settings in it reach the shell and come back changed.
+            var before = win.shell.setting("notification_sounds");
+            win.toggleSetting("notification_sounds");
+            compare(win.shell.setting("notification_sounds"), !before,
+                    "the menu writes the setting");
+            verify(win.settingIsOn("notification_sounds") === !before,
+                   "and the menu shows what it wrote");
+            win.toggleSetting("notification_sounds");
+
+            compare(win.startsWithSession, false);
+            win.shell.set_start_with_session(true);
+            win.refreshStartsWithSession();
+            compare(win.startsWithSession, true, "start at login is read back");
+            win.shell.set_start_with_session(false);
+            win.refreshStartsWithSession();
+        }
+
         function test_02_call_opens_as_page_and_survives_back() {
             var main = win.activeView();
             main.runJavaScript("window.open('/call.html', 'call', 'width=640,height=480')");

@@ -198,7 +198,7 @@ pub fn desktop_entry(name: &str, profile: &str, exec: &str, icon: &str) -> Strin
 /// Falling back to the running binary keeps entries working when instaCache is
 /// installed somewhere that is not on `PATH`, and the bare name is the last
 /// resort for a platform that cannot report either.
-fn exec_command() -> String {
+pub(crate) fn exec_command() -> String {
     choose_exec(
         crate::http::which(PROGRAM_NAME),
         std::env::current_exe().ok(),

@@ -1,282 +1,141 @@
 <div align="center">
 
-<img src="assets/instacache.svg" width="112" alt="instaCache">
+<img src="assets/instacache.svg" width="120" alt="">
 
 # instaCache
 
-**A native, ultra-light Instagram client for Linux.**
+**Instagram as a real Linux app.** Messages ring, calls ring, and it starts
+with your session — in a 2 MB binary that borrows the browser engine you
+already have.
 
-A single 2.1 MB binary. No Electron, no Node, no Python.
-
-[Install](#install) · [Why](#why) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Build](#build-from-source)
+[![AUR](https://img.shields.io/aur/version/instacache-bin?style=flat-square&color=1793d1&label=AUR)](https://aur.archlinux.org/packages/instacache-bin)
+[![Release](https://img.shields.io/github/v/release/LightZirconite/instaCache?style=flat-square&color=e4405f)](https://github.com/LightZirconite/instaCache/releases)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0-brightgreen?style=flat-square)](LICENSE)
 
 </div>
 
 ---
 
-## What it is
-
-instaCache puts Instagram in a proper desktop window: it opens in your dock,
-remembers where you left it, keeps you signed in, and stays out of the way.
-
-Underneath, it is one Qt Quick window hosting one Qt WebEngine view — the
-Chromium your distribution already ships, shared with every other Qt
-application — with its cache and session pinned to persistent directories.
-Nothing is bundled, nothing is duplicated: the browser engine already on your
-system does the rendering.
-
-## Why
-
-| | instaCache | An Electron wrapper | A browser tab |
-|---|---|---|---|
-| Download size | **2.1 MB** | 80–150 MB | — |
-| Bundled browser engine | none (uses the system's Qt WebEngine) | a full Chromium | — |
-| Own dock icon and window | yes | yes | no |
-| Survives closing the browser | yes | yes | no |
-| Session kept between runs | yes | yes | yes |
-| Disk cache reused on restart | yes, aggressively | usually | yes |
-
-Measured on the reference machine, adding up proportional memory across every
-process: about **280 MB** on an empty page, and **310 MB** with four
-1080x1920 videos playing at once. The content is not what costs — four
-full-resolution streams add roughly 30 MB — the floor is the engine.
-
-A signed-in feed after a while of scrolling will sit above that; the figure has
-not been re-measured since the engine changed, and the old one is not quoted
-here because it described a different engine. Nothing in configuration moves
-the floor: the flags aimed at it were tried and measured, and are listed in
-[`bench/`](bench/README.md) so nobody spends an afternoon on them again.
-
-That is what a browser engine costs to render a heavy web app; instaCache is
-small, the web app is not. Where it wins is the 2.1 MB download, the absence of
-a second browser engine on your disk, and a cache that makes the next launch
-instant. It is not a lightweight way to *view* Instagram — it is a lightweight
-*wrapper* around it.
-
-## Features
-
-- **Aggressive persistent cache.** Chromium's on-disk HTTP cache, written to
-  `~/.cache/instacache` and reused on every launch. A warm start does not
-  re-download the interface.
-- **You stay signed in.** Cookies, local storage, IndexedDB and service workers
-  live in `~/.local/share/instacache` and survive restarts, reboots and cache
-  clears.
-- **The window remembers itself.** Size, position, maximized state and zoom are
-  restored — including when the desktop session ends and the app is terminated
-  rather than closed.
-- **Sized for your screen.** The first launch takes 90% of your monitor's usable
-  area instead of a fixed default, so nothing is cut off.
-- **A loading bar that actually tracks Instagram.** A thin gradient line across
-  the top, the way YouTube does it. It follows real page loads *and* in-app
-  navigation, which produces no page load at all and would otherwise leave the
-  bar dead.
-- **Video that does not stutter.** Chromium reuses its decoders instead of
-  building a new pipeline for every clip, which is what a Reels feed makes it
-  do about twice a second. Measured on the reference machine: **1 to 6** frames
-  arriving late per 40-second run, where the WebKitGTK engine this app used
-  until now produced **78**. VA-API decoding is switched on as well, which
-  Chromium leaves off on Linux by default.
-- **Opens instantly after the first time.** Closing the window leaves
-  instaCache running, so opening it again skips the part of a launch that is
-  Chromium starting and Instagram loading — 2 to 2.5 seconds before the feed
-  shows, measured with a warm cache — and notifications keep arriving. `Ctrl+Q`
-  quits for real; `run_in_background` turns this off.
-- **An icon in the system tray** for as long as instaCache runs, like Spotify's
-  or Discord's, so a closed window is never a mystery. Click it to open or hide
-  the window; right-click it to quit, or to restart into an update. The tooltip
-  shows the unread count.
-- **Calls in Direct.** Voice and video calls get the microphone and camera. A
-  call keeps running while you go back to Instagram: a pill at the top of the
-  window returns to it, or ends it.
-- **Pages, not tabs.** Something Instagram opens in a new tab or window shows up
-  in the same window with a small back button, and opening another one replaces
-  it. The window stays one application rather than turning into a browser.
-- **It sounds like a messenger.** A new message plays a short sound with its
-  notification, and an incoming call rings — repeatedly, like Discord — until
-  you open the window, click or dismiss the notification, or thirty seconds
-  pass. Do Not Disturb silences both.
-- **Closing is really closing, for the page.** Videos and Reels are paused, and
-  Chromium is told the page is hidden, so it stops drawing and slows its
-  timers; a call keeps going. Opening the window again shows the page as you
-  left it straight away, and the live page takes over a fraction of a second
-  later — no blank screen while it redraws.
-- **Unread count on the icon.** The number Instagram puts in its title appears on
-  the task bar icon, on docks that read Unity's launcher API — KDE Plasma,
-  Dash to Dock, Plank.
-- **Real keyboard and mouse navigation.** Reload, hard reload, back, forward,
-  home, zoom, fullscreen, jumps to the feed, Explore, Reels and Direct, and the
-  back and forward buttons on a mouse.
-- **External links leave.** Anything that is not Instagram — or one of the Meta
-  hosts its login flow needs — opens in your default browser.
-- **Desktop notifications.** Web notifications become real notifications;
-  clicking one focuses the window and tells the page, so the right conversation
-  opens.
-- **Several accounts at once.** `instacache --profile work` gets its own session,
-  cache and window, running alongside your main one.
-- **A proper offline page** instead of Chromium's default error screen.
-
 ## Install
 
-One command. Paste it into a terminal:
+**Arch, CachyOS, EndeavourOS**
+
+```sh
+yay -S instacache-bin
+```
+
+**Anything else**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh
 ```
 
-It downloads the release for your architecture, checks it against the published
-SHA-256, installs instaCache into `~/.local` — **no root needed for the app
-itself** — and adds it to your application menu.
+No root, nothing bundled. It installs into `~/.local`, adds itself to your
+application menu, and offers to install the Qt packages it needs. Remove it
+with `~/.local/share/instacache/uninstall.sh`.
 
-It also checks the two system libraries instaCache needs and offers to install
-the missing ones with your distribution's package manager. That step asks for
-your password, because installing system packages requires it. Answer `y` and
-it is done; the exact command is printed first so you can see what will run.
+## What you get
 
-Then launch **instaCache** from your application menu.
+**It behaves like a messenger, not like a tab.**
+A new message plays a sound and posts a real desktop notification — through
+Web Push, so it reaches you with the window closed, minimised, or behind
+everything else. An incoming call rings until you answer it or thirty seconds
+pass. Clicking the notification opens the right conversation.
 
-<details>
-<summary>Options</summary>
+**It is already running when you log in.**
+Starts with your session, in the background, behind a tray icon that says so.
+Closing the window does not quit it; `Ctrl+Q` does.
 
-```sh
-# Install for every user instead of just yours
-curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --system
+**It opens instantly.**
+Your session, cookies and cache are pinned to disk and reused. The window
+comes back the size, position and zoom you left it, on the page you left it.
 
-# Never ask anything, install missing packages automatically
-curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --yes
+**It costs 2 MB.**
+No Electron, no Node, no second browser on your disk. One Qt Quick window over
+the Qt WebEngine your distribution already ships, shared with every other Qt
+app. The engine still costs what an engine costs — about 280 MB resident — but
+you only pay for it once, and you already were.
 
-# Only install the app, never touch system packages
-curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh -s -- --no-deps
+**Video does not stutter.**
+Chromium reuses its decoders instead of building a pipeline per clip, which is
+what a Reels feed asks for twice a second. Measured: **1 to 6** late frames in
+a 40-second churn, against 78 for the WebKitGTK build this replaced. The
+numbers and everything that was tried and rejected are in
+[`bench/`](bench/README.md).
 
-# A specific version
-INSTACACHE_VERSION=v1.0.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh)"
-```
+**It stays one application.**
+A link, a popup or a call opens as a page over Instagram with a back button,
+never as a tab. Anything that is not Meta's goes to your real browser, so a
+signed-in session never sits next to an arbitrary site.
 
-</details>
+**Several accounts, and other sites.**
+`instacache --profile work` is a separate session, cache, window and dock
+icon. `instacache --add-site x https://x.com/` gives any site the same
+treatment, with its own menu entry and icon.
 
-<details>
-<summary>Prefer not to pipe a script into a shell?</summary>
+## Shortcuts
 
-Download the archive yourself from the
-[releases page](https://github.com/LightZirconite/instaCache/releases), then:
-
-```sh
-tar -xzf instacache-*-linux-x86_64.tar.gz
-cd instacache-*-linux-x86_64
-./install.sh
-```
-
-Same installer, same result. `get.sh` only automates the download and verifies
-the checksum for you.
-
-</details>
-
-## Updates
-
-Nothing else updates instaCache — it is installed from an archive, not by a
-package manager — so it updates itself, the way Chrome, Firefox and VS Code do
-when they are installed from an archive:
-
-1. **It checks in the background**, at startup and every 6 hours while it runs.
-2. **It installs without asking.** For an install in `~/.local`, where no root
-   is needed, the new release is downloaded, checked against its published
-   SHA-256 and installed while you keep using the old one.
-3. **The new version takes over at a restart, and you rarely have to do it.**
-   - The window is closed and instaCache is running in the background: it
-     restarts on its own, still hidden, and the next time you open it you are
-     on the new version. Never during a call.
-   - The window is open: a small **Update ready — Restart** pill appears at the
-     bottom. Restart reopens the page you were on; **Later** hides it, and the
-     update is applied as soon as you close the window.
-
-A system-wide install needs root to be replaced. When `pkexec` is available the
-pill offers **Install** instead, which asks for the administrator password;
-otherwise a notification says to run `sudo instacache --update`.
-
-To check right now from a terminal:
-
-```sh
-instacache --update
-```
-
-Turn the whole thing off with `"auto_update": false` in `config.json`.
-
-## Uninstall
-
-The installer leaves the uninstaller next to the app, so this works even if you
-installed with the one-liner and no longer have the archive:
-
-```sh
-~/.local/share/instacache/uninstall.sh            # removes the app, keeps your session
-~/.local/share/instacache/uninstall.sh --purge    # also deletes session, cache and settings
-```
-
-For a `--system` install the path is `/usr/local/share/instacache/uninstall.sh`.
-
-## What it needs on your system
-
-instaCache does not bundle a browser. It uses the Qt WebEngine your
-distribution already packages — the same Chromium every other Qt application
-on the machine uses — and the installer sets it up for you. For reference:
-
-| | Package (Arch) | Package (Debian/Ubuntu) | Without it |
-|---|---|---|---|
-| Rendering | `qt6-webengine qt6-declarative` | `libqt6webenginequick6 qml6-module-qtwebengine` | Does not start |
-| H.264 video | included | included | — |
-
-Qt 6.4 or newer, which is what Debian 12 and everything after it ship.
-
-**Fedora is the exception.** It builds Qt WebEngine without the
-patent-encumbered codecs, and Instagram is H.264 throughout, so photos load and
-every video stays blank until `qt6-qtwebengine-freeworld` is installed.
-`./install.sh` detects this and fixes it.
-
-## Video performance
-
-A Reels feed asks the browser to build and throw away a video every half
-second. That is what makes a feed stutter, and it is where engines differ most.
-Measured on the reference machine — four 1080x1920 H.264 streams at 30 fps,
-one replaced every 500 ms, two concordant runs each:
-
-| engine | frames over 50 ms | frames shown | first frame |
-|---|---|---|---|
-| **Qt WebEngine** (what ships) | **1 to 6** | 4176–4777 | **48–64 ms** |
-| WebKitGTK 4.1 (used until 1.2.0) | 78 | 4720 | 264 ms |
-
-The range is five runs, not the best one.
-
-This is why the engine changed. WebKit builds a fresh GStreamer pipeline for
-every `<video>`, on the thread that also runs the page; Chromium reuses its
-decoders. No WebKit setting closed the gap, and the ones that looked as though
-they had are listed, with their numbers, in [`bench/`](bench/README.md) — you
-can reproduce all of it yourself, on your own machine, in about two minutes.
-
-Two settings remain if playback misbehaves. `video_decoding` chooses the
-decoder: `gpu` (the default) turns on VA-API, which Chromium disables on Linux;
-`software` leaves decoding to the CPU; `auto` takes Chromium's own decision.
-`hardware_acceleration: never` switches the GPU off entirely, and is a last
-resort for a window that renders wrong.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
+| | |
 |---|---|
-| `Ctrl+R` · `F5` | Reload (the cache is used — this is the fast path) |
-| `Ctrl+Shift+R` · `Shift+F5` | Reload, bypassing the cache |
-| `Alt+←` · `Alt+→` | Back · Forward — out of a page, or out of a call without ending it |
-| `Ctrl+H` · `Alt+Home` | Reload your feed |
-| `Ctrl+1` · `Ctrl+2` · `Ctrl+3` · `Ctrl+4` | Feed · Explore · Reels · Direct, without reloading |
-| `Ctrl+=` · `Ctrl+-` · `Ctrl+0` | Zoom in · out · reset |
-| `F11` · `Esc` | Enter · leave fullscreen |
-| `Ctrl+W` | Close the page on top, or the window when there is none |
-| `Ctrl+Q` | Quit, including from the background |
-| `Ctrl+Shift+I` · `F12` | Web Inspector (when enabled in the config) |
+| `Ctrl+1` `Ctrl+2` `Ctrl+3` `Ctrl+4` | Feed · Explore · Reels · Direct |
+| `Ctrl+R` · `Ctrl+Shift+R` | Reload · reload ignoring the cache |
+| `Alt+←` · `Alt+→` | Back · forward, including out of a call |
+| `Ctrl+=` `Ctrl+-` `Ctrl+0` | Zoom in · out · reset |
+| `F11` | Fullscreen |
+| `Ctrl+W` · `Ctrl+Q` | Close the page on top · quit for real |
 
-The back and forward buttons on a mouse do what `Alt+←` and `Alt+→` do. A
-two-finger swipe on a touchpad goes back and forward through a page's history.
-`Esc` is only taken in fullscreen; otherwise it reaches Instagram, which closes
-its own dialogs with it.
+Your mouse's back and forward buttons work, and so does a two-finger swipe.
 
-## Command line
+## Settings
+
+Most of it is in the tray menu: start at login, notifications, sounds,
+ringing, whether closing keeps it running.
+
+Everything else is `~/.config/instacache/config.json`, written with the
+defaults on first run so the knobs are visible. Drop a `user.css` or a
+`user.js` beside it and they are applied to every page.
+
+<details>
+<summary><b>Every setting</b></summary>
+
+<br>
+
+| Key | Default | What it does |
+|---|---|---|
+| `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
+| `user_agent` | a Linux Chrome string | Sent to Instagram. Honest about both the system and the engine — claiming Safari would put a Chromium engine on Safari's code path. Empty keeps Qt WebEngine's own. |
+| `hardware_acceleration` | `always` | `always`, `auto` or `never`. The first two both leave Chromium's own decision alone. Set `never` only if the window renders wrong — it turns off GPU compositing entirely. |
+| `video_decoding` | `gpu` | `gpu`, `software` or `auto`. `gpu` turns on VA-API, which Chromium disables on Linux. Only change this if playback misbehaves. |
+| `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. The engine otherwise silences anything that plays without a click, which reads as the app muting itself. |
+| `context_menu` | `false` | Show the engine's right-click menu. Off, because in a one-application window it is browser chrome — Back, Forward, View Source — and it covers the page. Turning it off also removes "Save image as" and "Copy link address"; set `true` to get them back. |
+| `developer_tools` | `false` | Enables the Web Inspector and console output. |
+| `notifications` | `true` | Forward web notifications to your desktop. |
+| `push_notifications` | `true` for Instagram, `false` for other sites | Register with the browser's push service, which is how Instagram delivers a message or a call while nobody is looking at the window. Without it `PushManager.subscribe()` fails, Instagram never registers, and nothing is ever pushed. It holds one connection to Google's push servers, the same one Chrome holds; `false` gives that up and leaves only what arrives while the page is open. Needs Qt 6.5. |
+| `notification_sounds` | `true` | A short sound with a message's notification. Where the notification server plays sounds itself (KDE Plasma does), it honours Do Not Disturb and its own sound settings. |
+| `ring_for_calls` | `true` for Instagram, `false` for other sites | Ring for an incoming call until it is answered or dismissed. A call is recognised from the notification's words, in English, French, Spanish, German, Portuguese and Italian. |
+| `calls` | `true` for Instagram, `false` for other sites | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
+| `run_in_background` | `true` for Instagram, `false` for other sites | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
+| `start_with_session` | `true` for Instagram, `false` for other sites | Start with your desktop session, in the background. Only the **first** run writes `~/.config/autostart`; after that your desktop's own startup panel wins, and so does the tray's **Start at login**. |
+| `unread_badge` | `true` | Show the unread count from Instagram's title on the task bar icon. |
+| `tray_icon` | `true` for Instagram, `false` for other sites | An icon in the system tray while instaCache runs. Needs a desktop with a tray: KDE Plasma, Cinnamon, XFCE and most others have one; GNOME needs the AppIndicator extension. Without a tray nothing breaks, there is simply no icon. |
+| `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
+| `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
+| `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
+| `default_zoom` | `1.0` | Zoom used when no window state has been saved. |
+| `remember_window_state` | `true` | Restore size, position and zoom. |
+| `show_loading_indicator` | `true` | The thin gradient bar at the top of the window. |
+| `start_maximized` | `false` | Always open maximized. |
+| `auto_update` | `true` | Check GitHub for a newer release and install it. |
+| `update_check_interval_hours` | `6` | Hours between checks. `0` checks at every launch and never in between. A `24` written by an older version is read as the new default. |
+
+`~/.config/instacache/user.css` is injected into every page, and `user.js`
+runs once per load in the page's own world — the nearest thing to an
+extension, since Qt WebEngine implements no extension API.
+
+</details>
+
+<details>
+<summary><b>Command line</b></summary>
 
 ```
 instacache [OPTIONS] [URL]
@@ -290,131 +149,42 @@ instacache [OPTIONS] [URL]
                          Take it back out. Its data is kept.
       --list-sites       Show the sites you have added.
       --update           Check for a newer release and install it.
-      --background       Start with the window hidden. Launching again shows it.
+      --background       Start with the window hidden.
       --clear-cache      Delete cached resources, stay signed in.
       --clear-session    Delete cookies and site storage (signs you out).
   -h, --help             Full help.
   -V, --version          Version.
 ```
 
-Launching instaCache twice with the same profile focuses the existing window
-instead of starting a second copy — including a window closed to the
-background, which is what makes opening it again instant.
+Launching it twice with the same profile focuses the window that already
+exists rather than starting a second one over the same cookie jar.
 
-## Another site in its own window
+</details>
 
-instaCache is an Instagram client, but nothing in the window is Instagram-
-specific — it is one engine pointed at one site. Point it somewhere else and it
-becomes that site's application:
+<details>
+<summary><b>A notification did not arrive, or did not ring</b></summary>
 
-```sh
-instacache --add-site X https://x.com/ --domains x.com,twimg.com
-```
+<br>
 
-That writes two things: a profile, and a menu entry. **X now appears in your
-application menu with the X logo**, and opens in its own window, with its own
-session, its own cache and its own cookies — signed into X has nothing to do
-with signed into Instagram.
-
-instaCache ships with one such site already set up: **XCache**, which is X. The
-installer adds it, and only ever once — remove it and an update will not bring
-it back. `--setup-sites` does the same thing by hand.
-
-The icon comes from the site itself: whatever it declares in its markup, taking
-the largest, and its `/favicon.ico` otherwise. GitHub publishes a 512×512 one
-and gets that; X declares nothing and its favicon is used. The image is
-identified by its actual bytes rather than its file name, because
-`x.com/favicon.ico` is in fact a PNG. When a site publishes nothing usable it
-keeps instaCache's own icon, and `--icon path/to/logo.png` overrides the lot.
-
-`--domains` is the allow-list for that window, and it matters: a site whose
-images come from a separate host needs that host named, or the images are
-treated as external links. Left out, it defaults to the URL's own host, which
-is right for a site that serves everything itself:
+Instagram publishes no marker for an incoming call, so instaCache reads it
+from the words — and the words differ by language and change without notice.
+If a call does not ring, show what actually arrived:
 
 ```sh
-instacache --add-site "Hacker News" https://news.ycombinator.com/
+INSTACACHE_LOG_NOTIFICATIONS=1 instacache
+journalctl --user -f | grep 'instacache: notification'
 ```
 
-A site gets every fix and feature Instagram's window has — pages with a back
-button, the unread badge, notifications and their sound, updates — except the
-ones that make Instagram a messenger. It does not keep running when closed, has
-no tray icon, is not given the microphone or camera, and does not ring; closing
-it frees its memory. Any of those can be turned on in its own `config.json`,
-and a value written there always wins.
+Off by default, and it stays off unless you ask: what a notification says is
+nobody's business, this log included. Send the line for a call that did not
+ring and it is a one-line fix.
 
-`--list-sites` shows what you have added and `--remove-site X` takes the entry
-back out of the menu. Removing an entry never deletes the session behind it;
-`instacache --profile x --clear-session` does that.
+</details>
 
-## Configuration
+<details>
+<summary><b>Where your data lives</b></summary>
 
-`~/.config/instacache/config.json` is created on first run with every option at
-its default. Edit it and restart.
-
-| Key | Default | What it does |
-|---|---|---|
-| `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
-| `user_agent` | a Linux Chrome string | Sent to Instagram. Honest about both the system and the engine — claiming Safari would put a Chromium engine on Safari's code path. Empty keeps Qt WebEngine's own. |
-| `hardware_acceleration` | `always` | `always`, `auto` or `never`. The first two both leave Chromium's own decision alone. Set `never` only if the window renders wrong — it turns off GPU compositing entirely. |
-| `video_decoding` | `gpu` | `gpu`, `software` or `auto`. See [Video performance](#video-performance). |
-| `allow_autoplay_with_sound` | `true` | Let a video start with its sound on. The engine otherwise silences anything that plays without a click, which reads as the app muting itself. |
-| `context_menu` | `false` | Show the engine's right-click menu. Off, because in a one-application window it is browser chrome — Back, Forward, View Source — and it covers the page. Turning it off also removes "Save image as" and "Copy link address"; set `true` to get them back. |
-| `developer_tools` | `false` | Enables the Web Inspector and console output. |
-| `notifications` | `true` | Forward web notifications to your desktop. |
-| `notification_sounds` | `true` | A short sound with a message's notification. Where the notification server plays sounds itself (KDE Plasma does), it honours Do Not Disturb and its own sound settings. |
-| `ring_for_calls` | `true` for Instagram, `false` for other sites | Ring for an incoming call until it is answered or dismissed. A call is recognised from the notification's words, in English, French, Spanish, German, Portuguese and Italian. |
-| `calls` | `true` for Instagram, `false` for other sites | Let Instagram use the microphone and camera, for voice and video calls in Direct. Only hosts in `internal_domains` are ever granted them; `false` refuses them. |
-| `run_in_background` | `true` for Instagram, `false` for other sites | Closing the window hides it instead of quitting, so it opens again instantly and notifications keep arriving. `Ctrl+Q` quits. You are told once, the first time. |
-| `unread_badge` | `true` | Show the unread count from Instagram's title on the task bar icon. |
-| `tray_icon` | `true` for Instagram, `false` for other sites | An icon in the system tray while instaCache runs. Needs a desktop with a tray: KDE Plasma, Cinnamon, XFCE and most others have one; GNOME needs the AppIndicator extension. Without a tray nothing breaks, there is simply no icon. |
-| `open_external_links_in_browser` | `true` | Send non-Instagram links to your browser. |
-| `internal_domains` | Instagram + the Meta hosts its login needs | Hosts allowed to render inside the window, as an allow-list — a host matches only exactly or as a sub-domain. Per profile, so a second profile can be a dedicated window for another site: point `home_url` at it and name its domains here. Threads is deliberately not in the default; add `threads.com` to keep it inside the window. An empty list restores the default rather than locking the window. |
-| `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. Empty disables spell checking. |
-| `default_zoom` | `1.0` | Zoom used when no window state has been saved. |
-| `remember_window_state` | `true` | Restore size, position and zoom. |
-| `show_loading_indicator` | `true` | The thin gradient bar at the top of the window. |
-| `start_maximized` | `false` | Always open maximized. |
-| `auto_update` | `true` | Check GitHub for a newer release and install it. |
-| `update_check_interval_hours` | `6` | Hours between checks. `0` checks at every launch and never in between. A `24` written by an older version is read as the new default. |
-
-### Custom styling and scripting
-
-Drop CSS into `~/.config/instacache/user.css` and it is applied to every page.
-
-```css
-/* Widen the feed on a large screen */
-main[role="main"] { max-width: 1100px; }
-```
-
-Drop JavaScript into `~/.config/instacache/user.js` and it runs on every page
-once it has loaded, in the page's own world, so it can see and change what the
-page sees.
-
-```js
-// Hide the suggestions rail
-document.querySelectorAll('aside').forEach(el => el.remove());
-```
-
-**There is no extension support, and there cannot be.** Qt WebEngine implements
-no extension API at all — no Chrome Web Store, no `.crx`, no uBlock. `user.js`
-is the nearest thing this app has, and it is deliberately unsandboxed: it is
-your file, running with the page's privileges. A mistake in it is caught and
-reported to the console rather than breaking the page, but it is otherwise
-trusted completely. Do not paste a script you have not read.
-
-### Updating from a WebKitGTK version
-
-instaCache rendered with WebKitGTK up to 1.2.0 and with Qt WebEngine from 2.0.0
-on. A Chromium engine cannot read WebKit's cookie jar, so **the first launch
-after that update asks you to sign in again**. Nothing else is lost: settings,
-window geometry and profiles all carry across.
-
-The old engine's files stay behind, unused, in `~/.local/share/instacache`:
-`cookies.sqlite`, `localstorage/`, `serviceworkers/`, `storage/` and
-`mediakeys/`. Deleting them is safe.
-
-### Where your data lives
+<br>
 
 | Path | Contents | Safe to delete |
 |---|---|---|
@@ -423,100 +193,63 @@ The old engine's files stay behind, unused, in `~/.local/share/instacache`:
 | `~/.cache/instacache/` | the resource cache | yes, always |
 
 Every path honours `XDG_*_HOME`, and can be redirected with
-`INSTACACHE_DATA_HOME`, `INSTACACHE_CACHE_HOME` and `INSTACACHE_CONFIG_HOME` for a
-portable install.
+`INSTACACHE_DATA_HOME`, `INSTACACHE_CACHE_HOME` and `INSTACACHE_CONFIG_HOME`
+for a portable install. Nothing is ever written outside them.
+
+</details>
+
+<details>
+<summary><b>Updates</b></summary>
+
+<br>
+
+Installed from the AUR, updating is `pacman -Syu` — instaCache knows it is
+packaged and does not touch itself.
+
+Installed with `get.sh`, it updates the way a browser does: it checks a few
+times a day, downloads in the background, and takes over at the next quiet
+moment. An open window gets an **Update ready — Restart** button instead, and
+comes back on the same page. Turn it off with `auto_update: false`.
+
+</details>
+
+## Requirements
+
+Qt 6.4 or newer, with `qt6-webengine`. `get.sh` installs it for you on Arch,
+Debian, Ubuntu, Fedora, openSUSE and their derivatives.
+
+On Fedora, video needs `qt6-qtwebengine-freeworld` — Fedora builds Qt
+WebEngine without H.264, and Instagram is H.264 throughout. The installer
+handles it.
 
 ## Build from source
 
 ```sh
-sudo pacman -S --needed rust qt6-webengine qt6-declarative pkgconf  # or your equivalent
-git clone https://git.justw.tf/LightZirconite/instaCache.git
+git clone https://git.justw.tf/LightZirconite/instaCache
 cd instaCache
 cargo build --release
-./install.sh
 ```
 
-You need the `-dev` / `-devel` packages of Qt 6 Base, Qt 6 Declarative and Qt 6
-WebEngine to compile — `qt6-base-dev qt6-declarative-dev qt6-webengine-dev` on
-Debian and Ubuntu. The build finds them through `qmake6`, so that has to be on
-`PATH`.
+You need Rust 1.82+ and the Qt 6 development packages
+(`qt6-base`, `qt6-declarative`, `qt6-webengine`). The result is
+`target/release/instacache`, dynamically linked against your system's Qt —
+that is deliberate and not negotiable.
 
-### Verifying that a page actually renders
+Working on it? [`AGENTS.md`](AGENTS.md) is the real documentation: the
+conventions, the traps, and the reasons behind every decision that cost an
+afternoon.
 
-Display-server screenshots are unreliable on some Wayland and XWayland setups.
-This helper grabs the view from inside the engine and writes a PNG, so it works
-anywhere:
+## Licence
 
-```sh
-cargo run --example snapshot -- https://www.instagram.com/ shot.png
-```
+[GNU AGPL-3.0-or-later](LICENSE). Use it, change it, share it, run it for
+anything you like — but if you distribute it, or run a modified version as a
+network service, your changes have to come back under the same licence.
 
-It uses the real application configuration and a throwaway profile, so your
-session is never touched.
+Copyright © 2026 LightZirconite. The copyright is held by one person on
+purpose, so a commercial licence remains possible for anyone the AGPL does not
+suit. Ask.
 
-## Releasing
-
-```sh
-scripts/release.sh patch --dry-run   # preview
-scripts/release.sh patch             # bump, changelog, commit, tag, push
-```
-
-Pushing the tag triggers `.github/workflows/release.yml`, which builds x86_64
-and aarch64 archives and publishes the release with notes and checksums — which
-is what the one-line installer downloads. The workflow runs on GitHub Actions
-and on Gitea Actions.
-
-## Architecture
-
-```
-src/
-  main.rs        argument parsing, process startup, termination signals
-  lib.rs         module wiring and the application constants
-  bridge.rs      everything QML may ask Rust -- the policy lives here
-  qml/main.qml   the window, its pages, the loading bar, the shortcuts
-  badge.rs       the unread count on the task bar icon
-  chromium.rs    settings translated into Chromium command-line flags
-  config.rs      config.json and window geometry
-  paths.rs       XDG locations and profiles
-  downloads.rs   where a download goes and under what name
-  instance.rs    one window per profile, over a Unix socket
-  urls.rs        which hosts stay inside the app
-  errorpage.rs   the offline page
-  updates.rs     checking for and installing a newer release
-examples/
-  snapshot.rs    render a page to PNG, for verification
-  stress.rs      drive a page from inside, for reproducing crashes
-tests/scene/     the QML scene under qmltestrunner, with Rust stood in for
-bench/           the video-smoothness harness
-```
-
-The split is deliberate: the QML scene owns widgets and nothing else, and every
-decision it needs — is this URL internal, where does this download go, should a
-dead renderer be reloaded again — is answered by Rust, where it is unit tested.
-The scene is compiled into the binary, so there is still one file to ship.
-
-## Project status and limits
-
-- instaCache renders Instagram's own website. If Instagram changes something,
-  instaCache follows automatically — but it also inherits any feature Instagram
-  does not offer on the web.
-- The microphone and camera are granted to Instagram for calls (see `calls`).
-  Geolocation, screen sharing and pointer-lock requests are refused outright.
-- Screen sharing during a call is not available, for the same reason.
-- On a desktop without a system tray, a window closed to the background is
-  reopened from the application menu or by launching `instacache` again, and
-  quit with `Ctrl+Q` or `pkill -x instacache`, which still saves the window's
-  size and position.
-- An incoming call is recognised from the words of Instagram's notification,
-  because Instagram marks call notifications in no other way. In a language not
-  on the list, a call notifies like a message and does not ring.
-- On Wayland, a window brought back by launching instaCache again may not take
-  the keyboard focus: the compositor wants an activation token from the
-  launcher, and handing it to the running copy needs Qt API newer than the
-  6.4 baseline. The tray icon does not have this problem.
-- This is an unofficial client. It is not affiliated with, endorsed by, or
-  connected to Instagram or Meta. Instagram is a trademark of Meta Platforms, Inc.
-
-## License
-
-[MIT](LICENSE).
+<div align="center">
+<br>
+<sub>Not affiliated with, endorsed by, or connected to Instagram or Meta.</sub>
+</div>

@@ -139,7 +139,7 @@ fn main() {
     };
     let paths = paths::Paths::for_profile(&profile);
     paths.ensure().expect("could not open the profile");
-    let config = Rc::new(config::Config::load_or_create(&paths));
+    let config = config::Config::load_or_create(&paths);
 
     chromium::apply(&config);
     qmetaobject::webengine::initialize();

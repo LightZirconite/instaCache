@@ -65,6 +65,10 @@ pub fn check_in_background(config: &Config, paths: &Paths) -> Option<Receiver<Ou
     if !config.auto_update {
         return None;
     }
+    // A package manager owns this copy; updating it is `pacman -Syu`, not us.
+    if is_package_managed() {
+        return None;
+    }
     if !check_is_due(paths, config.update_check_interval_hours) {
         return None;
     }
@@ -237,6 +241,18 @@ pub fn install_prefix() -> Option<PathBuf> {
         return None;
     }
     Some(bin.parent()?.to_path_buf())
+}
+
+/// Whether a package manager owns this copy rather than instaCache itself.
+///
+/// `install.sh` puts `update.sh` beside the binary, under the same prefix. A
+/// distribution package — the AUR one, say — does not, and installs into a
+/// prefix the user cannot write. That pair is the signal, and it matters:
+/// without it an AUR user is offered an update whose only route is
+/// `sudo instacache --update`, which would overwrite files pacman owns and
+/// be silently reverted by the next `-Syu`.
+pub fn is_package_managed() -> bool {
+    updater_path().is_none() && install_prefix().is_some_and(|prefix| !is_writable(&prefix))
 }
 
 /// `<prefix>/share/instacache/update.sh`

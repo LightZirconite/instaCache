@@ -4,6 +4,68 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-09-19
+
+### Changed
+- **The licence is now the GNU AGPL-3.0-or-later**, where it was MIT. Use it,
+  change it, share it, run it for anything — but a distributed or
+  network-served modified version has to come back under the same licence.
+  Copyright is held by one person on purpose, so a commercial licence stays
+  possible for anyone the AGPL does not suit.
+- The README is a page you can read in two minutes: what it does, how to
+  install it, the shortcuts, and everything else folded away. The reasoning,
+  the measurements and the traps live in `AGENTS.md` and `bench/`, which is
+  where somebody working on it looks anyway.
+
+### Added
+- **It starts with your session**, in the background, behind the tray icon —
+  so a message that arrives before you have opened anything still reaches you.
+  Only the first run writes `~/.config/autostart`; after that your desktop's
+  own startup panel wins, and turning it off stays off. Setting:
+  `start_with_session`.
+- **The tray icon says what is going on and switches the things you actually
+  switch**: a line reading "Running in the background" or "Window open" with
+  the unread count, then Start at login, Notifications, Notification sounds,
+  Ring for calls, and Keep running when closed. They are written to
+  `config.json` straight away.
+- **An AUR package, `instacache-bin`**, published automatically from every
+  stable release. A packaged copy knows it is packaged and leaves updating to
+  `pacman -Syu` instead of offering to overwrite files pacman owns.
+
+### Fixed
+- **One call is one notification again.** Instagram re-posts a ringing call
+  every few seconds under a single Notification API `tag`, which means "this
+  replaces the previous one". instaCache ignored the tag, so a call arrived as
+  a screen full of copies. The tag is now honoured, for messages as well.
+- **No more "and by the way, you have an unread message"** a moment after the
+  real notification. Once Instagram's own push has delivered once, the
+  unread-count alert stops posting notifications of its own — it only plays
+  the sound over a window you are looking at. It still speaks up on an account
+  where push never delivers, which is what it was written for.
+- **Notifications and their sounds actually arrive now.** Instagram delivers a
+  message or a call over Web Push, from its service worker, and Qt WebEngine
+  registers with no push service unless it is asked to. It was never asked, so
+  `PushManager.subscribe()` failed with "push service not available",
+  Instagram never registered, nothing was ever pushed, and the code that
+  posted the notification and played the sound was never reached. The unread
+  count moved because it is read from the page title, which needs no push at
+  all — an app that counted your messages and never said a word. Measured
+  against a local service worker, before and after: refused, then subscribed
+  and delivered. New setting `push_notifications`, on for Instagram.
+
+### Added
+- **A message is heard even when nothing is pushed.** A message that arrives
+  while the page is open is not pushed — the page is already connected and
+  only changes its title — so the count going up is now an alert in its own
+  right: a notification with its sound when you are not looking, and the sound
+  alone over a window you are, where the page shows the message itself.
+  Nothing is announced in the first twelve seconds after a load, so what was
+  already waiting does not arrive again at every launch.
+- An alert now asks whether the window is really in front — shown, focused,
+  and not closed to the background — instead of only whether it is active. A
+  hidden window that a compositor still calls active no longer swallows what
+  it should have announced.
+
 ## [2.6.1] - 2026-09-18
 
 ### Fixed

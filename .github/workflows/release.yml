@@ -224,8 +224,10 @@ jobs:
             echo
             echo "It downloads the archive below for your architecture, verifies it against"
             echo "the checksum, installs instaCache into \`~/.local\` without root, adds it to"
-            echo "your application menu, and offers to install the WebKitGTK and GStreamer"
-            echo "packages it needs."
+            echo "your application menu, and offers to install the Qt 6 packages it needs."
+            echo
+            echo "On Arch and its derivatives, \`yay -S instacache-bin\` is the packaged route;"
+            echo "it is published from this release automatically."
             echo
             echo "Or unpack an archive yourself and run \`./install.sh\` inside it."
             echo "Uninstall with \`~/.local/share/instacache/uninstall.sh\`."
@@ -251,3 +253,142 @@ jobs:
           draft: false
           prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}
           fail_on_unmatched_files: true
+
+  aur:
+    name: Publish instacache-bin to the AUR
+    needs: publish
+    runs-on: ubuntu-latest
+    # A pre-release is not what `pacman -Syu` should hand to everybody, and
+    # the AUR has no channel for one. Stable tags only.
+    if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # Nothing here is secret. The step that needs the key is the push, and
+      # it is skipped entirely when the key is not configured -- so a fork,
+      # and this repository before the AUR account exists, still releases.
+      - name: Render PKGBUILD and .SRCINFO from the published release
+        id: render
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # The release assets are what the checksums are read from, so this
+          # runs after `publish` and not beside it.
+          ./packaging/aur/render.sh "$version" aur-out
+          echo "--- PKGBUILD ---"
+          cat aur-out/PKGBUILD
+          echo "--- .SRCINFO ---"
+          cat aur-out/.SRCINFO
+
+      - name: Is the AUR key configured?
+        id: key
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set; the package was rendered but not pushed."
+          fi
+
+      # Pushed with plain git rather than a third-party action: the AUR SSH
+      # key is the one credential here that can publish under somebody's name,
+      # and this keeps it out of code nobody in this repository reviews.
+      #
+      # The host keys are fetched and then VERIFIED against the fingerprints
+      # the AUR publishes. A bare `ssh-keyscan` trusts whatever answers on the
+      # network, which is the whole attack. If the AUR ever rotates a key this
+      # fails loudly, which is the behaviour you want: update the list below
+      # from <https://aur.archlinux.org/> and look at why it changed.
+      - name: Push to the AUR
+        if: steps.key.outputs.present == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME || 'LightZirconite' }}
+          AUR_EMAIL: ${{ vars.AUR_EMAIL || 'max.freq@ik.me' }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          expected='SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4
+          SHA256:uTa/0PndEgPZTf76e1DFqXKJEXKsn7m9ivhLQtzGOCI
+          SHA256:5s5cIyReIfNNVGRFdDbe3hdYiI5OelHGpw2rOUud3Q8'
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org > ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+          # Every key offered must be one we already trust, and all three must
+          # be there -- so a downgrade to a single unexpected key cannot pass.
+          seen=0
+          while read -r _bits fingerprint _rest; do
+            [ -n "$fingerprint" ] || continue
+            if ! printf '%s\n' "$expected" | tr -d ' ' | grep -qxF "$fingerprint"; then
+              echo "::error::Unknown AUR host key $fingerprint -- refusing to push."
+              exit 1
+            fi
+            seen=$((seen + 1))
+          done <<EOF
+          $(ssh-keygen -lf ~/.ssh/known_hosts)
+          EOF
+          if [ "$seen" -ne 3 ]; then
+            echo "::error::Expected 3 AUR host keys, verified $seen -- refusing to push."
+            exit 1
+          fi
+          echo "Verified $seen AUR host keys against the published fingerprints."
+
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # BatchMode so a missing or malformed key fails instead of reaching
+          # for an askpass helper that is not there, and the known_hosts we
+          # just verified is named rather than assumed.
+          ssh_options="-i $HOME/.ssh/aur -o IdentitiesOnly=yes -o BatchMode=yes"
+          ssh_options="$ssh_options -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          ssh_options="$ssh_options -o StrictHostKeyChecking=yes"
+          export GIT_SSH_COMMAND="ssh $ssh_options"
+
+          # The key is only useful once it is attached to an AUR account, and
+          # AUR registration is closed from time to time. Asked first, and
+          # answered three ways on purpose -- an earlier version only looked
+          # for "Permission denied", so an empty key reported success and the
+          # failure surfaced as an unreadable git error forty lines later.
+          auth=$(ssh $ssh_options aur@aur.archlinux.org 2>&1 || true)
+          if printf '%s' "$auth" | grep -qiE 'Welcome to AUR|Interactive shell is disabled'; then
+            echo "Authenticated to the AUR."
+          elif printf '%s' "$auth" | grep -q 'Permission denied'; then
+            echo "::warning::The AUR key is not attached to an account yet, so instacache-bin was not published. The release itself is unaffected. Add this public key to the AUR account, then re-run this job:"
+            ssh-keygen -y -f ~/.ssh/aur || true
+            exit 0
+          else
+            echo "::error::Could not reach the AUR, and it is not a missing account:"
+            printf '%s\n' "$auth"
+            exit 1
+          fi
+
+          # A package that does not exist yet has no repository to clone, so
+          # the working copy is built either way and the push creates it.
+          rm -rf aur-repo && mkdir aur-repo && cd aur-repo
+          git init -q -b master
+          git remote add origin ssh://aur@aur.archlinux.org/instacache-bin.git
+          git fetch --depth 1 origin master 2>/dev/null && git reset -q --hard FETCH_HEAD || \
+            echo "instacache-bin does not exist on the AUR yet; this push creates it."
+
+          cp ../aur-out/PKGBUILD ../aur-out/.SRCINFO .
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "::notice::The AUR package is already at this version; nothing to push."
+            exit 0
+          fi
+          git -c user.name="$AUR_USERNAME" -c user.email="$AUR_EMAIL" \
+              commit -q -m "instacache-bin ${TAG#v}"
+          git push origin master
+          echo "Pushed instacache-bin ${TAG#v} to the AUR."

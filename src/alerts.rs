@@ -16,9 +16,11 @@
 //! player the system has, the same way `http.rs` uses curl rather than a
 //! linked HTTP stack.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// What a notification is about, which decides how it sounds.
@@ -41,6 +43,14 @@ pub struct Toast {
     pub kind: Kind,
     /// Whether a message may make a sound at all.
     pub sound: bool,
+    /// The web notification's own `tag`, or empty.
+    ///
+    /// The Notification API says two notifications sharing a tag are the same
+    /// notification, and the second replaces the first. Instagram uses it the
+    /// way a phone does: a ringing call is re-posted over and over under one
+    /// tag. Ignoring it is what turned a single call into a screen full of
+    /// notifications.
+    pub tag: String,
 }
 
 /// How the notifications of this profile identify themselves.
@@ -53,13 +63,33 @@ pub struct Identity {
     pub desktop_entry: String,
 }
 
+/// What the notification thread can be asked for.
+pub enum Alert {
+    /// Show this, and sound it if it asks for a sound.
+    Show(Toast),
+    /// The sound a message makes, and nothing on screen.
+    ///
+    /// For a message that arrived in a thread the user is not reading while
+    /// the window is in front: they can see it there, so a notification over
+    /// the top says nothing, but a messenger is still expected to be heard.
+    Ping,
+}
+
 /// The channels to the notification threads.
 pub struct Alerts {
-    pub toasts: Sender<Toast>,
+    pub alerts: Sender<Alert>,
     ring: Sender<Ring>,
 }
 
 impl Alerts {
+    pub fn show(&self, toast: Toast) {
+        let _ = self.alerts.send(Alert::Show(toast));
+    }
+
+    pub fn ping(&self) {
+        let _ = self.alerts.send(Alert::Ping);
+    }
+
     pub fn stop_ringing(&self) {
         let _ = self.ring.send(Ring::Stop);
     }
@@ -69,6 +99,14 @@ enum Ring {
     Start,
     Stop,
 }
+
+/// Which notification id is currently showing for a tag, so a repeat under
+/// the same tag replaces it instead of stacking.
+///
+/// Shared because each notification waits for its click on its own thread;
+/// the id only exists once the server has answered, which is inside that
+/// thread.
+type Tags = Arc<Mutex<HashMap<String, u32>>>;
 
 /// The freedesktop sound theme names used.
 const MESSAGE_SOUND: &str = "message-new-instant";
@@ -82,20 +120,32 @@ const RING_PAUSE: Duration = Duration::from_millis(900);
 /// Starts the threads and returns the channels to them, and the receiver that
 /// hears about notifications being clicked.
 pub fn spawn(identity: Identity) -> (Alerts, Receiver<()>) {
-    let (toast_tx, toast_rx) = channel::<Toast>();
+    let (alert_tx, alert_rx) = channel::<Alert>();
     let (ring_tx, ring_rx) = channel::<Ring>();
     let (activated_tx, activated_rx) = channel::<()>();
 
     std::thread::spawn(move || ring_loop(ring_rx));
 
     let ring = ring_tx.clone();
+    let tags: Tags = Arc::new(Mutex::new(HashMap::new()));
     std::thread::spawn(move || {
         // Asked once, and only when the first notification needs to know: a
         // D-Bus connection opened at startup lives for the whole session, and
         // instaCache opened none before a notification until this module.
         let mut server_plays_sounds: Option<bool> = None;
 
-        while let Ok(toast) = toast_rx.recv() {
+        while let Ok(alert) = alert_rx.recv() {
+            let toast = match alert {
+                Alert::Show(toast) => toast,
+                // Played here rather than named in a notification, because
+                // there is no notification to name it in.
+                Alert::Ping => {
+                    if !notifications_inhibited() {
+                        play_once(MESSAGE_SOUND);
+                    }
+                    continue;
+                }
+            };
             let server_plays_sounds = *server_plays_sounds.get_or_insert_with(|| {
                 notify_rust::get_capabilities()
                     .map(|caps| caps.iter().any(|cap| cap == "sound"))
@@ -104,18 +154,26 @@ pub fn spawn(identity: Identity) -> (Alerts, Receiver<()>) {
             let identity = identity.clone();
             let activated = activated_tx.clone();
             let ring = ring.clone();
+            let tags = Arc::clone(&tags);
             // One thread per notification. Waiting for a click blocks, and a
             // call's notification stays up until somebody acts on it: on one
             // shared thread, every message after it would wait too.
             std::thread::spawn(move || {
-                show(toast, &identity, server_plays_sounds, &activated, &ring)
+                show(
+                    toast,
+                    &identity,
+                    server_plays_sounds,
+                    &activated,
+                    &ring,
+                    &tags,
+                )
             });
         }
     });
 
     (
         Alerts {
-            toasts: toast_tx,
+            alerts: alert_tx,
             ring: ring_tx,
         },
         activated_rx,
@@ -128,6 +186,7 @@ fn show(
     server_plays_sounds: bool,
     activated: &Sender<()>,
     ring: &Sender<Ring>,
+    tags: &Tags,
 ) {
     use notify_rust::{Hint, Notification, Urgency};
 
@@ -138,6 +197,16 @@ fn show(
         .icon(&identity.icon)
         .appname(&identity.app_name)
         .hint(Hint::DesktopEntry(identity.desktop_entry.clone()));
+
+    // A repeat under a tag we are already showing replaces that one. Without
+    // this a ringing call, which Instagram re-posts every few seconds, fills
+    // the screen with copies of itself.
+    let showing = (!toast.tag.is_empty())
+        .then(|| tags.lock().ok()?.get(&toast.tag).copied())
+        .flatten();
+    if let Some(id) = showing {
+        notification.id(id);
+    }
 
     match toast.kind {
         Kind::Plain => {}
@@ -169,6 +238,13 @@ fn show(
 
     match notification.show() {
         Ok(handle) => {
+            // Kept before the handle is consumed by `wait_for_action`.
+            let id = handle.id();
+            if !toast.tag.is_empty() {
+                if let Ok(mut tags) = tags.lock() {
+                    tags.insert(toast.tag.clone(), id);
+                }
+            }
             if toast.clickable || toast.kind == Kind::Call {
                 handle.wait_for_action(|action| {
                     if action == "default" {
@@ -179,6 +255,15 @@ fn show(
                         let _ = ring.send(Ring::Stop);
                     }
                 });
+                if !toast.tag.is_empty() {
+                    // Only if it is still ours: a later notification under the
+                    // same tag has already replaced us in the map.
+                    if let Ok(mut tags) = tags.lock() {
+                        if tags.get(&toast.tag) == Some(&id) {
+                            tags.remove(&toast.tag);
+                        }
+                    }
+                }
             }
         }
         Err(error) => {
