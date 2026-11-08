@@ -34,7 +34,8 @@ Window {
         cachePath: shell.cache_path
         httpCacheType: WebEngineProfile.DiskHttpCache
         persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
-        httpUserAgent: shell.user_agent
+        httpUserAgent: shell.user_agent_for(WebEngine.defaultProfile.httpUserAgent)
+        httpAcceptLanguage: shell.accept_language
 
         // The built-in mods, the way the app installs them (`installMods`).
         Component.onCompleted: {

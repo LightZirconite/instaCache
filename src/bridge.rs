@@ -77,7 +77,14 @@ pub struct Shell {
 
     // --- Read once by the scene at startup -------------------------------
     home_url: qt_property!(QString; READ home_url),
-    user_agent: qt_property!(QString; READ user_agent),
+    /// What the page is told it runs in: see `config::user_agent_for`.
+    user_agent_for: qt_method!(
+        fn user_agent_for(&self, engine: String) -> QString {
+            crate::config::user_agent_for(&self.config().user_agent, &engine).into()
+        }
+    ),
+    /// The `Accept-Language` a browser in this session's language sends.
+    accept_language: qt_property!(QString; READ accept_language),
     storage_path: qt_property!(QString; READ storage_path),
     cache_path: qt_property!(QString; READ cache_path),
     window_title: qt_property!(QString; READ window_title),
@@ -548,8 +555,8 @@ impl Shell {
         self.config().home_url.into()
     }
 
-    fn user_agent(&self) -> QString {
-        self.config().user_agent.into()
+    fn accept_language(&self) -> QString {
+        crate::config::accept_language(|name| std::env::var(name).ok()).into()
     }
 
     fn storage_path(&self) -> QString {

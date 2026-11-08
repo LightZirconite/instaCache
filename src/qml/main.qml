@@ -849,7 +849,10 @@ Window {
         cachePath: shell.cache_path
         httpCacheType: WebEngineProfile.DiskHttpCache
         persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
-        httpUserAgent: shell.user_agent
+        // The engine's own string, read off the default profile, is where
+        // its real Chromium version comes from; Rust says what is sent.
+        httpUserAgent: shell.user_agent_for(WebEngine.defaultProfile.httpUserAgent)
+        httpAcceptLanguage: shell.accept_language
         spellCheckEnabled: shell.spell_check_languages !== ""
         spellCheckLanguages: shell.spell_check_languages === ""
                              ? [] : shell.spell_check_languages.split(",")

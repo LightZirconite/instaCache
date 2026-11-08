@@ -9,7 +9,8 @@ import QtQuick
 
 QtObject {
     property string home_url: "http://127.0.0.1:8791/home.html"
-    property string user_agent: ""
+    function user_agent_for(engine) { return engine; }
+    property string accept_language: "en-US,en;q=0.9"
     property string storage_path: "@TMP@/data"
     property string cache_path: "@TMP@/cache"
     property string window_title: "instaCache"

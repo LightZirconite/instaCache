@@ -11,22 +11,111 @@ use crate::paths::Paths;
 
 pub const DEFAULT_HOME_URL: &str = "https://www.instagram.com/";
 
-/// Chrome on Linux.
+/// `auto`: Chrome on Linux, at the version of Chromium the engine really is —
+/// see [`user_agent_for`].
+pub const DEFAULT_USER_AGENT: &str = AUTO_USER_AGENT;
+
+/// The `user_agent` value that means "say what the engine is, as Chrome does".
+pub const AUTO_USER_AGENT: &str = "auto";
+
+/// What the page is told it runs in, from the configured `user_agent` and the
+/// engine's own string (`QtWebEngine/6.4.2 Chrome/102.0.5005.177 …`).
 ///
-/// Both halves are honest, and both matter. Instagram serves different code to
-/// different engines, and instaCache now renders with Chromium — claiming
-/// Safari would put a Chromium engine on Safari's code path, which is a bug
-/// waiting to happen rather than a clever disguise. And the platform is
-/// reported truthfully because Instagram shows the user agent's operating
-/// system in its login-alert emails: a Linux machine announcing macOS makes
-/// those alerts read as though somebody else signed in.
+/// `auto` says Chrome on Linux at the engine's real Chromium version, in the
+/// reduced form Chrome itself sends (`Chrome/102.0.0.0`). Every part is the
+/// truth, and that is the point:
 ///
-/// It is stated rather than left to the engine because Qt WebEngine's own
-/// string carries a `QtWebEngine/6.x` token that no site has ever heard of.
-/// The version will drift behind whatever Qt the distribution ships; that
-/// costs nothing, and `user_agent` in `config.json` overrides it.
-pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) \
-AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+/// - **The engine.** Instagram serves different code to different engines;
+///   claiming Safari would put Chromium on Safari's code path.
+/// - **The platform.** Instagram names the user agent's operating system in
+///   its login alerts: a Linux machine announcing macOS reads as somebody
+///   else signing in.
+/// - **The version.** Until 2.10 this was a fixed `Chrome/140`, and the engine
+///   went on saying its real version everywhere else — in the features it has
+///   and, on newer Qt, in `navigator.userAgentData`. A browser contradicting
+///   itself is what an account's risk checks look for; one that drifts with
+///   its distribution's Qt looks like a browser being updated, which it is.
+///
+/// Qt's own string is not sent as it is because of its `QtWebEngine/6.x`
+/// token, which no site has heard of. An empty `user_agent` still sends it;
+/// any other value is sent verbatim.
+pub fn user_agent_for(configured: &str, engine: &str) -> String {
+    match configured.trim() {
+        "" => engine.to_string(),
+        AUTO_USER_AGENT => chrome_major(engine)
+            .map(|major| {
+                format!(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
+                     (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+                )
+            })
+            .unwrap_or_else(|| engine.to_string()),
+        other => other.to_string(),
+    }
+}
+
+fn chrome_major(engine: &str) -> Option<u32> {
+    engine
+        .split("Chrome/")
+        .nth(1)?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// The `Accept-Language` a browser in this session's language sends, from
+/// `LC_ALL`, `LC_MESSAGES` or `LANG` and the `LANGUAGE` list, the way Chrome
+/// builds it: `fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7`.
+///
+/// Qt WebEngine 6.4 sent no `Accept-Language` at all — measured, with `LANG`
+/// set — and every real browser sends one. Its absence is the kind of detail
+/// that sets a client apart from a person's browser.
+pub fn accept_language(env: impl Fn(&str) -> Option<String>) -> String {
+    let set = |name: &str| env(name).filter(|value| !value.trim().is_empty());
+    let primary = set("LC_ALL")
+        .or_else(|| set("LC_MESSAGES"))
+        .or_else(|| set("LANG"));
+    let mut tags: Vec<String> = Vec::new();
+    let mut push = |tag: String| {
+        if !tag.is_empty() && !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    };
+    let named = |locale: &str| {
+        // `fr_FR.UTF-8@euro` -> `fr-FR`; `C` and `POSIX` name no language.
+        let bare = locale.split(['.', '@']).next().unwrap_or_default();
+        if bare.is_empty() || bare == "C" || bare == "POSIX" {
+            None
+        } else {
+            Some(bare.replace('_', "-"))
+        }
+    };
+    let mut languages: Vec<String> = primary.as_deref().and_then(named).into_iter().collect();
+    if !languages.is_empty() {
+        if let Some(list) = set("LANGUAGE") {
+            languages.extend(list.split(':').filter_map(named));
+        }
+    }
+    languages.extend(["en-US".to_string()]);
+    for tag in languages {
+        let base = tag.split('-').next().unwrap_or_default().to_string();
+        push(tag);
+        push(base);
+    }
+    tags.iter()
+        .enumerate()
+        .map(|(i, tag)| {
+            if i == 0 {
+                tag.clone()
+            } else {
+                let q = (10 - i.min(9)) as f32 / 10.0;
+                format!("{tag};q={q:.1}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
 
 /// Defaults shipped by earlier versions. A config file still carrying one of
 /// these was never a deliberate choice by the user, only the old default
@@ -35,6 +124,8 @@ AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 /// The macOS string was the default up to 1.1.1; the Linux Safari one until
 /// the engine became Chromium, at which point it stopped being true.
 const SUPERSEDED_USER_AGENTS: &[&str] = &[
+    "Mozilla/5.0 (X11; Linux x86_64) \
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) \
@@ -64,9 +155,10 @@ const SUPERSEDED_UPDATE_CHECK_HOURS: u64 = 24;
 pub struct Config {
     /// Page loaded at startup and by the "home" shortcut.
     pub home_url: String,
-    /// Empty string keeps Qt WebEngine's built-in user agent, which carries a
-    /// `QtWebEngine/6.x` token. See `DEFAULT_USER_AGENT` for why that is not the
-    /// default.
+    /// `auto`, the default, says Chrome on Linux at the engine's real Chromium
+    /// version. An empty string keeps Qt WebEngine's built-in user agent, with
+    /// its `QtWebEngine/6.x` token; anything else is sent as it is. See
+    /// [`user_agent_for`].
     pub user_agent: String,
     /// `auto` | `always` | `never`.
     ///
@@ -106,7 +198,7 @@ pub struct Config {
     pub ambient_colors: bool,
     /// The mod that brings the phone's gestures and a few keys to the page:
     /// a double-click likes, as a double tap does, and Shift with it reposts;
-    /// Space twice likes the reel being watched while one Space still goes to
+    /// on Reels, Space twice likes the reel and stays on it while one Space goes to
     /// the next; Enter twice likes; `L` likes, `R` reposts, `M` turns the
     /// sound on or off, `C` opens the comments, `S` saves or unsaves; a click
     /// on a story pauses it or plays it again; the mouse wheel scrolls the
@@ -637,14 +729,58 @@ mod tests {
         assert_eq!(cfg.video_decoding, "gpu");
     }
 
+    const QT_64: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
+        (KHTML, like Gecko) QtWebEngine/6.4.2 Chrome/102.0.5005.177 Safari/537.36";
+
     #[test]
-    fn the_default_user_agent_reports_linux_and_chromium() {
-        assert!(DEFAULT_USER_AGENT.contains("X11; Linux x86_64"));
-        assert!(!DEFAULT_USER_AGENT.contains("Mac OS X"));
-        // Claiming Safari on a Chromium engine puts Instagram on the wrong
-        // code path; see DEFAULT_USER_AGENT.
-        assert!(DEFAULT_USER_AGENT.contains("Chrome/"));
-        assert!(!DEFAULT_USER_AGENT.contains("Version/"));
+    fn the_default_user_agent_is_chrome_on_linux_at_the_engines_version() {
+        let sent = user_agent_for(DEFAULT_USER_AGENT, QT_64);
+        assert_eq!(
+            sent,
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36"
+        );
+        // No token no site knows, no other platform, no Safari code path.
+        assert!(!sent.contains("QtWebEngine") && !sent.contains("Mac OS X"));
+        assert!(!sent.contains("Version/"));
+    }
+
+    #[test]
+    fn a_configured_user_agent_is_sent_as_it_is_and_empty_is_the_engines() {
+        assert_eq!(user_agent_for("Custom/1.0", QT_64), "Custom/1.0");
+        assert_eq!(user_agent_for("", QT_64), QT_64);
+        // An engine string with no version to read is sent as it is.
+        assert_eq!(user_agent_for("auto", "Odd/1"), "Odd/1");
+    }
+
+    #[test]
+    fn accept_language_follows_the_session_like_chrome() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(
+            accept_language(env(&[("LANG", "fr_FR.UTF-8")])),
+            "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+        );
+        // LC_ALL wins over LANG; LANGUAGE adds after the primary.
+        assert_eq!(
+            accept_language(env(&[
+                ("LANG", "en_GB.UTF-8"),
+                ("LC_ALL", "de_DE.UTF-8"),
+                ("LANGUAGE", "de:fr")
+            ])),
+            "de-DE,de;q=0.9,fr;q=0.8,en-US;q=0.7,en;q=0.6"
+        );
+        // No language set, or C: English, never nothing.
+        assert_eq!(accept_language(env(&[])), "en-US,en;q=0.9");
+        assert_eq!(
+            accept_language(env(&[("LANG", "C.UTF-8")])),
+            "en-US,en;q=0.9"
+        );
     }
 
     #[test]
