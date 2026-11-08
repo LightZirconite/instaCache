@@ -4,6 +4,43 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-11-08
+
+### Added
+- **Mods, built in.** Small changes to Instagram's page itself, run before
+  Instagram's own code, each switched in the tray's new Mods menu:
+  - **Videos with sound.** Videos start unmuted at a set volume
+    (`video_volume`, 40 by default) instead of waiting for Instagram's
+    speaker button. Muting one by hand stops it until the next load; a call
+    is never touched.
+  - **Instagram's colours.** Its dark theme is tinted plum instead of black.
+  - **Animations.** Dialogs and pictures fade in, buttons give under a click.
+    Nothing moves where the desktop asks for reduced motion.
+- **A splash while the first page loads**: instaCache's mark over a glow in
+  Instagram's colours, instead of a black window. A page opened over
+  Instagram now rises into place.
+
+### Changed
+- **A new icon of instaCache's own**: a lens cut by a lightning bolt, on
+  Instagram's gradient. The old one was Instagram's camera with a bolt added.
+- **An outside link goes straight to your browser.** Instagram sends every
+  link through Meta's link shim (`l.instagram.com`), which records the click;
+  instaCache now reads the real address out of it, drops Meta's tracking
+  markers, and opens that — with no empty page left behind in the window.
+- **Every install and update brings each site's menu entry and icon up to
+  date.** A site added by an older version, such as XCache, kept that
+  version's entry for good and could show up in the task bar under
+  instaCache's icon.
+
+### Fixed
+- **No window at all on Qt 6.4** (Debian 12, Ubuntu 24.04): 2.8.0 used a word
+  that Qt 6.4's JavaScript reserves, and the window never appeared.
+- **One notification per message.** Instagram's "You have unseen
+  notifications." beside the message itself is now dropped or taken off the
+  screen once the message arrives, and so is instaCache's own "New message".
+- **An unsent message leaves nothing behind**, instead of a notification
+  saying it was unsent.
+
 ## [2.8.0] - 2026-11-08
 
 ### Added
