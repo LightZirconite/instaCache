@@ -87,9 +87,12 @@ change that makes one of them wrong fixes it in the same commit.
 One Qt Quick window hosting one Qt WebEngine view that displays Instagram,
 with the cache and session pinned to persistent XDG directories. The value is
 in the persistence and the desktop integration, not in any UI of our own.
-Resist adding chrome: what exists is the loading bar, the back button shown
-over a page, the pills for a call and an update, and the tray icon, and each
-of those is there because the window has no other way to offer it.
+Resist adding chrome: what exists is the splash over a cold start, the
+loading bar, the back button shown over a page, the pills for a call and an
+update, and the tray icon, and each of those is there because the window has
+no other way to offer it. The splash is drawn with `Canvas` from the same
+shapes as `assets/instacache.svg`, because an SVG image needs a Qt module a
+distribution may not install, and a missing one costs the whole scene.
 
 Where it is going: what Vencord is to Discord, for Instagram — the page itself
 changed by built-in mods (sound on by default, styles, small features), not a

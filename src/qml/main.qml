@@ -661,6 +661,8 @@ Window {
     }
 
     function handleLoad(target, info) {
+        if (target === view && info.status !== WebEngineView.LoadStartedStatus)
+            splash.done();
         var shown = target === root.activeView();
         if (info.status === WebEngineView.LoadStartedStatus) {
             if (shown)
@@ -1052,6 +1054,96 @@ Window {
             onFinished: {
                 snapshot.visible = false;
                 snapshot.source = "";
+            }
+        }
+    }
+
+    // The splash: instaCache's mark over the window from the first frame
+    // until the first load of the main page has finished, so a cold start
+    // shows something other than black while Chromium starts and fetches.
+    // Instagram's own boot screen takes over from there. Drawn with Canvas
+    // rather than loaded from the SVG: QtQuick has Canvas everywhere, while
+    // an SVG image needs a Qt module a distribution may not have installed.
+    // Not shown when started hidden, where nobody is watching the load.
+    Rectangle {
+        id: splash
+        anchors.fill: parent
+        color: root.color
+        visible: opacity > 0
+        opacity: shell.start_hidden ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 220 } }
+
+        function done() {
+            splash.opacity = 0;
+            splashCap.stop();
+        }
+
+        // A load that never finishes still gets the splash out of the way.
+        Timer {
+            id: splashCap
+            interval: 15000
+            running: splash.opacity > 0
+            onTriggered: splash.done()
+        }
+
+        Canvas {
+            id: mark
+            width: 96
+            height: 96
+            anchors.centerIn: parent
+            // The same drawing as assets/instacache.svg, on its 256 grid.
+            onPaint: {
+                var c = getContext("2d");
+                c.reset();
+                c.scale(width / 256, height / 256);
+                function rounded(x, y, w, h, r) {
+                    c.beginPath();
+                    c.moveTo(x + r, y);
+                    c.arcTo(x + w, y, x + w, y + h, r);
+                    c.arcTo(x + w, y + h, x, y + h, r);
+                    c.arcTo(x, y + h, x, y, r);
+                    c.arcTo(x, y, x + w, y, r);
+                    c.closePath();
+                }
+                var brand = c.createRadialGradient(72, 261, 0, 72, 261, 320);
+                brand.addColorStop(0.00, "#FFDD55");
+                brand.addColorStop(0.18, "#FFB13D");
+                brand.addColorStop(0.42, "#F5563C");
+                brand.addColorStop(0.62, "#E1306C");
+                brand.addColorStop(0.82, "#A32EA8");
+                brand.addColorStop(1.00, "#5B4BE0");
+                rounded(8, 8, 240, 240, 66);
+                c.fillStyle = brand;
+                c.fill();
+
+                c.strokeStyle = "#ffffff";
+                c.fillStyle = "#ffffff";
+                c.lineWidth = 14;
+                rounded(56, 56, 144, 144, 42);
+                c.stroke();
+                c.beginPath();
+                c.arc(128, 128, 40, 0, 2 * Math.PI);
+                c.stroke();
+                c.beginPath();
+                c.arc(171.5, 84.5, 9.5, 0, 2 * Math.PI);
+                c.fill();
+                c.beginPath();
+                c.moveTo(136, 102);
+                c.lineTo(108, 133);
+                c.lineTo(124, 133);
+                c.lineTo(118, 154);
+                c.lineTo(148, 121);
+                c.lineTo(131, 121);
+                c.closePath();
+                c.fill();
+            }
+
+            // A slow breath, so the window reads as busy rather than stuck.
+            SequentialAnimation on opacity {
+                running: splash.visible
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.55; duration: 900; easing.type: Easing.InOutSine }
+                NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutSine }
             }
         }
     }
