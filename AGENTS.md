@@ -1161,8 +1161,10 @@ It is plain `git` in the workflow. The AUR key is the one credential here that
 can publish under somebody's name, and handing it to an action nobody in this
 repository reviews is a larger risk than writing eight lines of shell.
 
-The host keys are fetched with `ssh-keyscan` and then **verified against the
-fingerprints the AUR publishes**, and all three must be present — a bare
+The host keys are fetched with `ssh-keyscan`, one type at a time with
+retries — asked for all three at once, the AUR twice answered for only two —
+and then **verified against the fingerprints the AUR publishes**, and all
+three must be present — a bare
 keyscan trusts whatever answers on the network, which is the whole attack. The
 fingerprints are in the workflow. If the AUR rotates a key this fails loudly
 rather than trusting the new one; update the list from

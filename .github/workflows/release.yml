@@ -363,7 +363,26 @@ jobs:
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org > ~/.ssh/known_hosts 2>/dev/null
+          # One key type at a time, each retried with a growing pause. Asked
+          # for all three in one burst, the AUR answered for only two on the
+          # 2.11.0 release, twice in a row, and the check below rightly
+          # refused to push; the fingerprints had not changed. A type that
+          # never answers is named, so the next failure says which.
+          : > ~/.ssh/known_hosts
+          for type in rsa ecdsa ed25519; do
+            for attempt in 1 2 3 4; do
+              key=$(ssh-keyscan -T 10 -t "$type" aur.archlinux.org 2>/dev/null || true)
+              if [ -n "$key" ]; then
+                printf '%s\n' "$key" >> ~/.ssh/known_hosts
+                break
+              fi
+              if [ "$attempt" = 4 ]; then
+                echo "::warning::The AUR offered no $type host key after 4 attempts."
+              else
+                sleep $((attempt * 5))
+              fi
+            done
+          done
           chmod 600 ~/.ssh/known_hosts
 
           # Every key offered must be one we already trust, and all three must
