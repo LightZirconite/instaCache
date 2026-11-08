@@ -265,6 +265,36 @@ Item {
             win.restDelay = 10000;
         }
 
+        // Opening the window with an update waiting says so and restarts into
+        // it after a count; "Not now" puts it off.
+        function test_16_opening_the_window_shows_the_update_and_restarts() {
+            // A "Later" from an earlier test still holds, as it should.
+            win.updateDismissed = "";
+            win.shell.update = "ready";
+            win.close();
+            wait(300);
+            win.shell.restarts = [];
+            win.shell.pollResult = '{"present":true}';
+            waitFor(function () { return win.visible && win.updateCountdown > 0; }, 2000, "the update card shows");
+            verify(findByLabel(win.contentItem, "Restart now") !== null, "with a way to restart now");
+            var notNow = findByLabel(win.contentItem, "Not now");
+            waitFor(function () { return notNow.visible; }, 2000, "the card has faded in");
+            mouseClick(notNow);
+            waitFor(function () { return win.updateCountdown === 0; }, 1000, "Not now puts it off");
+            wait(1500);
+            compare(win.shell.restarts.length, 0, "and nothing restarts");
+
+            win.updateDismissed = "";
+            win.close();
+            wait(300);
+            win.shell.restarts = [];
+            win.shell.pollResult = '{"present":true}';
+            waitFor(function () { return win.updateCountdown > 0; }, 2000, "shown again for a new opening");
+            waitFor(function () { return win.shell.restarts.length > 0; }, 7000, "the count ends in a restart");
+            compare(win.shell.restarts[win.shell.restarts.length - 1].hidden, false, "into a window that shows");
+            win.shell.update = "none";
+        }
+
         function test_12_a_closed_window_takes_an_update_quietly() {
             win.shell.restarts = [];
             win.shell.update = "ready";

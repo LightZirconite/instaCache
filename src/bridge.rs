@@ -96,6 +96,11 @@ pub struct Shell {
     context_menu: qt_property!(bool; READ context_menu),
     /// Whether closing the window hides it instead of quitting.
     run_in_background: qt_property!(bool; READ run_in_background),
+    /// The version running.
+    app_version: qt_property!(QString; READ app_version),
+    /// The version this one replaced, when this is the first start after an
+    /// update; empty otherwise. The window says "updated" once with it.
+    updated_from: qt_property!(QString; READ updated_from),
     /// How long the window stays closed before its pages are discarded, in
     /// milliseconds, for the scene's timer. `0` never discards them.
     discard_after_ms: qt_property!(i32; READ discard_after_ms),
@@ -358,6 +363,7 @@ pub struct Shell {
     update: RefCell<UpdateState>,
     restart: RefCell<Option<Restart>>,
     hidden_at_start: bool,
+    updated_from_version: String,
     alerts: Option<alerts::Alerts>,
     badge: Option<Sender<u32>>,
     unread: Cell<u32>,
@@ -385,6 +391,7 @@ impl Shell {
         start_url: Option<String>,
         start_hidden: bool,
     ) -> Self {
+        let updated_from_version = updates::note_running_version(&paths).unwrap_or_default();
         let waker = Wake::default();
         let update_check = updates::check_in_background(&config, &paths, woken(&waker));
 
@@ -417,6 +424,19 @@ impl Shell {
                 }
             },
         );
+        // Restarted quietly into an update, nobody saw it happen: say so once,
+        // where it can be seen. A window that opens says it itself.
+        if start_hidden && config.notifications && !updated_from_version.is_empty() {
+            alerts.show(alerts::Toast {
+                title: format!("{APP_NAME} was updated to {}", crate::VERSION),
+                body: format!("From {updated_from_version}. Nothing else to do."),
+                clickable: true,
+                kind: alerts::Kind::Plain,
+                sound: false,
+                tag: String::new(),
+                key: 0,
+            });
+        }
         let badge = config
             .unread_badge
             .then(|| badge::spawn(sites::window_class(&paths.profile)));
@@ -436,6 +456,7 @@ impl Shell {
             unread_settles_at: Cell::new(Some(Instant::now() + UNREAD_SETTLE)),
             pending_url: RefCell::new(start_url),
             hidden_at_start: start_hidden,
+            updated_from_version,
             ..Default::default()
         }
     }
@@ -573,6 +594,14 @@ impl Shell {
 
     fn run_in_background(&self) -> bool {
         self.config().run_in_background
+    }
+
+    fn app_version(&self) -> QString {
+        crate::VERSION.into()
+    }
+
+    fn updated_from(&self) -> QString {
+        self.updated_from_version.clone().into()
     }
 
     fn discard_after_ms(&self) -> i32 {

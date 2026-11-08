@@ -169,6 +169,7 @@ Window {
             else
                 root.show();
             root.backgrounded = false;
+            root.offerUpdateOnOpen();
             // A discarded page reloads; its snapshot stays up until the
             // reload is done, then waits for frames like any other.
             if (reloading) {
@@ -335,10 +336,67 @@ Window {
     }
 
     function restartForUpdate() {
+        updateTick.stop();
         // Back on the same Instagram page, in a window that shows.
         if (shell.restart_for_update(false, view.url.toString()))
             root.quit();
+        else
+            root.updateCountdown = 0;
     }
+
+    // --- Updating, where it can be seen ----------------------------------
+
+    // Opening the window while an update waits on disk says so, plainly,
+    // and restarts into it after a short count -- the user sees that updates
+    // happen rather than finding a new version by accident. "Later" keeps
+    // the pill at the bottom instead. Never over a call, which a restart
+    // would end.
+    property int updateCountdown: 0
+    readonly property int updateCountFrom: 5
+
+    function offerUpdateOnOpen() {
+        if (root.updateState !== "ready" || root.callPage !== null
+            || root.updateDismissed === updateOffer.key)
+            return;
+        root.updateCountdown = root.updateCountFrom;
+        updateTick.restart();
+    }
+
+    function postponeUpdate() {
+        updateTick.stop();
+        root.updateCountdown = 0;
+        root.updateDismissed = updateOffer.key;
+    }
+
+    Timer {
+        id: updateTick
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            // A call that began meanwhile wins.
+            if (root.callPage !== null) {
+                root.postponeUpdate();
+                return;
+            }
+            root.updateCountdown--;
+            if (root.updateCountdown <= 0)
+                root.restartForUpdate();
+        }
+    }
+
+    // The first start after an update says what it became, once. Started
+    // hidden, it waits for the window to open; Rust has already posted a
+    // notification for the meantime.
+    property bool updatedNoticePending: shell.updated_from !== ""
+    function showUpdatedNotice() {
+        if (!root.updatedNoticePending || !root.visible)
+            return;
+        root.updatedNoticePending = false;
+        updatedNotice.shown = true;
+        updatedNoticeHide.restart();
+    }
+    onVisibleChanged: if (visible) root.showUpdatedNotice()
+    Timer { id: updatedNoticeHide; interval: 6000; onTriggered: updatedNotice.shown = false }
 
     // --- The tray icon ---------------------------------------------------
 
@@ -395,6 +453,7 @@ Window {
     }
 
     Component.onCompleted: {
+        root.showUpdatedNotice();
         // Started with `--background`, as at login: the page rests once it
         // has loaded and settled, like a window closed by hand.
         if (shell.start_hidden)
@@ -1071,6 +1130,7 @@ Window {
         opacity: (root.updateState === "ready" || root.updateState === "installable"
                   || root.updateState === "installing")
                  && root.updateDismissed !== key
+                 && root.updateCountdown === 0
                  && root.callPage === null
                  && root.visibility !== Window.FullScreen ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -1095,6 +1155,85 @@ Window {
             shown: root.updateState !== "installing"
             label: "Later"
             onClicked: root.updateDismissed = updateOffer.key
+        }
+    }
+
+    Pill {
+        id: updatedNotice
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 16
+        accent: true
+        label: "✓  Updated to instaCache " + shell.app_version
+        onClicked: shown = false
+    }
+
+    // The update, announced: a card over a dimmed page, the version, the
+    // count, and the two ways out of it.
+    Rectangle {
+        id: updateCard
+        anchors.fill: parent
+        color: "#99000000"
+        visible: opacity > 0
+        opacity: root.updateCountdown > 0 ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 180 } }
+        // Keeps clicks on the dimmed page from reaching it.
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; hoverEnabled: true }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 48, 380)
+            height: cardColumn.implicitHeight + 48
+            radius: 18
+            color: "#1c1c1e"
+            border.color: "#3a3a3c"
+
+            Column {
+                id: cardColumn
+                anchors.centerIn: parent
+                width: parent.width - 48
+                spacing: 14
+
+                Text {
+                    width: parent.width
+                    text: "Updating instaCache"
+                    color: "#ffffff"
+                    font.pixelSize: 20
+                    font.weight: Font.Bold
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    color: "#c7c7cc"
+                    font.pixelSize: 14
+                    text: (root.updateVersion !== ""
+                           ? "Version " + root.updateVersion + " is installed."
+                           : "A new version is installed.")
+                          + "\nRestarting in " + root.updateCountdown + "…"
+                }
+                // The count, drawn: it empties as the restart comes.
+                Rectangle {
+                    width: parent.width
+                    height: 4
+                    radius: 2
+                    color: "#3a3a3c"
+                    Rectangle {
+                        height: parent.height
+                        radius: 2
+                        color: "#1f8f4e"
+                        width: parent.width * root.updateCountdown / root.updateCountFrom
+                        Behavior on width { NumberAnimation { duration: 950 } }
+                    }
+                }
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 8
+                    Pill { shown: true; accent: true; label: "Restart now"; onClicked: root.restartForUpdate() }
+                    Pill { shown: true; label: "Not now"; onClicked: root.postponeUpdate() }
+                }
+            }
         }
     }
 

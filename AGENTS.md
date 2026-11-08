@@ -460,6 +460,21 @@ binary, which knows it, but a test that "updates" a build to an *older*
 published release sees that release reject the option. That is the test, not
 the updater.
 
+### Updates that are seen
+
+Opening the window while an update is `ready` shows the update card and
+restarts into it after `updateCountFrom` seconds, unless there is a call or
+the user has said "Later" or "Not now" to that version. It is deliberately
+on *opening*, not whenever an update lands: a window in use gets the pill,
+because a restart in the middle of typing a message is a lost message.
+
+The new version knows it is new from `last-version` in the profile's config
+directory (`updates::note_running_version`), and says so once: a pill when
+its window shows, and a notification when it starts hidden, which is what a
+quiet restart is. A first run, a restart of the same version and a downgrade
+say nothing. To see it without releasing anything, write an older version
+into that file and start the binary.
+
 ## The tray icon
 
 It is `SystemTrayIcon` from `Qt.labs.platform`, created with

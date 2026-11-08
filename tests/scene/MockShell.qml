@@ -30,6 +30,8 @@ QtObject {
     property string user_script: ""
     property string spell_check_languages: ""
     property int discard_after_ms: 0
+    property string app_version: "9.9.9"
+    property string updated_from: ""
     // The real policy, less its settings: frozen when closed, discarded
     // when closed for long, never past what the view recommends, never a
     // call.

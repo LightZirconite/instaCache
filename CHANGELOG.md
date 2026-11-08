@@ -4,6 +4,40 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-11-08
+
+### Added
+- **Updates you can see.** Opening the window while an update waits on disk
+  shows a card — the new version, a five-second count, Restart now or Not
+  now — and restarts into it, back on the same page. The first start of the
+  new version says "Updated to instaCache …", and one that took over quietly
+  in the background says so in a notification.
+- **A closed window rests.** Ten seconds after it closes, once the page has
+  settled, the page is frozen; after 30 minutes it is let go of, which gives
+  back the memory its renderer held — measured on a heavy page, 314 MiB down
+  to 127 MiB. Opening the window brings it back, reloaded behind the picture
+  of how you left it if it had been let go of. Settings:
+  `freeze_in_background`, `discard_in_background_after_minutes`.
+
+### Changed
+- **Nothing runs while nothing happens.** The window used to ask what had
+  happened twelve times a second while closed; it is now told. Measured on
+  the main thread of a window closed to the background: 125 wake-ups in ten
+  seconds before, 2 now.
+- **All notifications share one connection to the desktop.** Each one used
+  to open its own and hold a thread until it closed: thirty left on screen
+  took the process from 48 threads to 108; it stays at 50 now. The library
+  that did it is gone, and with it a way for a hiccup on D-Bus to quit the
+  whole application. The binary is 2.2 MB, from 2.6.
+
+### Fixed
+- Clicking a notification opens the conversation it came from, not the one
+  that arrived last.
+- A notification the page withdraws leaves the desktop too, and stops a ring.
+  One you dismiss on the desktop is reported to the page.
+- A message containing `<3` or `&` no longer loses its text on a notification
+  server that reads markup, such as KDE Plasma's.
+
 ## [2.7.0] - 2026-09-19
 
 ### Changed

@@ -81,6 +81,12 @@ impl Paths {
         }
     }
 
+    /// The version that last ran this profile, so the next one can say it
+    /// was updated.
+    pub fn version_file(&self) -> PathBuf {
+        self.config.join("last-version")
+    }
+
     pub fn is_default_profile(&self) -> bool {
         self.profile == DEFAULT_PROFILE
     }

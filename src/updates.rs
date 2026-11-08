@@ -357,6 +357,28 @@ fn order(version: &str) -> (Vec<u64>, u8) {
     (numbers, pre)
 }
 
+/// Records that this version is the one running the profile, and returns the
+/// version it replaced when this start is the first one after an update.
+///
+/// What the window uses to say "updated to …", so an update that took over
+/// quietly in the background is still seen to have happened. A first run, a
+/// restart of the same version and a downgrade say nothing.
+pub fn note_running_version(paths: &Paths) -> Option<String> {
+    let file = paths.version_file();
+    let previous = std::fs::read_to_string(&file).ok();
+    if previous.as_deref().map(str::trim) != Some(VERSION) {
+        if let Err(error) = std::fs::write(&file, VERSION) {
+            eprintln!("instacache: could not write {}: {error}", file.display());
+        }
+    }
+    updated_from(previous.as_deref(), VERSION)
+}
+
+fn updated_from(previous: Option<&str>, current: &str) -> Option<String> {
+    let previous = previous?.trim();
+    (!previous.is_empty() && is_newer(current, previous)).then(|| previous.to_string())
+}
+
 /// Runs the update from the command line, printing what happens.
 pub fn update_now() -> Result<Outcome, String> {
     println!("Current version: {VERSION}");
@@ -376,6 +398,16 @@ pub fn update_now() -> Result<Outcome, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_start_after_an_update_says_it_was_updated() {
+        assert_eq!(updated_from(Some("2.7.0"), "2.8.0"), Some("2.7.0".into()));
+        assert_eq!(updated_from(Some("2.7.0\n"), "2.8.0"), Some("2.7.0".into()));
+        assert_eq!(updated_from(None, "2.8.0"), None, "a first run");
+        assert_eq!(updated_from(Some("2.8.0"), "2.8.0"), None, "a restart");
+        assert_eq!(updated_from(Some("2.9.0"), "2.8.0"), None, "a downgrade");
+        assert_eq!(updated_from(Some(""), "2.8.0"), None);
+    }
+
     use super::*;
 
     #[test]
