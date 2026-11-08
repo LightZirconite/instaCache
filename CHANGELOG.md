@@ -4,6 +4,16 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] - 2026-11-08
+
+### Added
+- **Halos of colour behind the feed**: soft light in Instagram's colours
+  drifting in from the edges of the window, different for each kind of page
+  — feed, Reels, messages, Explore, a profile — and fading from one set to
+  the next as you move between them. They move by the compositor alone, let
+  every click through, and stay still for whoever asked their desktop for
+  less motion.
+
 ## [2.12.1] - 2026-11-08
 
 ### Fixed

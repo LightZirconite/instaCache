@@ -158,6 +158,7 @@ function refresh() {
     // What the stylesheet keys the login page's look on.
     if (html.getAttribute("data-instacache-page") !== page)
         html.setAttribute("data-instacache-page", page);
+    glow(page);
     var media = options.ambient && page !== "login" ? mediaInView() : null;
     if (page === lastKind && media === lastMedia)
         return;
@@ -225,3 +226,55 @@ document.addEventListener("scroll", function () {
     clearTimeout(resting);
     resting = setTimeout(refresh, 300);
 }, true);
+
+// Light behind the page: three soft halos of Instagram's colours, different
+// for each kind of page, drifting slowly in from the window's edges, and
+// crossfading when the page changes. Not a change of `--ig-*`, which
+// restyles the whole page: a layer of this mod's own over the page, which
+// lets every click through and moves only by transform and opacity, so the
+// compositor runs it without laying out or restyling anything. Each halo is
+// at most a third opaque at its heart, fading to nothing, so it lights the
+// background without hiding a post. Only in the dark theme, not on the login page, which has its own,
+// and still for somebody who asked their desktop for less motion.
+var GLOWS = {
+    home: [[214, 41, 118], [150, 47, 191], [250, 126, 30]],
+    reels: [[221, 42, 123], [245, 96, 64], [129, 52, 175]],
+    direct: [[88, 81, 219], [64, 93, 230], [193, 53, 132]],
+    explore: [[247, 119, 55], [225, 48, 108], [131, 58, 180]],
+    profile: [[131, 58, 180], [88, 81, 219], [225, 48, 108]]
+};
+var glowLayer = null, glowKind = null, glowSwap = null;
+
+function glow(page) {
+    var colours = GLOWS[page];
+    if (!colours || page === glowKind)
+        return;
+    glowKind = page;
+    if (!glowLayer) {
+        glowLayer = document.createElement("div");
+        glowLayer.className = "instacache-glow";
+        glowLayer.setAttribute("aria-hidden", "true");
+        for (var i = 0; i < 3; i++)
+            glowLayer.appendChild(document.createElement("i"));
+        paint(colours);
+        // Beside <body>, not in it: React owns what is inside.
+        document.documentElement.appendChild(glowLayer);
+        return;
+    }
+    // Out, new colours, back in: a gradient cannot be transitioned itself.
+    clearTimeout(glowSwap);
+    glowLayer.classList.add("switching");
+    glowSwap = setTimeout(function () {
+        paint(GLOWS[glowKind]);
+        glowLayer.classList.remove("switching");
+    }, 450);
+}
+
+function paint(colours) {
+    var halos = glowLayer.children;
+    for (var i = 0; i < halos.length; i++) {
+        var c = colours[i].join(", ");
+        halos[i].style.background =
+            "radial-gradient(closest-side, rgba(" + c + ", 1), rgba(" + c + ", 0))";
+    }
+}

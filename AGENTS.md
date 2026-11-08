@@ -657,6 +657,14 @@ can change how the page starts instead of repairing it afterwards.
   2.11's tints and easing, and `write` refuses anything but finite numbers
   and bounds every channel to 0–48. Do not brighten the tints or bring the
   drift back without the owner's own window to check it on.
+- **Light over the page, not under it.** The halos the owner asked for —
+  visible, different for each kind of page, moving — are a layer of the
+  mod's own (`glow` in `instagram_colors.js`), appended to `<html>` beside
+  `<body>`, `pointer-events: none`, three radial gradients at most a third
+  opaque at their heart, drifting by `transform` and crossfading by
+  `opacity` when the page changes. Nothing in it touches `--ig-*`, so it
+  never restyles the page. It is over the page because nothing can be
+  under it: Instagram's surfaces are opaque, by the next rule.
 - **Opaque colours, not transparency.** A tinted background that let a
   gradient through looked right on one layer and disappeared on the page:
   Instagram stacks several containers painting the same background, and

@@ -124,7 +124,7 @@ page.
 | `allow_autoplay_with_sound` | `true` | Let videos start with sound. |
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
 | `video_volume` | `75` | The volume, from 0 to 100, that `videos_with_sound` starts a video at until you set one with `+` and `-`, which is remembered. |
-| `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black, a little differently on each kind of page, with thin scroll bars. |
+| `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black, a little differently on each kind of page, with soft halos of colour drifting in from the edges and thin scroll bars. |
 | `ambient_colors` | `true`¹ | With `instagram_colors`, the background takes on the colour of the picture or video in view. |
 | `shortcuts` | `true`¹ | Double-click a picture or video to like it, right-click to repost; on Reels Space twice likes the reel and stays on it, Enter twice likes; `L` like, `R` repost, `M` sound, `C` comments, `S` save or unsave, `O` turns a video sideways; a click pauses a story and the wheel moves between stories; the mouse wheel scrolls the stories row. |
 | `hide_also_from_meta` | `true`¹ | Hide "Also from Meta" from Instagram's side bar. |

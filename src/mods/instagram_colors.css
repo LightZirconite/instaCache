@@ -46,6 +46,64 @@ html.instacache-dark[data-instacache-page="login"] [role="main"] {
   box-shadow: -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
+/* The halos of instagram_colors.js: see `glow` there. */
+.instacache-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 450ms ease;
+}
+.instacache-glow.switching {
+  opacity: 0;
+}
+html:not(.instacache-dark) .instacache-glow,
+html[data-instacache-page="login"] .instacache-glow {
+  display: none;
+}
+.instacache-glow i {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  opacity: 0.34;
+  will-change: transform;
+}
+.instacache-glow i:nth-child(1) {
+  top: -32vmax;
+  right: -24vmax;
+  animation: instacache-glow-a 28s ease-in-out infinite alternate;
+}
+.instacache-glow i:nth-child(2) {
+  bottom: -42vmax;
+  right: -18vmax;
+  opacity: 0.28;
+  animation: instacache-glow-b 34s ease-in-out infinite alternate;
+}
+.instacache-glow i:nth-child(3) {
+  bottom: -40vmax;
+  left: -26vmax;
+  opacity: 0.26;
+  animation: instacache-glow-c 40s ease-in-out infinite alternate;
+}
+@keyframes instacache-glow-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-9vmax, 7vmax) scale(1.15); }
+}
+@keyframes instacache-glow-b {
+  from { transform: translate(0, 0) scale(1.1); }
+  to { transform: translate(-12vmax, -6vmax) scale(0.95); }
+}
+@keyframes instacache-glow-c {
+  from { transform: translate(0, 0) scale(0.95); }
+  to { transform: translate(10vmax, -8vmax) scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .instacache-glow i { animation: none; }
+  .instacache-glow { transition: none; }
+}
+
 /* Thin scroll bars that show only what they need to — the one in a chat
    included — in either theme. */
 ::-webkit-scrollbar {
