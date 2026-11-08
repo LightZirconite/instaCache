@@ -4,6 +4,16 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.1] - 2026-11-08
+
+### Fixed
+- **"Also from Meta" is hidden in French too**, where Instagram calls it
+  "Autres applications Meta".
+- **The mouse wheel scrolls the row of stories** at the top of the feed, where
+  Instagram's arrow only moved it every other click.
+- **`S` takes a saved post back out of your favourites**, as the phone's
+  button does, instead of doing nothing.
+
 ## [2.10.0] - 2026-11-08
 
 ### Added
