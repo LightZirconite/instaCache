@@ -240,7 +240,7 @@ const SIGTERM: i32 = 15;
 
 extern "C" {
     fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
-    fn write(fd: i32, buf: *const u8, count: usize) -> isize;
+    fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
 }
 
 /// Where the handler writes its one byte. `-1` until the pair exists.
@@ -259,7 +259,7 @@ extern "C" fn on_terminate(_signum: i32) {
         // Non-blocking: a full buffer only means the scene is already being
         // woken.
         unsafe {
-            write(fd, &byte, 1);
+            write(fd, std::ptr::from_ref(&byte).cast(), 1);
         }
     }
 }
