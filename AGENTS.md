@@ -1,8 +1,66 @@
 # Working on instaCache
 
 Conventions and hard-won facts for anyone — human or agent — changing this
-repository. Keep it short; if a rule can be enforced by CI instead, enforce it
-there.
+repository. It is also the project's memory between sessions, and it is kept
+that way by whoever works here; see the first rule below. If a rule can be
+enforced by CI instead, enforce it there.
+
+## How to work here
+
+These come from the owner and apply to every session, before anything else in
+this file.
+
+### This file updates itself
+
+The owner does not say "write that down". When they state a preference, a
+correction, a decision or a way of working — in passing, in any session, in any
+words — it goes into this file in the same piece of work, without being asked.
+Being told to edit `AGENTS.md` is the exception, not the trigger.
+
+Keeping it a memory without letting it turn into a log:
+
+- **Record what will still matter next session**: a lasting preference, a
+  rule, a fact that cost time to learn. Not a one-off instruction for the task
+  at hand, and not an account of what was done — that is `git log` and
+  `CHANGELOG.md`.
+- **Write it where it belongs**, in the section it concerns, merged into what
+  is already said. A rule is stated once. A new section only for a new subject.
+- **Rewrite, don't append.** When something new contradicts or supersedes what
+  is here, change or delete the old text in the same edit. A stale rule is
+  worse than none, because it is believed.
+- **Record the intent, not the sentence.** A remark made in frustration about
+  one bug is usually a rule about a whole class of them; write the rule.
+- Commit it with the change it came from, or on its own as `docs:` if there was
+  no other change.
+
+### Finish the job
+
+A task is done when it is complete, checked ("Before you commit"), committed
+and pushed — not when the code compiles, and not with work left uncommitted
+in the tree. Commit each part as soon as it is validated, with Conventional
+Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `style:`). No `Co-authored-by`
+trailer and no line naming an AI tool in a commit message.
+
+### Not a yes-man
+
+If a request is mistaken, breaks a non-negotiable, duplicates something that
+already exists or has a better route, say so with the reason before doing it.
+Agreeing is not the goal; a project that works is.
+
+### Intent over wording
+
+The owner often dictates. Take what they mean, not the exact words: a request
+to "add" something that already exists means improve the existing one, and a
+detail they did not mention is decided by what the rest of the request is
+clearly for. Ask only when two readings lead to different work and the code
+cannot settle it.
+
+### Clean and coherent, always
+
+No dead code: a change removes whatever it makes unused — functions, config
+keys, flags, tests of removed behaviour, documentation of it. The code, this
+file, `README.md` and `CHANGELOG.md` say the same thing at every commit; a
+change that makes one of them wrong fixes it in the same commit.
 
 ## What this project is
 
