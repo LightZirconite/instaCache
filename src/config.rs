@@ -46,6 +46,11 @@ AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15",
 /// launch. The request is one small JSON document from GitHub.
 pub const DEFAULT_UPDATE_CHECK_HOURS: u64 = 6;
 
+/// How long a page waits in the background before it is discarded. Long
+/// enough that closing the window for a coffee costs no reload, short enough
+/// that a page left behind overnight is not holding its memory all night.
+pub const DEFAULT_DISCARD_MINUTES: u64 = 30;
+
 /// The default until 2.4.0. See `DEFAULT_USER_AGENT` for why an old default
 /// found in a config file is migrated rather than kept.
 const SUPERSEDED_UPDATE_CHECK_HOURS: u64 = 24;
@@ -149,6 +154,24 @@ pub struct Config {
     ///
     /// On for Instagram and off for another site by default.
     pub run_in_background: bool,
+    /// Freeze the page as soon as the window is closed to the background:
+    /// its JavaScript stops, so it costs no processor time at all, and it
+    /// picks up where it was the moment the window opens again.
+    ///
+    /// A frozen page does not read what arrives on its connection, so the
+    /// unread badge stops moving and a message is heard only through Web
+    /// Push. Whether Instagram still pushes to a client whose connection is
+    /// open but frozen is not established; `false` keeps the page running,
+    /// throttled by Chromium, as before 2.8.0.
+    pub freeze_in_background: bool,
+    /// Discard the page after this many minutes in the background, which
+    /// gives back the memory its renderer holds. Opening the window reloads
+    /// it from the cache, behind the snapshot of how it was left. `0` never
+    /// discards it.
+    ///
+    /// A discarded page has no connection, so Instagram delivers what arrives
+    /// through Web Push, and the unread badge waits for the reload.
+    pub discard_in_background_after_minutes: u64,
     /// Show the number of unread items on the task bar icon, read from the
     /// `(3)` Instagram puts in front of its page title.
     pub unread_badge: bool,
@@ -228,6 +251,8 @@ impl Default for Config {
             ring_for_calls: true,
             calls: true,
             run_in_background: true,
+            freeze_in_background: true,
+            discard_in_background_after_minutes: DEFAULT_DISCARD_MINUTES,
             unread_badge: true,
             start_with_session: true,
             tray_icon: true,

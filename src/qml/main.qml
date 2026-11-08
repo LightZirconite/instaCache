@@ -132,6 +132,7 @@ Window {
             root.backgrounded = true;
             root.hide();
             shell.window_hidden(root.trayShown);
+            root.beginResting();
             // An update waiting for the window to close takes over now.
             root.handleEvents();
         }
@@ -161,12 +162,21 @@ Window {
             // The snapshot first, so the window opens on the page as it was
             // left rather than on nothing while Chromium draws again.
             snapshot.visible = snapshot.status === Image.Ready;
+            // Before the views are shown: a visible page must be Active.
+            var reloading = root.rouse();
             if (root.hiddenMaximized)
                 root.showMaximized();
             else
                 root.show();
             root.backgrounded = false;
-            root.waitForFrames();
+            // A discarded page reloads; its snapshot stays up until the
+            // reload is done, then waits for frames like any other.
+            if (reloading) {
+                root.awaitingReload = true;
+                reloadWatch.restart();
+            } else {
+                root.waitForFrames();
+            }
         }
         root.raise();
         root.requestActivate();
@@ -222,6 +232,106 @@ Window {
     }
     function dropSnapshot() {
         snapshotFade.restart();
+    }
+
+    // --- Resting in the background ---------------------------------------
+
+    // A closed window's pages are frozen once they have settled, and
+    // discarded after `shell.discard_after_ms`, so a window left in the
+    // background costs no processor time and, later, none of the memory its
+    // renderer holds. How far each view goes is Rust's decision -- see
+    // `background_lifecycle` in bridge.rs -- and never further than the
+    // view's own `recommendedState`, which keeps sound and calls running.
+    // Settling first lets the page finish what closing interrupted: a load,
+    // a read receipt, and at startup its push subscription, without which
+    // nothing would ever arrive.
+    property int restDelay: 10000
+    property bool awaitingReload: false
+
+    function lifecycleName(state) {
+        if (state === WebEngineView.LifecycleState.Discarded)
+            return "Discarded";
+        if (state === WebEngineView.LifecycleState.Frozen)
+            return "Frozen";
+        return "Active";
+    }
+    function lifecycleValue(name) {
+        if (name === "Discarded")
+            return WebEngineView.LifecycleState.Discarded;
+        if (name === "Frozen")
+            return WebEngineView.LifecycleState.Frozen;
+        return WebEngineView.LifecycleState.Active;
+    }
+    function allViews() {
+        return [view].concat(root.pages);
+    }
+
+    function beginResting() {
+        restTimer.restart();
+        if (shell.discard_after_ms > 0) {
+            discardTimer.interval = shell.discard_after_ms;
+            discardTimer.restart();
+        }
+    }
+
+    // `long`: closed for long enough to discard.
+    function rest(long) {
+        if (!root.backgrounded)
+            return;
+        var views = root.allViews();
+        for (var i = 0; i < views.length; i++) {
+            var v = views[i];
+            // Out of Discarded, the only way is back to Active.
+            if (v.lifecycleState === WebEngineView.LifecycleState.Discarded)
+                continue;
+            var wanted = root.lifecycleValue(shell.lifecycle_when_hidden(
+                long, root.lifecycleName(v.recommendedState),
+                v !== view && v.inCall));
+            if (v.lifecycleState !== wanted)
+                v.lifecycleState = wanted;
+        }
+    }
+
+    // Back to Active, for a window about to show. Returns whether Instagram
+    // itself was discarded and is reloading.
+    function rouse() {
+        restTimer.stop();
+        discardTimer.stop();
+        var reloading = view.lifecycleState === WebEngineView.LifecycleState.Discarded;
+        var views = root.allViews();
+        for (var i = 0; i < views.length; i++) {
+            if (views[i].lifecycleState !== WebEngineView.LifecycleState.Active)
+                views[i].lifecycleState = WebEngineView.LifecycleState.Active;
+        }
+        return reloading;
+    }
+
+    Timer {
+        id: restTimer
+        interval: root.restDelay
+        onTriggered: {
+            // Still loading, or not started yet: give it the time it needs,
+            // then rest.
+            if (view.loading || view.loadProgress < 100)
+                restart();
+            else
+                root.rest(false);
+        }
+    }
+    Timer {
+        id: discardTimer
+        onTriggered: root.rest(true)
+    }
+    // A reload that never finishes still gets its snapshot removed.
+    Timer {
+        id: reloadWatch
+        interval: 8000
+        onTriggered: {
+            if (root.awaitingReload) {
+                root.awaitingReload = false;
+                root.dropSnapshot();
+            }
+        }
     }
 
     function restartForUpdate() {
@@ -285,6 +395,10 @@ Window {
     }
 
     Component.onCompleted: {
+        // Started with `--background`, as at login: the page rests once it
+        // has loaded and settled, like a window closed by hand.
+        if (shell.start_hidden)
+            root.beginResting();
         if (!shell.tray_icon)
             return;
         root.refreshStartsWithSession();
@@ -695,6 +809,12 @@ Window {
                 if (info.status === WebEngineView.LoadStartedStatus)
                     shell.main_page_loading();
                 root.handleLoad(view, info);
+                if (root.awaitingReload
+                    && info.status !== WebEngineView.LoadStartedStatus) {
+                    root.awaitingReload = false;
+                    reloadWatch.stop();
+                    root.waitForFrames();
+                }
             }
 
             // Instagram is a single-page application: opening a profile or the

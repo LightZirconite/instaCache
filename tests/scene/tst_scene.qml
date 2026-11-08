@@ -243,6 +243,28 @@ Item {
             waitFor(function () { return win.visible; }, 2000, "a wake is answered at once");
         }
 
+        // A closed window's page is frozen once settled, discarded later, and
+        // comes back live -- reloaded, behind its snapshot -- when opened.
+        function test_15_a_closed_window_freezes_then_discards_its_page() {
+            var main = win.activeView();
+            main.url = win.shell.home_url;
+            waitFor(function () { return !main.loading && main.title === "Instagram"; }, 8000, "home again");
+            win.restDelay = 200;
+            win.shell.discard_after_ms = 1500;
+            win.close();
+            waitFor(function () { return main.lifecycleState === WebEngineView.LifecycleState.Frozen; }, 3000,
+                    "frozen once settled: " + main.lifecycleState);
+            waitFor(function () { return main.lifecycleState === WebEngineView.LifecycleState.Discarded; }, 4000,
+                    "discarded after the delay: " + main.lifecycleState);
+            win.shell.pollResult = '{"present":true}';
+            waitFor(function () { return win.visible; }, 2000, "shown again");
+            compare(main.lifecycleState, WebEngineView.LifecycleState.Active, "active before it shows");
+            waitFor(function () { return !main.loading && main.title === "Instagram"; }, 8000, "reloaded");
+            waitFor(function () { return !win.awaitingReload; }, 3000, "the snapshot waits for the reload, then goes");
+            win.shell.discard_after_ms = 0;
+            win.restDelay = 10000;
+        }
+
         function test_12_a_closed_window_takes_an_update_quietly() {
             win.shell.restarts = [];
             win.shell.update = "ready";

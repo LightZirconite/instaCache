@@ -96,6 +96,9 @@ pub struct Shell {
     context_menu: qt_property!(bool; READ context_menu),
     /// Whether closing the window hides it instead of quitting.
     run_in_background: qt_property!(bool; READ run_in_background),
+    /// How long the window stays closed before its pages are discarded, in
+    /// milliseconds, for the scene's timer. `0` never discards them.
+    discard_after_ms: qt_property!(i32; READ discard_after_ms),
     /// Whether to put an icon in the system tray while instaCache runs.
     tray_icon: qt_property!(bool; READ tray_icon),
     /// The icon theme name this profile's entry uses, for the tray icon.
@@ -218,6 +221,16 @@ pub struct Shell {
             if let Some(alerts) = self.alerts.as_ref() {
                 alerts.withdraw(key);
             }
+        }
+    ),
+    /// The lifecycle state a view of a closed window should rest in:
+    /// `Active`, `Frozen` or `Discarded`. `long` says the window has been
+    /// closed for `discard_after_ms`; `recommended` is the view's own
+    /// `recommendedState`, which is never undercut; `in_call` keeps a call
+    /// running whatever the settings say.
+    lifecycle_when_hidden: qt_method!(
+        fn lifecycle_when_hidden(&self, long: bool, recommended: String, in_call: bool) -> QString {
+            background_lifecycle(&self.config(), long, &recommended, in_call).into()
         }
     ),
     /// A switchable setting, by name. The tray menu shows what these say, so
@@ -560,6 +573,10 @@ impl Shell {
 
     fn run_in_background(&self) -> bool {
         self.config().run_in_background
+    }
+
+    fn discard_after_ms(&self) -> i32 {
+        discard_delay_ms(self.config().discard_in_background_after_minutes)
     }
 
     fn starts_hidden(&self) -> bool {
@@ -1184,6 +1201,43 @@ fn permission_granted(config: &Config, internal: bool, feature: &str) -> bool {
     }
 }
 
+/// Page lifecycle states, from the most to the least resource-hungry. The
+/// names are `WebEngineView.LifecycleState`'s.
+const LIFECYCLE: [&str; 3] = ["Active", "Frozen", "Discarded"];
+
+/// Where a view of a closed window rests.
+///
+/// Never further than Chromium's own `recommendedState`, which stays `Active`
+/// while the page plays sound or holds the microphone or camera, and never
+/// further than `Active` for a call: freezing a call hangs it up. A name this
+/// does not know reads as `Active`, which is always safe.
+fn background_lifecycle(
+    config: &Config,
+    long: bool,
+    recommended: &str,
+    in_call: bool,
+) -> &'static str {
+    let wanted = if in_call {
+        0
+    } else if long && config.discard_in_background_after_minutes > 0 {
+        2
+    } else if config.freeze_in_background {
+        1
+    } else {
+        0
+    };
+    let limit = LIFECYCLE
+        .iter()
+        .position(|name| *name == recommended)
+        .unwrap_or(0);
+    LIFECYCLE[wanted.min(limit)]
+}
+
+/// Minutes as a timer interval, which QML holds in an `int`.
+fn discard_delay_ms(minutes: u64) -> i32 {
+    i32::try_from(minutes.saturating_mul(60_000)).unwrap_or(i32::MAX)
+}
+
 /// The icon theme name for a profile: instaCache's own for the default one, the
 /// site's for a site added with `--add-site`.
 fn profile_icon_name(profile: &str) -> String {
@@ -1478,6 +1532,70 @@ mod tests {
         );
         assert!(!should_sound(Kind::Message, false, false));
         assert!(!should_sound(Kind::Call, false, false));
+    }
+
+    #[test]
+    fn a_closed_window_freezes_then_lets_go_of_its_page() {
+        let config = Config::default();
+        assert_eq!(
+            background_lifecycle(&config, false, "Discarded", false),
+            "Frozen"
+        );
+        assert_eq!(
+            background_lifecycle(&config, true, "Discarded", false),
+            "Discarded"
+        );
+    }
+
+    #[test]
+    fn what_chromium_says_must_keep_running_keeps_running() {
+        let config = Config::default();
+        // Playing sound, or holding the microphone: Chromium says Active.
+        assert_eq!(
+            background_lifecycle(&config, true, "Active", false),
+            "Active"
+        );
+        assert_eq!(
+            background_lifecycle(&config, true, "Frozen", false),
+            "Frozen"
+        );
+        // A call is never frozen, whatever Chromium thinks of it.
+        assert_eq!(
+            background_lifecycle(&config, true, "Discarded", true),
+            "Active"
+        );
+        // An unknown state is the safe one.
+        assert_eq!(
+            background_lifecycle(&config, true, "Asleep", false),
+            "Active"
+        );
+    }
+
+    #[test]
+    fn each_half_can_be_switched_off() {
+        let keep_running = Config {
+            freeze_in_background: false,
+            ..Config::default()
+        };
+        assert_eq!(
+            background_lifecycle(&keep_running, false, "Discarded", false),
+            "Active"
+        );
+        assert_eq!(
+            background_lifecycle(&keep_running, true, "Discarded", false),
+            "Discarded"
+        );
+        let never_discard = Config {
+            discard_in_background_after_minutes: 0,
+            ..Config::default()
+        };
+        assert_eq!(
+            background_lifecycle(&never_discard, true, "Discarded", false),
+            "Frozen"
+        );
+        assert_eq!(discard_delay_ms(0), 0);
+        assert_eq!(discard_delay_ms(30), 1_800_000);
+        assert_eq!(discard_delay_ms(u64::MAX), i32::MAX);
     }
 
     #[test]

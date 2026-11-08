@@ -29,6 +29,19 @@ QtObject {
     property string user_stylesheet: ""
     property string user_script: ""
     property string spell_check_languages: ""
+    property int discard_after_ms: 0
+    // The real policy, less its settings: frozen when closed, discarded
+    // when closed for long, never past what the view recommends, never a
+    // call.
+    property var lifecycles: []
+    function lifecycle_when_hidden(long, recommended, inCall) {
+        var order = ["Active", "Frozen", "Discarded"];
+        var wanted = inCall ? 0 : (long ? 2 : 1);
+        var limit = Math.max(0, order.indexOf(recommended));
+        var name = order[Math.min(wanted, limit)];
+        lifecycles = lifecycles.concat([name]);
+        return name;
+    }
 
     // What the scene did, for the tests to read.
     property var externals: []

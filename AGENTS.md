@@ -522,6 +522,42 @@ Reproduce with a window that was shown, closed and left hidden for 20 seconds
 or more, a solid-colour page and a profile of its own — never by starting with
 `--background`, which does not show the problem.
 
+## Resting in the background: frozen, then discarded
+
+Hidden views are already throttled by Chromium, so freezing buys little
+processor time: measured on a heavy local page closed to the background, 1
+tick in ten seconds hidden, 0 frozen. Discarding is what gives memory back —
+the renderer process goes: 314 MiB of PSS across the process tree, then 127
+MiB once discarded, measured with `/proc/*/smaps_rollup` over every
+descendant of the main process (the renderer is a great-grandchild, under
+the zygotes; a two-level walk misses it and reads 166 MiB for everything).
+
+The scene does it, Rust decides how far (`background_lifecycle`):
+
+- `restTimer` freezes once the page has loaded and settled for ten seconds,
+  so a load, a read receipt — and, at a `--background` start, Instagram's
+  push subscription — finish first. Freezing before the subscription would
+  leave nothing to deliver a message at all.
+- `discardTimer` discards after `discard_in_background_after_minutes`.
+- Never further than the view's `recommendedState`, and never past `Active`
+  for a call.
+- `rouse()` sets every view back to `Active` *before* the window shows: the
+  setter refuses anything else for a visible view. A discarded Instagram
+  reloads, and the snapshot stays up until the reload has finished, then
+  waits for frames as usual, with an eight-second cap.
+
+A discarded page did not close the desktop notification it had posted, on
+Qt 6.12; check that again if the notification handling changes.
+
+What is **not** established: whether Instagram still pushes to a client whose
+connection is open but frozen. A frozen page does not read its socket, so if
+Instagram's server counts that client as online and skips the push, a message
+arriving in the first thirty minutes is only heard when the window opens.
+Discarding closes the socket, which is unambiguous. `freeze_in_background:
+false` is the switch if a real account shows the problem; test it with
+`INSTACACHE_LOG_NOTIFICATIONS=1` and a message sent from a phone a few minutes
+after closing the window.
+
 ## Per-site defaults
 
 A profile whose `home_url` is Instagram gets `calls`, `ring_for_calls`,
