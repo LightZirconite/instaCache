@@ -103,6 +103,12 @@ Where it is going: what Vencord is to Discord, for Instagram — the page itself
 changed by built-in mods (sound on by default, styles, small features), not a
 browser wrapped around it. That is a change to the page, which is welcome; it
 is not a licence for window chrome, which the paragraph above still governs.
+The mods are built in: no marketplace, no mod loader for other people's code.
+
+Instagram first. XCache ships as the one extra site and `--add-site` stays a
+one-line command, but instaCache is not a launcher or a store for wrapping
+arbitrary sites, and work goes into Instagram before it goes anywhere else.
+Linux only, for now: Instagram has its own app on Windows and none here.
 
 ## Non-negotiables
 
