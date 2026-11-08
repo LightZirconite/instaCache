@@ -513,6 +513,16 @@ and microphone, so nothing appears on screen and no device is opened.
 tests/scene/run.sh
 ```
 
+In a container with no GPU — a cloud session, say — `qmltestrunner` on Qt
+6.4 dies with a segmentation fault as Qt WebEngine starts, on an untouched
+tree too, because it initialises the engine from a plugin. The `qml` runtime
+does not: build `Harness.qml` the way `run.sh` does and load it from a small
+QML file of your own with `/usr/lib/qt6/bin/qml` (package `qml-qt6`), with
+`QTWEBENGINE_DISABLE_SANDBOX=1` when running as root. `grabToImage` on the
+window's `contentItem` then shows what the scene drew, off screen. Clear the
+cache directory between runs, or a page served slowly on purpose comes back
+from the cache at once.
+
 A new `shell` property or method has to be added to `MockShell.qml` too. A
 missing one does not stop the scene loading; it throws only when called. The
 mock's `wake` fires whenever a test changes `pollResult` or `update`, which is
