@@ -12,10 +12,11 @@ var LABELS = {
     like: ["Like", "J’aime"],
     comment: ["Comment", "Commenter"],
     save: ["Save", "Enregistrer"],
+    saved: ["Enregistrée dans les favoris"],
     repost: ["Republier"],
     storyPause: ["Mettre en pause"],
     storyPlay: ["Lire"],
-    alsoFromMeta: ["Also from Meta"]
+    alsoFromMeta: ["Also from Meta", "Autres applications Meta"]
 };
 
 // The clickable control under `root` whose icon carries one of `labels`.

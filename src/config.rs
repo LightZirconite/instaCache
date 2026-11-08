@@ -108,8 +108,9 @@ pub struct Config {
     /// a double-click likes, as a double tap does, and Shift with it reposts;
     /// Space twice likes the reel being watched while one Space still goes to
     /// the next; Enter twice likes; `L` likes, `R` reposts, `M` turns the
-    /// sound on or off, `C` opens the comments, `S` saves; a click on a story
-    /// pauses it or plays it again.
+    /// sound on or off, `C` opens the comments, `S` saves or unsaves; a click
+    /// on a story pauses it or plays it again; the mouse wheel scrolls the
+    /// row of stories at the top of the feed.
     ///
     /// On for Instagram and off for another site by default.
     pub shortcuts: bool,

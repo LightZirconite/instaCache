@@ -8,6 +8,8 @@
 //   L   like      R   repost      M   sound on or off
 //   C   comments  S   save
 //   click a story                       pause it, or play it again
+//   mouse wheel over the stories row    scroll the row, which otherwise only
+//                                       moves with an arrow that misses
 //
 // Every action presses Instagram's own button for it, found by its label
 // (see page.js), so the page stays the one deciding. A like only ever likes:
@@ -161,7 +163,8 @@ window.addEventListener("keydown", function (event) {
         break;
     case "s":
     case "S":
-        handled = press(media, LABELS.save);
+        // Saves, or takes it back out, as the phone's button does.
+        handled = press(media, LABELS.save.concat(LABELS.saved));
         break;
     }
     if (handled) {
@@ -169,3 +172,33 @@ window.addEventListener("keydown", function (event) {
         event.stopImmediatePropagation();
     }
 }, true);
+
+// The wheel over a row that scrolls sideways — the stories at the top of the
+// feed, a scroll container of its own, measured at 12 489 pixels of avatars
+// in 630 — scrolls the row. Only a short row, so a large area that happens to
+// overflow sideways never takes the page's scrolling, and only while the row
+// can still move that way: at its end, the page scrolls as usual.
+function sideways(start) {
+    for (var e = start; e && e !== document.body; e = e.parentElement) {
+        if (e.scrollWidth <= e.clientWidth + 1 || e.clientHeight > 260)
+            continue;
+        var overflow = getComputedStyle(e).overflowX;
+        if (overflow === "auto" || overflow === "scroll")
+            return e;
+    }
+    return null;
+}
+
+document.addEventListener("wheel", function (event) {
+    if (event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY))
+        return;
+    var row = sideways(event.target);
+    if (!row)
+        return;
+    var step = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? row.clientWidth : 1);
+    var room = step > 0 ? row.scrollWidth - row.clientWidth - row.scrollLeft : row.scrollLeft;
+    if (room <= 0)
+        return;
+    row.scrollBy({ left: step * 1.5, behavior: "smooth" });
+    event.preventDefault();
+}, { passive: false });
