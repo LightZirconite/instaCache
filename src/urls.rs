@@ -110,6 +110,29 @@ pub fn is_internal_in<S: AsRef<str>>(domains: &[S], uri: &str) -> bool {
     })
 }
 
+/// The scheme instaCache answers to, so a browser can hand it a page:
+/// `instacache:https://www.instagram.com/p/…` opens that page in the app.
+/// `instacache.desktop` declares it as `x-scheme-handler/instacache`.
+pub const APP_SCHEME: &str = "instacache";
+
+/// The web address inside an `instacache:` link, or `None` for anything else
+/// — including a link that wraps something other than a web page.
+/// `instacache://www.instagram.com/…`, the form a browser may normalise the
+/// link to, means the same over `https`.
+pub fn from_app_link(link: &str) -> Option<String> {
+    let scheme = scheme_of(link)?;
+    if !scheme.eq_ignore_ascii_case(APP_SCHEME) {
+        return None;
+    }
+    let rest = &link[scheme.len() + 1..];
+    let address = match rest.strip_prefix("//") {
+        Some(host_and_path) if !is_http(host_and_path) => format!("https://{host_and_path}"),
+        Some(wrapped) => wrapped.to_string(),
+        None => rest.to_string(),
+    };
+    is_http(&address).then_some(address)
+}
+
 /// Meta's link shims. Every outside link in Instagram points at one of them
 /// rather than at its destination: `l.instagram.com/?u=<destination>&e=<id>`
 /// records who followed the link, then redirects. Inside instaCache that also
@@ -328,5 +351,26 @@ mod tests {
         );
         assert_eq!(unwrap_link_shim("https://l.instagram.com/?e=AT0"), None);
         assert_eq!(unwrap_link_shim("https://l.instagram.com/"), None);
+    }
+
+    #[test]
+    fn an_app_link_gives_the_page_it_wraps() {
+        assert_eq!(
+            from_app_link("instacache:https://www.instagram.com/p/abc/").as_deref(),
+            Some("https://www.instagram.com/p/abc/")
+        );
+        assert_eq!(
+            from_app_link("instacache://www.instagram.com/reels/").as_deref(),
+            Some("https://www.instagram.com/reels/")
+        );
+        assert_eq!(
+            from_app_link("instacache://https://www.instagram.com/").as_deref(),
+            Some("https://www.instagram.com/")
+        );
+        // Only web pages, and only our scheme.
+        assert_eq!(from_app_link("instacache:file:///etc/passwd"), None);
+        assert_eq!(from_app_link("instacache:javascript:alert(1)"), None);
+        assert_eq!(from_app_link("https://www.instagram.com/"), None);
+        assert_eq!(from_app_link("other:https://www.instagram.com/"), None);
     }
 }

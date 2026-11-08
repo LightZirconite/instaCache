@@ -13,6 +13,7 @@ Categories=Network;InstantMessaging;
 Keywords=Instagram;Social;Photos;Reels;Stories;Messages;
 StartupNotify=true
 StartupWMClass=instacache
+MimeType=x-scheme-handler/instacache;
 Actions=Inbox;Explore;Reels;
 
 [Desktop Action Inbox]

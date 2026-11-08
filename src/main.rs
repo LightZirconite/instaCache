@@ -419,6 +419,10 @@ impl Options {
                     options.profile = other["--profile=".len()..].to_string();
                 }
                 other if urls::is_http(other) => options.url = Some(other.to_string()),
+                // From a browser, through `x-scheme-handler/instacache`.
+                other if urls::from_app_link(other).is_some() => {
+                    options.url = urls::from_app_link(other);
+                }
                 other if other.starts_with('-') => {
                     return Err(format!("unknown option `{other}`"));
                 }
@@ -538,6 +542,16 @@ mod tests {
             options.url.as_deref(),
             Some("https://www.instagram.com/direct/inbox/")
         );
+    }
+
+    #[test]
+    fn accepts_a_page_handed_over_by_a_browser() {
+        let options = parse(&["instacache:https://www.instagram.com/reels/"]).unwrap();
+        assert_eq!(
+            options.url.as_deref(),
+            Some("https://www.instagram.com/reels/")
+        );
+        assert!(parse(&["instacache:file:///etc/passwd"]).is_err());
     }
 
     #[test]

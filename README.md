@@ -67,6 +67,14 @@ application menu and offers to install the Qt packages it needs. To remove it:
 
 The mouse's back and forward buttons work too.
 
+## Opening Instagram from your browser
+
+instaCache answers to `instacache:` links: `instacache:https://www.instagram.com/reels/`
+opens that page in the app. With [Violentmonkey](https://violentmonkey.github.io/)
+or Tampermonkey, [`extras/open-in-instacache.user.js`](extras/open-in-instacache.user.js)
+puts an *Open in instaCache* button on instagram.com, for the times you forgot
+the app was there.
+
 ## Settings
 
 The tray menu covers the everyday ones: start at login, notifications,

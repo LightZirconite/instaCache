@@ -1191,6 +1191,14 @@ hands it to the portal or to `xdg-open` (`runWithXdgActivationToken` in
 `qgenericunixservices.cpp`). Spawned without one, the browser opened the link
 behind instaCache's window. Qt 6.4 has no token to give, and behaves as before.
 
+`instacache:` links come the other way, from a browser:
+`instacache.desktop` declares `x-scheme-handler/instacache`, and
+`urls::from_app_link` turns `instacache:https://…` — or `instacache://host/…`,
+which a browser may normalise it to — into the web address, and nothing but a
+web address. The page then goes through the same allow-list as any other.
+`extras/open-in-instacache.user.js` is the browser half, as a userscript
+rather than an extension: nothing to publish to a store, nothing to review.
+
 `facebook.com` and `meta.com` are in the default on purpose: Instagram's login,
 two-factor and Accounts Center flows redirect through them. Removing them
 breaks signing in. `threads.com` and `threads.net` are there by choice, not by
