@@ -70,7 +70,8 @@ The mouse's back and forward buttons work too.
 ## Settings
 
 The tray menu covers the everyday ones: start at login, notifications,
-sounds, ringing, videos with sound, keep running when closed.
+sounds, ringing, keep running when closed, and the mods: videos with sound,
+Instagram's colours instead of black, animations.
 
 Everything else lives in `~/.config/instacache/config.json`, written with its
 defaults on first run. A `user.css` or `user.js` beside it is applied to every
@@ -90,6 +91,8 @@ page.
 | `allow_autoplay_with_sound` | `true` | Let videos start with sound. |
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
 | `video_volume` | `40` | The volume, from 0 to 100, that `videos_with_sound` starts a video at. |
+| `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black. |
+| `page_animations` | `true`¹ | Dialogs and pictures fade in, buttons give under a click. Off wherever the desktop asks for reduced motion. |
 | `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". |
 | `developer_tools` | `false` | The Web Inspector (`F12`). |
 | `notifications` | `true` | Forward notifications to your desktop. |

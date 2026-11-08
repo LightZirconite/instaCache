@@ -65,7 +65,9 @@ Window {
     visibility: shell.start_hidden ? Window.Hidden
               : geometry.maximized ? Window.Maximized : Window.Windowed
     visible: !shell.start_hidden
-    color: "#000000"
+    // Instagram's dark background as the `instagram_colors` mod tints it, so
+    // nothing changes colour between the splash, the window and the page.
+    color: "#120c1a"
 
     function writeState() {
         var maximized = root.visibility === Window.Maximized
@@ -503,10 +505,24 @@ Window {
                 "            checked: root.settingIsOn('ring_for_calls')\n" +
                 "            onTriggered: root.toggleSetting('ring_for_calls')\n" +
                 "        }\n" +
-                "        MenuItem {\n" +
-                "            text: 'Videos with sound'; checkable: true\n" +
-                "            checked: root.settingIsOn('videos_with_sound')\n" +
-                "            onTriggered: root.toggleSetting('videos_with_sound')\n" +
+                "        Menu {\n" +
+                "            title: 'Mods'\n" +
+                "            MenuItem {\n" +
+                "                text: 'Videos with sound'; checkable: true\n" +
+                "                checked: root.settingIsOn('videos_with_sound')\n" +
+                "                onTriggered: root.toggleSetting('videos_with_sound')\n" +
+                "            }\n" +
+                "            MenuItem {\n" +
+                "                text: 'Instagram colours'; checkable: true\n" +
+                "                checked: root.settingIsOn('instagram_colors')\n" +
+                "                onTriggered: root.toggleSetting('instagram_colors')\n" +
+                "            }\n" +
+                "            MenuItem {\n" +
+                "                text: 'Animations'; checkable: true\n" +
+                "                checked: root.settingIsOn('page_animations')\n" +
+                "                onTriggered: root.toggleSetting('page_animations')\n" +
+                "            }\n" +
+                "            MenuItem { text: 'Changes apply at the next load'; enabled: false }\n" +
                 "        }\n" +
                 "        MenuItem {\n" +
                 "            text: 'Keep running when closed'; checkable: true\n" +
@@ -583,6 +599,7 @@ Window {
         root.closeOrdinaryPages();
         pages = pages.concat([page]);
         root.current = page;
+        page.enter();
     }
 
     // Back means: out of a call without ending it, back through a page's own
@@ -895,7 +912,7 @@ Window {
             profile: session
             url: shell.home_url
             zoomFactor: root.geometry.zoom
-            backgroundColor: "#000000"
+            backgroundColor: root.color
             // Hidden under a page, so Chromium treats it as a background tab.
             visible: root.current === null && !root.backgrounded
 
@@ -985,8 +1002,25 @@ Window {
             anchors.fill: parent
             profile: session
             zoomFactor: view.zoomFactor
-            backgroundColor: "#000000"
+            backgroundColor: root.color
             visible: root.current === page && !root.backgrounded
+
+            // A page rises into place over Instagram rather than appearing
+            // in one frame. Only when it is opened or brought back from the
+            // pill: a window shown again comes back as it was, without it.
+            transform: Translate { id: shift }
+            function enter() { entrance.restart(); }
+            ParallelAnimation {
+                id: entrance
+                NumberAnimation {
+                    target: page; property: "opacity"
+                    from: 0; to: 1; duration: 170; easing.type: Easing.OutCubic
+                }
+                NumberAnimation {
+                    target: shift; property: "y"
+                    from: 14; to: 0; duration: 220; easing.type: Easing.OutCubic
+                }
+            }
 
             // Set once the page is granted the microphone or camera, which
             // for a page of its own means a call. A call is hidden rather
@@ -1098,6 +1132,29 @@ Window {
             splashCap.stop();
         }
 
+        // Instagram's colours as light from the corners, the way its own
+        // gradient runs: purple above, orange and pink below.
+        Canvas {
+            anchors.fill: parent
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+                var c = getContext("2d");
+                c.reset();
+                function glow(x, y, radius, colour) {
+                    var g = c.createRadialGradient(x, y, 0, x, y, radius);
+                    g.addColorStop(0, colour);
+                    g.addColorStop(1, "rgba(0, 0, 0, 0)");
+                    c.fillStyle = g;
+                    c.fillRect(0, 0, width, height);
+                }
+                var r = Math.max(width, height);
+                glow(width, 0, r * 0.75, "rgba(150, 47, 191, 0.30)");
+                glow(0, height, r * 0.65, "rgba(250, 126, 30, 0.18)");
+                glow(width * 0.8, height, r * 0.5, "rgba(214, 41, 118, 0.18)");
+            }
+        }
+
         // A load that never finishes still gets the splash out of the way.
         Timer {
             id: splashCap
@@ -1116,7 +1173,8 @@ Window {
                 var c = getContext("2d");
                 c.reset();
                 c.scale(width / 256, height / 256);
-                function rounded(x, y, w, h, r) {
+                function body() {
+                    var x = 8, y = 8, w = 240, h = 240, r = 62;
                     c.beginPath();
                     c.moveTo(x + r, y);
                     c.arcTo(x + w, y, x + w, y + h, r);
@@ -1273,7 +1331,10 @@ Window {
             shown: true
             accent: true
             label: "●  Call in progress — return"
-            onClicked: root.current = root.callPage
+            onClicked: {
+                root.current = root.callPage;
+                root.callPage.enter();
+            }
         }
         Pill {
             shown: true

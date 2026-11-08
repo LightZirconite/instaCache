@@ -458,11 +458,14 @@ changing a page and useless for stopping something appearing.
 
 ## Mods
 
-A mod is a script in `src/mods/`, compiled in, switched by a setting of its
-own, listed in `BUILT_IN` in `mods.rs`. `mods::script` wraps every enabled one
-in its own `try` and passes them `options` from the config; the scene
-installs the result as one user script on the profile (`installMods`), at
-`DocumentCreation`, in the main world. That is the difference from `user.js`,
+A mod is a script, a stylesheet or both in `src/mods/`, compiled in,
+switched by a setting of its own, listed in `BUILT_IN` in `mods.rs`.
+`mods::script` wraps every enabled one in its own `try`, adds a stylesheet
+through `addStyle` as soon as the document has somewhere to put it, and
+passes `options` from the config; the scene installs the result as one user
+script on the profile (`installMods`), at `DocumentCreation`, in the main
+world. `examples/snapshot.rs` installs it the same way, so a snapshot shows
+the page with its mods. That is the difference from `user.js`,
 which runs after the load: a mod is there before Instagram's own code, so it
 can change how the page starts instead of repairing it afterwards.
 
@@ -479,6 +482,22 @@ can change how the page starts instead of repairing it afterwards.
   with a real click (`navigator.userActivation`). A page that mutes back on
   every unmute would otherwise ping-pong for ever.
 - **A call is never touched**: a `MediaStream` source is left alone.
+- **Never key on Instagram's class names.** They are hashed and change from
+  build to build: its dark theme was `_aa4d` and `__fb-dark-mode` on one
+  load, `__ig-dark-mode` in its inline CSS. Roles, attributes and its CSS
+  variables are what stays. `instagram_colors` reads the colour of
+  `--ig-primary-background` to know the page is dark, marks `<html>` with a
+  class of its own, and overrides the `--ig-*` variables — as `R, G, B`,
+  which is how Instagram writes them — under that class.
+- **Opaque colours, not transparency.** A tinted background that let a
+  gradient through looked right on one layer and disappeared on the page:
+  Instagram stacks several containers painting the same background, and
+  their alpha adds up. The gradient lives where instaCache owns the pixels —
+  the splash — and the window's own colour matches the mod's background.
+- **Animations are opacity and transform only**, which the compositor runs
+  without laying the page out again, and nothing moves under
+  `prefers-reduced-motion`. The engine is Chromium 102 on Qt 6.4: nothing
+  newer than that, such as `@starting-style`.
 - Mods are on for Instagram and off for another site by default, like the
   messenger settings below: they are written for Instagram's page.
 - Switching a mod in the tray reinstalls the script; it takes effect at the

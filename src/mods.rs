@@ -1,10 +1,11 @@
 //! Built-in mods: small changes to the page itself, the way Vencord changes
 //! Discord, rather than features of the window around it.
 //!
-//! Each mod is a script compiled into the binary, switched by a setting of
-//! its own in `config.json`, and run in the page's own world at document
-//! creation — before Instagram's code — through the profile's user scripts.
-//! A mod that throws is caught and logged, and the page carries on.
+//! Each mod is a script, a stylesheet or both, compiled into the binary and
+//! switched by a setting of its own in `config.json`. They run in the page's
+//! own world at document creation — before Instagram's code — through the
+//! profile's user scripts. A mod that throws is caught and logged, and the
+//! page carries on.
 //!
 //! `~/.config/instacache/user.js` and `user.css` stay what they were: the
 //! user's own changes, applied after each load.
@@ -13,22 +14,38 @@ use serde_json::json;
 
 use crate::config::Config;
 
-/// One mod: the setting that switches it, and its source.
+/// One mod: the setting that switches it, and what it adds to the page.
 struct Mod {
     setting: &'static str,
-    source: &'static str,
+    script: Option<&'static str>,
+    style: Option<&'static str>,
 }
 
-const BUILT_IN: &[Mod] = &[Mod {
-    setting: "videos_with_sound",
-    source: include_str!("mods/videos_with_sound.js"),
-}];
+const BUILT_IN: &[Mod] = &[
+    Mod {
+        setting: "videos_with_sound",
+        script: Some(include_str!("mods/videos_with_sound.js")),
+        style: None,
+    },
+    Mod {
+        setting: "instagram_colors",
+        script: Some(include_str!("mods/instagram_colors.js")),
+        style: Some(include_str!("mods/instagram_colors.css")),
+    },
+    Mod {
+        setting: "page_animations",
+        script: None,
+        style: Some(include_str!("mods/animations.css")),
+    },
+];
 
 /// Whether the mod behind `setting` is switched on, or `None` for a setting
 /// that is not a mod's.
 fn enabled(config: &Config, setting: &str) -> Option<bool> {
     match setting {
         "videos_with_sound" => Some(config.videos_with_sound),
+        "instagram_colors" => Some(config.instagram_colors),
+        "page_animations" => Some(config.page_animations),
         _ => None,
     }
 }
@@ -39,6 +56,28 @@ fn options(config: &Config) -> serde_json::Value {
         "volume": f64::from(config.video_volume.min(100)) / 100.0,
     })
 }
+
+/// Puts a stylesheet into the document as soon as it has somewhere to go.
+/// At document creation there is no `<head>` yet.
+const ADD_STYLE: &str = r#"function addStyle(id, css) {
+    function add() {
+        var parent = document.head || document.documentElement;
+        if (!parent)
+            return false;
+        var style = document.createElement("style");
+        style.id = id;
+        style.textContent = css;
+        parent.appendChild(style);
+        return true;
+    }
+    if (!add()) {
+        new MutationObserver(function (_, observer) {
+            if (add())
+                observer.disconnect();
+        }).observe(document, { childList: true, subtree: true });
+    }
+}
+"#;
 
 /// The one script that carries every enabled mod, or an empty string when
 /// none is. Each mod runs in its own function, so a mistake in one neither
@@ -52,11 +91,23 @@ pub fn script(config: &Config) -> String {
         return String::new();
     }
     let mut out = String::from("(function (options) {\n\"use strict\";\n");
+    out.push_str(ADD_STYLE);
     for m in mods {
+        let mut body = String::new();
+        if let Some(style) = m.style {
+            body.push_str(&format!(
+                "addStyle({}, {});\n",
+                json!(format!("instacache-mod-{}", m.setting)),
+                json!(style)
+            ));
+        }
+        if let Some(script) = m.script {
+            body.push_str(script);
+        }
         out.push_str(&format!(
-            "try {{ (function () {{\n{}\n}})(); }} catch (e) {{ \
+            "try {{ (function () {{\n{body}\n}})(); }} catch (e) {{ \
              console.error(\"instacache: mod {} failed:\", e); }}\n",
-            m.source, m.setting
+            m.setting
         ));
     }
     out.push_str(&format!("}})({});\n", options(config)));
@@ -67,15 +118,38 @@ pub fn script(config: &Config) -> String {
 mod tests {
     use super::*;
 
+    fn none_enabled() -> Config {
+        Config {
+            videos_with_sound: false,
+            instagram_colors: false,
+            page_animations: false,
+            ..Config::default()
+        }
+    }
+
     #[test]
     fn only_enabled_mods_are_carried() {
-        let mut config = Config {
+        assert_eq!(script(&none_enabled()), "");
+        let config = Config {
             videos_with_sound: true,
-            ..Config::default()
+            ..none_enabled()
         };
-        assert!(script(&config).contains("Videos with sound"));
-        config.videos_with_sound = false;
-        assert_eq!(script(&config), "");
+        let carried = script(&config);
+        assert!(carried.contains("Videos with sound"));
+        assert!(!carried.contains("instacache-mod-instagram_colors"));
+    }
+
+    #[test]
+    fn a_stylesheet_is_carried_as_a_string_the_page_cannot_break_out_of() {
+        let config = Config {
+            page_animations: true,
+            ..none_enabled()
+        };
+        let carried = script(&config);
+        assert!(carried.contains(r#"addStyle("instacache-mod-page_animations", "/* Small"#));
+        // Quoted by serde: no raw newline or unescaped quote of the CSS
+        // reaches the script's own syntax.
+        assert!(!carried.contains("@keyframes instacache-fade-in {\n"));
     }
 
     #[test]
@@ -83,7 +157,7 @@ mod tests {
         let mut config = Config {
             videos_with_sound: true,
             video_volume: 40,
-            ..Config::default()
+            ..none_enabled()
         };
         assert!(script(&config).contains(r#"{"volume":0.4}"#));
         config.video_volume = 250;
@@ -91,11 +165,16 @@ mod tests {
     }
 
     #[test]
-    fn every_built_in_mod_has_a_setting() {
+    fn every_built_in_mod_has_a_setting_and_something_to_add() {
         for m in BUILT_IN {
             assert!(
                 enabled(&Config::default(), m.setting).is_some(),
                 "{} is not wired to a setting",
+                m.setting
+            );
+            assert!(
+                m.script.is_some() || m.style.is_some(),
+                "{} is empty",
                 m.setting
             );
         }

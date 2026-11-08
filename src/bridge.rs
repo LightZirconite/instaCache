@@ -1197,6 +1197,8 @@ const SWITCHABLE: &[&str] = &[
     "unread_badge",
     "run_in_background",
     "videos_with_sound",
+    "instagram_colors",
+    "page_animations",
 ];
 
 fn read_setting(config: &Config, name: &str) -> bool {
@@ -1210,6 +1212,8 @@ fn read_setting(config: &Config, name: &str) -> bool {
         "unread_badge" => config.unread_badge,
         "run_in_background" => config.run_in_background,
         "videos_with_sound" => config.videos_with_sound,
+        "instagram_colors" => config.instagram_colors,
+        "page_animations" => config.page_animations,
         _ => false,
     }
 }
@@ -1225,6 +1229,8 @@ fn write_setting(config: &mut Config, name: &str, value: bool) {
         "unread_badge" => config.unread_badge = value,
         "run_in_background" => config.run_in_background = value,
         "videos_with_sound" => config.videos_with_sound = value,
+        "instagram_colors" => config.instagram_colors = value,
+        "page_animations" => config.page_animations = value,
         _ => {}
     }
 }

@@ -35,6 +35,19 @@ Window {
         httpCacheType: WebEngineProfile.DiskHttpCache
         persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
         httpUserAgent: shell.user_agent
+
+        // The built-in mods, the way the app installs them (`installMods`).
+        Component.onCompleted: {
+            var source = shell.mods_script();
+            if (source === "")
+                return;
+            var script = WebEngine.script();
+            script.name = "instacache-mods";
+            script.sourceCode = source;
+            script.injectionPoint = WebEngineScript.DocumentCreation;
+            script.worldId = WebEngineScript.MainWorld;
+            profile.userScripts.insert(script);
+        }
     }
 
     WebEngineView {

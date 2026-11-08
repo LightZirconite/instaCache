@@ -94,6 +94,17 @@ pub struct Config {
     pub videos_with_sound: bool,
     /// The volume `videos_with_sound` starts a video at, from 0 to 100.
     pub video_volume: u8,
+    /// The mod that tints Instagram's dark theme plum, in its own colours,
+    /// instead of black. Its light theme is left as it is.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub instagram_colors: bool,
+    /// The mod that adds small motion to the page: dialogs and pictures fade
+    /// in, buttons give under a click. Off by itself wherever the desktop asks
+    /// for reduced motion.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub page_animations: bool,
     /// Which decoder to reach for: `gpu`, `software` or `auto`.
     ///
     /// `gpu` is the default and switches on the VA-API decoding that Chromium
@@ -260,6 +271,8 @@ impl Default for Config {
             allow_autoplay_with_sound: true,
             videos_with_sound: true,
             video_volume: DEFAULT_VIDEO_VOLUME,
+            instagram_colors: true,
+            page_animations: true,
             context_menu: false,
             developer_tools: false,
             notifications: true,
@@ -310,6 +323,8 @@ impl Config {
             config.start_with_session = false;
             // The mods are written for Instagram's page.
             config.videos_with_sound = false;
+            config.instagram_colors = false;
+            config.page_animations = false;
             // A window that stops running when it is closed has nothing to
             // deliver a push to, so the connection to the push service would
             // be held for nothing.
@@ -627,7 +642,10 @@ mod tests {
             Config::from_json(r#"{"home_url": "https://x.com/", "internal_domains": ["x.com"]}"#)
                 .unwrap();
         assert!(!x.run_in_background && !x.tray_icon && !x.calls && !x.ring_for_calls);
-        assert!(!x.videos_with_sound, "the mods are written for Instagram");
+        assert!(
+            !x.videos_with_sound && !x.instagram_colors && !x.page_animations,
+            "the mods are written for Instagram"
+        );
         assert!(
             !x.start_with_session,
             "a site you open and close has no reason to run before you ask"
@@ -642,7 +660,8 @@ mod tests {
         let instagram = Config::from_json(r#"{"home_url": "https://www.instagram.com/"}"#).unwrap();
         assert!(instagram.run_in_background && instagram.tray_icon && instagram.calls);
         assert!(instagram.ring_for_calls && instagram.start_with_session);
-        assert!(instagram.videos_with_sound);
+        assert!(instagram.videos_with_sound && instagram.instagram_colors);
+        assert!(instagram.page_animations);
         assert!(
             instagram.push_notifications,
             "a config written before the key existed still gets the push service"
