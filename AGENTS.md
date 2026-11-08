@@ -64,8 +64,14 @@ Agreeing is not the goal; a project that works is.
 ### English in the repository, the owner's language in conversation
 
 Everything committed is English: code, comments, documentation, this file,
-commit messages, release notes. Talk to the owner in the language they write
-in — French, so far — and translate when it goes into the repository.
+commit messages, release notes.
+
+**Every word addressed to the owner is in the language they write in** —
+French, so far. Not only the final summary: every progress note between two
+steps, every question, every explanation of a command. Thinking in English
+and writing to them in English is the mistake to avoid; it happened, and they
+could not follow the work. Translate when it goes into the repository, never
+when it comes back to them.
 
 ### Intent over wording
 
