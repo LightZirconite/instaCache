@@ -245,6 +245,14 @@ pub struct Shell {
             read_setting(&self.config(), &name)
         }
     ),
+    /// The built-in mods that are switched on, as one script for the
+    /// profile's user scripts, or an empty string. A method rather than a
+    /// property, because switching a mod in the tray changes it.
+    mods_script: qt_method!(
+        fn mods_script(&self) -> QString {
+            crate::mods::script(&self.config()).into()
+        }
+    ),
     /// Changes one and writes it to `config.json`. Anything not named here is
     /// ignored: the tray is not a way for a page to rewrite the settings.
     set_setting: qt_method!(
@@ -1181,6 +1189,7 @@ const SWITCHABLE: &[&str] = &[
     "ring_for_calls",
     "unread_badge",
     "run_in_background",
+    "videos_with_sound",
 ];
 
 fn read_setting(config: &Config, name: &str) -> bool {
@@ -1193,6 +1202,7 @@ fn read_setting(config: &Config, name: &str) -> bool {
         "ring_for_calls" => config.ring_for_calls,
         "unread_badge" => config.unread_badge,
         "run_in_background" => config.run_in_background,
+        "videos_with_sound" => config.videos_with_sound,
         _ => false,
     }
 }
@@ -1207,6 +1217,7 @@ fn write_setting(config: &mut Config, name: &str, value: bool) {
         "ring_for_calls" => config.ring_for_calls = value,
         "unread_badge" => config.unread_badge = value,
         "run_in_background" => config.run_in_background = value,
+        "videos_with_sound" => config.videos_with_sound = value,
         _ => {}
     }
 }

@@ -445,6 +445,7 @@ Window {
     function toggleSetting(name) {
         shell.set_setting(name, !shell.setting(name));
         root.settingsRevision++;
+        root.installMods();
     }
     // Bumped so the menu's bindings re-read `shell.setting`, which is a plain
     // method and notifies nothing on its own.
@@ -501,6 +502,11 @@ Window {
                 "            text: 'Ring for calls'; checkable: true\n" +
                 "            checked: root.settingIsOn('ring_for_calls')\n" +
                 "            onTriggered: root.toggleSetting('ring_for_calls')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Videos with sound'; checkable: true\n" +
+                "            checked: root.settingIsOn('videos_with_sound')\n" +
+                "            onTriggered: root.toggleSetting('videos_with_sound')\n" +
                 "        }\n" +
                 "        MenuItem {\n" +
                 "            text: 'Keep running when closed'; checkable: true\n" +
@@ -679,6 +685,33 @@ Window {
         }
     }
 
+    // The built-in mods (`mods.rs`), as one user script on the profile, run
+    // at document creation in the page's own world -- before Instagram's
+    // code, which is what lets a mod change how the page starts rather than
+    // fix it up afterwards. Every page of the window gets it from the
+    // profile. Rebuilt when a mod is switched, which takes effect at the next
+    // load. `WebEngine.script()` is how Qt 6 makes a WebEngineScript, which
+    // cannot be declared (see "A live process, no window and no error").
+    function installMods() {
+        try {
+            var scripts = session.userScripts;
+            var old = scripts.find("instacache-mods");
+            for (var i = 0; i < old.length; i++)
+                scripts.remove(old[i]);
+            var source = shell.mods_script();
+            if (source === "")
+                return;
+            var script = WebEngine.script();
+            script.name = "instacache-mods";
+            script.sourceCode = source;
+            script.injectionPoint = WebEngineScript.DocumentCreation;
+            script.worldId = WebEngineScript.MainWorld;
+            scripts.insert(script);
+        } catch (error) {
+            shell.log("mods not installed: " + error);
+        }
+    }
+
     // `~/.config/instacache/user.js`. Qt WebEngine implements no extension
     // API, so this is the nearest thing: the user's own script, run once per
     // real page load, in the page's own world so it can see what the page
@@ -758,6 +791,7 @@ Window {
         // Declaring it would stop the whole scene loading on 6.4; assigning it
         // there throws, and an older Qt simply has no push service.
         Component.onCompleted: {
+            root.installMods();
             if (!shell.push_service_enabled)
                 return;
             try {

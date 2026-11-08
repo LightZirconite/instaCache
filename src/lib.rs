@@ -35,6 +35,7 @@ pub mod downloads;
 pub mod errorpage;
 pub mod http;
 pub mod instance;
+pub mod mods;
 pub mod paths;
 pub mod sites;
 pub mod updates;

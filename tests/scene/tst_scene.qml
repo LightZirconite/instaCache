@@ -86,6 +86,35 @@ Item {
             win.refreshStartsWithSession();
         }
 
+        // The mods are a user script on the profile, and the point of that is
+        // running before the page's own code: at document creation the
+        // document is still loading. Switching one off takes effect at the
+        // next load.
+        function test_01d_mods_run_before_the_page() {
+            var main = win.activeView();
+            function mark() {
+                var seen = null;
+                main.runJavaScript("window.__instacacheMod || ''", function (r) { seen = r; });
+                waitFor(function () { return seen !== null; }, 3000, "the page answers");
+                return seen;
+            }
+            function reload() {
+                main.reload();
+                wait(200);
+                waitFor(function () { return !main.loading && main.title === "Instagram"; },
+                        15000, "home loads again");
+            }
+            compare(mark(), "loading", "the mod ran at document creation");
+
+            win.toggleSetting("videos_with_sound");
+            reload();
+            compare(mark(), "", "a mod switched off is gone at the next load");
+
+            win.toggleSetting("videos_with_sound");
+            reload();
+            compare(mark(), "loading", "and back once switched on again");
+        }
+
         function test_02_call_opens_as_page_and_survives_back() {
             var main = win.activeView();
             main.runJavaScript("window.open('/call.html', 'call', 'width=640,height=480')");

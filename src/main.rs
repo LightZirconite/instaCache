@@ -489,6 +489,7 @@ OPTIONS:
 FILES:
     ~/.config/instacache/config.json   Settings (created on first run).
     ~/.config/instacache/user.css      Optional user stylesheet.
+    ~/.config/instacache/user.js       Optional user script, run after each load.
     ~/.local/share/instacache/         Session: cookies, local storage.
     ~/.cache/instacache/               Resource cache (safe to delete).
 

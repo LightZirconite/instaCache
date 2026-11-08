@@ -51,6 +51,10 @@ pub const DEFAULT_UPDATE_CHECK_HOURS: u64 = 6;
 /// that a page left behind overnight is not holding its memory all night.
 pub const DEFAULT_DISCARD_MINUTES: u64 = 30;
 
+/// The volume `videos_with_sound` starts a video at: there to be heard, not
+/// to startle anyone at the first reel.
+pub const DEFAULT_VIDEO_VOLUME: u8 = 40;
+
 /// The default until 2.4.0. See `DEFAULT_USER_AGENT` for why an old default
 /// found in a config file is migrated rather than kept.
 const SUPERSEDED_UPDATE_CHECK_HOURS: u64 = 24;
@@ -79,6 +83,17 @@ pub struct Config {
     /// dedicated Instagram window that reads as "the app muted itself", since
     /// Instagram keeps its own mute button anyway.
     pub allow_autoplay_with_sound: bool,
+    /// The mod that starts every video with its sound on, at `video_volume`.
+    ///
+    /// `allow_autoplay_with_sound` lifts the engine's rule; this one deals
+    /// with Instagram's, which mutes every video and only unmutes it from its
+    /// own speaker button. Muting a video by hand switches it off until the
+    /// page is loaded again. See `mods.rs`.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub videos_with_sound: bool,
+    /// The volume `videos_with_sound` starts a video at, from 0 to 100.
+    pub video_volume: u8,
     /// Which decoder to reach for: `gpu`, `software` or `auto`.
     ///
     /// `gpu` is the default and switches on the VA-API decoding that Chromium
@@ -243,6 +258,8 @@ impl Default for Config {
             hardware_acceleration: "always".to_string(),
             video_decoding: "gpu".to_string(),
             allow_autoplay_with_sound: true,
+            videos_with_sound: true,
+            video_volume: DEFAULT_VIDEO_VOLUME,
             context_menu: false,
             developer_tools: false,
             notifications: true,
@@ -291,6 +308,8 @@ impl Config {
             config.run_in_background = false;
             config.tray_icon = false;
             config.start_with_session = false;
+            // The mods are written for Instagram's page.
+            config.videos_with_sound = false;
             // A window that stops running when it is closed has nothing to
             // deliver a push to, so the connection to the push service would
             // be held for nothing.
@@ -360,6 +379,7 @@ impl Config {
             self.user_agent = DEFAULT_USER_AGENT.to_string();
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        self.video_volume = self.video_volume.min(100);
         // Written out by every first run before 2.4.0, so it says nothing
         // about what the user wants, only what the default was.
         if self.update_check_interval_hours == SUPERSEDED_UPDATE_CHECK_HOURS {
@@ -607,6 +627,7 @@ mod tests {
             Config::from_json(r#"{"home_url": "https://x.com/", "internal_domains": ["x.com"]}"#)
                 .unwrap();
         assert!(!x.run_in_background && !x.tray_icon && !x.calls && !x.ring_for_calls);
+        assert!(!x.videos_with_sound, "the mods are written for Instagram");
         assert!(
             !x.start_with_session,
             "a site you open and close has no reason to run before you ask"
@@ -621,6 +642,7 @@ mod tests {
         let instagram = Config::from_json(r#"{"home_url": "https://www.instagram.com/"}"#).unwrap();
         assert!(instagram.run_in_background && instagram.tray_icon && instagram.calls);
         assert!(instagram.ring_for_calls && instagram.start_with_session);
+        assert!(instagram.videos_with_sound);
         assert!(
             instagram.push_notifications,
             "a config written before the key existed still gets the push service"

@@ -131,10 +131,17 @@ QtObject {
     property bool autostart: false
     property var settings: ({
         notifications: true, notification_sounds: true, ring_for_calls: true,
-        unread_badge: true, run_in_background: true
+        unread_badge: true, run_in_background: true, videos_with_sound: true
     })
     function starts_with_session() { return autostart; }
     function set_start_with_session(on) { autostart = on; return on; }
     function setting(name) { return settings[name] === true; }
     function set_setting(name, value) { settings[name] = value; }
+
+    // A stand-in for the built-in mods that leaves a mark, so a test can see
+    // whether it ran, and how early.
+    function mods_script() {
+        return settings.videos_with_sound
+            ? "window.__instacacheMod = document.readyState;" : "";
+    }
 }

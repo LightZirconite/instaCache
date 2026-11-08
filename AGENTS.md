@@ -135,6 +135,7 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/main.rs` | Argument parsing, process startup, termination signals. |
 | `src/lib.rs` | Module list and application constants. |
 | `src/bridge.rs` | Everything QML may ask Rust. The policy lives here. |
+| `src/mods.rs` | The built-in mods, and the one script that carries them. |
 | `src/qml/main.qml` | The window, its pages, the loading bar, the shortcuts. |
 | `src/badge.rs` | The unread count on the task bar icon, over D-Bus. |
 | `src/alerts.rs` | Notifications, their sounds, and ringing for a call. |
@@ -437,6 +438,40 @@ running the user's JavaScript at document creation, the way an extension's
 content script does, needs `QWebEngineProfile::scripts()` from C++. Until
 somebody does that, `user.js` runs after the load finishes, which is fine for
 changing a page and useless for stopping something appearing.
+
+## Mods
+
+A mod is a script in `src/mods/`, compiled in, switched by a setting of its
+own, listed in `BUILT_IN` in `mods.rs`. `mods::script` wraps every enabled one
+in its own `try` and passes them `options` from the config; the scene
+installs the result as one user script on the profile (`installMods`), at
+`DocumentCreation`, in the main world. That is the difference from `user.js`,
+which runs after the load: a mod is there before Instagram's own code, so it
+can change how the page starts instead of repairing it afterwards.
+
+- **`WebEngineScript` is a value type in Qt 6.** `WebEngine.script()` makes
+  one and `userScripts.insert()` takes it; declaring one in QML is what once
+  stopped the scene loading. Measured on 6.4: a script inserted this way runs
+  while `document.readyState` is `loading`, before the page's first script.
+- **A mod listens; it does not replace.** Patching a prototype the page relies
+  on breaks the page in ways that look like Instagram's bugs. Listening in
+  the capture phase on `document` hears every media event, which do not
+  bubble — but only from elements in the document.
+- **A mod must give up rather than fight.** `videos_with_sound` unmutes a video
+  at most three times, and stops for the page's life once the user mutes one
+  with a real click (`navigator.userActivation`). A page that mutes back on
+  every unmute would otherwise ping-pong for ever.
+- **A call is never touched**: a `MediaStream` source is left alone.
+- Mods are on for Instagram and off for another site by default, like the
+  messenger settings below: they are written for Instagram's page.
+- Switching a mod in the tray reinstalls the script; it takes effect at the
+  next load, not in the page already running.
+
+Check a mod against a local page with the real binary rather than against
+Instagram: a page that creates the element the way Instagram does, attached
+to the document, and reports what it sees with `fetch` to a local server
+whose log you read. The scene tests check only that the mods are installed
+early, with a stand-in script.
 
 ## Pages, calls and permissions
 
