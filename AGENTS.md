@@ -843,8 +843,9 @@ message. A notification that says only that something arrived is a `Nudge` —
 Instagram's, and instaCache's own count-derived "New message" — and
 `Coalescer` in `alerts.rs` tells each arrival once: a nudge waits four seconds
 for the notification that names the sender and is dropped when it comes; a
-nudge within twenty seconds after one is an echo; a nudge already on screen
-is taken off when the detailed one follows. All nudges share one tag, so they
+nudge within twenty seconds after one is an echo; a nudge still on screen is
+taken off when a detailed one follows, however late — on a real inbox,
+Instagram's came well before the message it announced. All nudges share one tag, so they
 replace each other rather than stack.
 
 **An unsent message leaves nothing behind.** Instagram re-posts the message's

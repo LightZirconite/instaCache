@@ -245,7 +245,7 @@ impl Notifier {
                         Err(RecvTimeoutError::Timeout) => {
                             if let Some(toast) = self.coalescer.release(Instant::now()) {
                                 if let Some(id) = self.post(toast) {
-                                    self.coalescer.nudge_shown(id, Instant::now());
+                                    self.coalescer.nudge_shown(id);
                                 }
                             }
                             continue;
@@ -652,8 +652,10 @@ impl Registry {
 /// nudges — they say something arrived and no more — and the notification
 /// that names the sender is the one worth keeping. So a nudge waits
 /// `NUDGE_GRACE` for that notification before it is shown; one that comes
-/// within `NUDGE_ECHO` after it is dropped; and a nudge already on screen is
-/// taken off when the detailed one follows it.
+/// within `NUDGE_ECHO` after it is dropped; and a nudge still on screen is
+/// taken off when a detailed one follows, however much later — on a real
+/// inbox, Instagram's arrived well before the message it announced, and it
+/// never says anything the unread badge does not.
 ///
 /// Kept apart from D-Bus and the clock, so the rules can be tested.
 #[derive(Default)]
@@ -662,8 +664,8 @@ struct Coalescer {
     held: Option<(Toast, Instant)>,
     /// When the last detailed notification was shown.
     detailed_at: Option<Instant>,
-    /// The nudge on screen, by its desktop id, and when it went up.
-    shown: Option<(u32, Instant)>,
+    /// The nudge on screen, by its desktop id.
+    shown: Option<u32>,
 }
 
 impl Coalescer {
@@ -691,12 +693,7 @@ impl Coalescer {
     fn detailed(&mut self, now: Instant) -> (Vec<u32>, Option<u32>) {
         self.detailed_at = Some(now);
         let dropped = self.held.take().map(|(old, _)| old.key);
-        let shown = self
-            .shown
-            .take()
-            .filter(|(_, at)| now.saturating_duration_since(*at) < NUDGE_ECHO)
-            .map(|(id, _)| id);
-        (dropped.into_iter().collect(), shown)
+        (dropped.into_iter().collect(), self.shown.take())
     }
 
     /// The held nudge, if its time has come.
@@ -708,8 +705,8 @@ impl Coalescer {
         }
     }
 
-    fn nudge_shown(&mut self, id: u32, now: Instant) {
-        self.shown = Some((id, now));
+    fn nudge_shown(&mut self, id: u32) {
+        self.shown = Some(id);
     }
 }
 
@@ -1078,22 +1075,20 @@ mod tests {
     }
 
     #[test]
-    fn a_nudge_alone_is_shown_once_due_and_taken_off_by_a_late_message() {
+    fn a_nudge_alone_is_shown_once_due_and_taken_off_by_a_later_message() {
         let start = Instant::now();
         let mut c = Coalescer::default();
         c.nudge(toast(4), start);
         let due = c.due().unwrap_or(start);
         assert_eq!(c.release(due).map(|t| t.key), Some(4));
-        c.nudge_shown(77, due);
+        c.nudge_shown(77);
 
-        let (dropped, shown) = c.detailed(due + Duration::from_secs(3));
+        // Minutes later, as on a real inbox: still taken off.
+        let (dropped, shown) = c.detailed(due + NUDGE_ECHO * 6);
         assert!(dropped.is_empty());
         assert_eq!(shown, Some(77), "the nudge on screen is taken off");
-
-        // One that has been up for a while stays: it was its own arrival.
-        c.nudge_shown(78, due);
-        let (_, shown) = c.detailed(due + NUDGE_ECHO * 2);
-        assert_eq!(shown, None);
+        let (_, shown) = c.detailed(due + NUDGE_ECHO * 7);
+        assert_eq!(shown, None, "and only once");
     }
 
     #[test]
