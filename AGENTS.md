@@ -85,6 +85,11 @@ Resist adding chrome: what exists is the loading bar, the back button shown
 over a page, the pills for a call and an update, and the tray icon, and each
 of those is there because the window has no other way to offer it.
 
+Where it is going: what Vencord is to Discord, for Instagram — the page itself
+changed by built-in mods (sound on by default, styles, small features), not a
+browser wrapped around it. That is a change to the page, which is welcome; it
+is not a licence for window chrome, which the paragraph above still governs.
+
 ## Non-negotiables
 
 - **No Electron, no Node, no Python, no bundled browser engine.** The whole
