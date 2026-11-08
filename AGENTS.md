@@ -133,6 +133,38 @@ arbitrary sites, and work goes into Instagram before it goes anywhere else.
   something cannot be tested at all.
 - **Nothing may write outside the XDG directories** resolved in `paths.rs`.
 
+## The account comes first
+
+instaCache holds somebody's real Instagram account, and nothing it does may
+make that account look like anything but a person in a browser. Everything
+below was checked against the real engine, not assumed; keep it true.
+
+- **Nothing reaches Instagram's servers without a gesture.** A mod may change
+  what the page looks like and press local controls — the speaker, a story's
+  pause — on its own, but a like, a repost, a save or a comment is pressed
+  only for a click or a key, one for one, at most once every 800 ms
+  (`paced` in `shortcuts.js`). No timers that act, no queues, no loops over
+  posts, no private API calls. That is why "mark every story as seen" is
+  not built: it can only be done by acting without the user.
+- **A coherent browser, never a disguised one.** The user agent says Chrome
+  on Linux at the engine's real Chromium version (`config::user_agent_for`),
+  and `Accept-Language` is the session's language
+  (`config::accept_language`) — Qt WebEngine 6.4 sent none at all, measured.
+  What the engine itself reports — `navigator.userAgentData`, which is empty
+  on 6.4, and its features — is left as it is: faking it is detectable in
+  itself, and an honest Qt WebEngine is what qutebrowser and Falkon users
+  sign in to Instagram with every day. `navigator.webdriver` is `false`.
+- **One device, steadily.** The session and cookies persist, so Instagram
+  sees the same browser every time; the user agent changes only when the
+  distribution's Qt does, as a browser updating would.
+- **Never automate the real site from tests** — see "Reproducing a crash".
+  A logged-out page load to read its structure is fine; anything that clicks
+  through a logged-in account is not.
+
+To see what a page receives, serve one locally that logs its request headers
+and reports `navigator.userAgent`, `userAgentData` and `languages`, and point
+a scratch profile's `home_url` at it.
+
 ## Why not WebKitGTK
 
 It was the engine until 1.2.0, and it was replaced for one measured reason:
@@ -504,12 +536,15 @@ can change how the page starts instead of repairing it afterwards.
   speaker button once (a synthetic `click()` works — measured on the real
   page), and the element is unmuted directly only when no button is found.
   The shortcuts likewise press Like, Repost, Comment, Save and a story's
-  pause button. One Space is never taken — on Reels it is Instagram's way to
-  the next reel — but a second Space within 350 ms likes the reel that was in
-  view at the first, and is itself kept from Instagram (the listener is in
-  the capture phase on `window`, ahead of Instagram's), or the pair would
-  skip a reel. A double-click is two clicks first: on a story it pauses and
-  plays again, and the like still lands.
+  pause button.
+- **A double gesture must not also do what its first half does.** On Reels,
+  Space is the way to the next reel; letting the first Space through and
+  liking on the second liked the reel and skipped it. So on Reels the mod
+  holds every Space for 250 ms (in the capture phase on `window`, ahead of
+  Instagram's listeners) and either likes, on a second one, or scrolls the
+  reels itself (`scrollerOf`); where it finds nothing to scroll, Space stays
+  Instagram's. A double-click is two clicks, and a click pauses a reel: the
+  state at the first `pointerdown` is put back once the like is done.
 - **`WebEngineScript` is a value type in Qt 6.** `WebEngine.script()` makes
   one and `userScripts.insert()` takes it; declaring one in QML is what once
   stopped the scene loading. Measured on 6.4: a script inserted this way runs
@@ -519,9 +554,14 @@ can change how the page starts instead of repairing it afterwards.
   the capture phase on `document` hears every media event, which do not
   bubble — but only from elements in the document.
 - **A mod must give up rather than fight.** `videos_with_sound` unmutes a video
-  at most three times, and stops for the page's life once the user mutes one
-  with a real click (`navigator.userActivation`). A page that mutes back on
-  every unmute would otherwise ping-pong for ever.
+  at most three times, and stops for the page's life once the user mutes a
+  video that had its sound, with a real click (`navigator.userActivation`).
+  "Had its sound" matters: transient activation lasts seconds, and Instagram
+  creates the next video muted a moment after the click on "Reels" — read as
+  the user muting, it switched the mod off for the session, and the owner's
+  videos arrived silent. The speaker is found from the video itself
+  (`speakerOf`), not through the post: logged in, the video and its Like
+  button need not share a block.
 - **A call is never touched**: a `MediaStream` source is left alone.
 - **Never key on Instagram's class names.** They are hashed and change from
   build to build: its dark theme was `_aa4d` and `__fb-dark-mode` on one

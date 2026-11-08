@@ -4,6 +4,30 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] - 2026-11-08
+
+### Added
+- **A login page to match**: the splash's glow behind it and the sign-in card
+  as frosted glass. Colours only; the form is Instagram's, untouched.
+
+### Changed
+- **instaCache tells Instagram the truth about its browser.** The user agent
+  is Chrome on Linux at the engine's real version (`user_agent` is now
+  `auto`; a config still holding the old fixed `Chrome/140` is moved to it),
+  and the browser now sends your language, as every browser does — Qt
+  WebEngine sent none. A browser that contradicts itself is what an account's
+  risk checks look for.
+- **Space, Space likes a reel and stays on it**; one Space still goes to the
+  next. It used to like the reel and skip it as well.
+- **Likes, reposts and saves from the shortcuts happen at most once every
+  0.8 s**, so a bouncing key can never send a burst.
+
+### Fixed
+- **Videos arrive with sound again.** The mod switched itself off when
+  Instagram muted a new video just after a click, and it looked for the
+  speaker too far from the video on logged-in pages.
+- **A double-click likes without pausing the reel.**
+
 ## [2.10.1] - 2026-11-08
 
 ### Fixed
