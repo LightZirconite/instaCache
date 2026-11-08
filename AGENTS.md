@@ -1176,6 +1176,15 @@ version`, and the first process should exit on its own.
 commits, tags and pushes. Pushing the tag is what triggers the release workflow.
 Never tag by hand — the workflow refuses a tag that disagrees with `Cargo.toml`.
 
+A cloud session's git proxy pushes branches and refuses tags (`HTTP 403` on
+the tag, after `main` went through). There, run `release.sh` as usual, then
+start the Release workflow by hand on `main` with the tag as its input: its
+first job creates the missing tag on that commit, and only when `Cargo.toml`
+there says the same version. Delete the local tag the script made; the real
+one is the workflow's. The jobs after it state `!failure() && !cancelled()`
+because a skipped job up the chain — this one, on a pushed tag — otherwise
+skips everything below it.
+
 Two traps the script now handles, both found the hard way:
 
 - It rebuilds after bumping. The checks run against the *old* version, so

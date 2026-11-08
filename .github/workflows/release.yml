@@ -30,8 +30,44 @@ env:
   QMAKE: qmake6
 
 jobs:
+  # Started by hand from the Actions tab with a tag that does not exist yet,
+  # the run creates it: on the commit it was started from, and only when that
+  # commit's Cargo.toml says the same version, so a tag can still never
+  # disagree with the manifest. This is the route for whoever cannot push a
+  # tag -- a cloud session's git proxy refuses them. A tag pushed by
+  # scripts/release.sh skips this job, and a tag pushed here with
+  # GITHUB_TOKEN does not start a second run: GitHub never chains runs so.
+  tag:
+    name: Create the tag if missing
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create the tag if missing
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null; then
+            echo "${TAG} exists; building it as it is."
+            exit 0
+          fi
+          manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "${TAG}" != "v${manifest}" ]; then
+            echo "::error::${TAG} does not exist, and Cargo.toml on ${GITHUB_REF_NAME} says ${manifest}."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "instaCache ${manifest}"
+          git push origin "refs/tags/${TAG}"
+
   build:
     name: Build ${{ matrix.arch }}
+    needs: tag
+    # Runs after the tag job, and also when it was skipped, on a pushed tag.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ${{ matrix.runner }}
     # Built inside Debian 12, which is exactly the baseline instaCache claims to
     # support: Qt 6.4 and glibc 2.36. Both halves matter and pull in opposite
@@ -170,6 +206,9 @@ jobs:
   publish:
     name: Publish the GitHub Release
     needs: build
+    # Stated, because the default `success()` also looks at the tag job two
+    # steps up, and that one is skipped whenever the tag was pushed.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
 
     steps:
@@ -260,7 +299,7 @@ jobs:
     runs-on: ubuntu-latest
     # A pre-release is not what `pacman -Syu` should hand to everybody, and
     # the AUR has no channel for one. Stable tags only.
-    if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
+    if: ${{ !failure() && !cancelled() && !contains(inputs.tag || github.ref_name, '-') }}
 
     steps:
       - name: Check out the tag
