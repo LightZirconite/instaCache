@@ -16,6 +16,9 @@ var LABELS = {
     repost: ["Republier"],
     storyPause: ["Mettre en pause"],
     storyPlay: ["Lire"],
+    // As captured, the one feminine and the other not.
+    storyNext: ["Suivant"],
+    storyPrevious: ["Précédente"],
     alsoFromMeta: ["Also from Meta", "Autres applications Meta"]
 };
 

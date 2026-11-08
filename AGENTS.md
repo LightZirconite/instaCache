@@ -590,10 +590,11 @@ can change how the page starts instead of repairing it afterwards.
   and F11 in the scene ask the page to leave its full screen
   (`leaveFullScreen`): setting the window alone left the page believing it
   was still in it.
-- **The wheel over an open story sends Instagram its own arrow keys**, which
-  it answers on a story, rather than pressing buttons whose labels are not
-  captured yet. Whether the real page takes a dispatched key the way it
-  takes a typed one is the owner's to confirm.
+- **The wheel over an open story presses Instagram's arrows**, "Suivant"
+  and "Précédente" (`div[role=button]`, captured on the owner's open story,
+  beside "Mettre en pause", "Le son est coupé", "J’aime", "Direct", "Menu"
+  and "Fermer"). Where no button is found — a language not captured yet —
+  it sends the arrow key Instagram answers on a story instead.
 - **The volume is the page's to remember.** `+` and `-` set it, and it is
   kept in the page's `localStorage` (`instacache:video-volume`), which is
   the profile's: no channel back into Rust, which a page could also write

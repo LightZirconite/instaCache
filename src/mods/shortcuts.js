@@ -413,11 +413,21 @@ onPageChange(function () {
 
 // The wheel over an open story goes to the next story, or back to the one
 // before: one story for one turn of the wheel, however many events a
-// touchpad sends for it. The step is Instagram's own arrow keys, which it
-// already answers on a story; the wheel has to rest for `QUIET_MS` before it
-// can move another story.
+// touchpad sends for it. The step presses Instagram's own arrow button —
+// "Suivant", "Précédente", captured on the owner's open story — and sends
+// the arrow key Instagram answers on a story where the button is not found,
+// as in a language whose labels are not captured yet. The wheel has to rest
+// for `QUIET_MS` before it can move another story.
 var QUIET_MS = 250;
 var wheelSum = 0, wheelLocked = false, wheelQuiet = null;
+
+function step(forward) {
+    var button = control(document, forward ? LABELS.storyNext : LABELS.storyPrevious);
+    if (button)
+        button.click();
+    else
+        arrow(forward ? "ArrowRight" : "ArrowLeft");
+}
 
 function arrow(key) {
     var event = new KeyboardEvent("keydown", { key: key, code: key, bubbles: true, cancelable: true });
@@ -443,7 +453,7 @@ document.addEventListener("wheel", function (event) {
     if (Math.abs(wheelSum) < 40)
         return;
     wheelLocked = true;
-    arrow(wheelSum > 0 ? "ArrowRight" : "ArrowLeft");
+    step(wheelSum > 0);
 }, { passive: false });
 
 // The wheel over a row that scrolls sideways — the stories at the top of the
