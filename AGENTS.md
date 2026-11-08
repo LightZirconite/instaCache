@@ -489,8 +489,14 @@ can change how the page starts instead of repairing it afterwards.
   or not. A label in no list means the control is not found and nothing is
   pressed, which is the failure to want. To capture more, run in a browser
   console on the page: every `svg[aria-label]` with the role of its
-  clickable ancestor. Logged-out post pages (`/p/<id>/`) show the post's
-  controls; stories and the side bar need an account.
+  clickable ancestor, and every element that overflows sideways. Logged-out
+  post pages (`/p/<id>/`) show the post's controls; stories and the side bar
+  need an account, so the owner runs it. That is how the French "Also from
+  Meta" turned out to be "Autres applications Meta", which the mod had been
+  missing, and how the stories row turned out to be a plain sideways scroll
+  container — so the wheel moves it, where Instagram's arrow misses every
+  other click. Serve a test page with `<meta charset="utf-8">`, or its
+  accented labels arrive mangled and look like a bug in the mod.
 - **Press Instagram's own switch rather than working around it.**
   `videos_with_sound` once set `muted = false` on the element: the first video
   had sound under an icon that said muted, and the next video started muted.
