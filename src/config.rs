@@ -105,9 +105,11 @@ pub struct Config {
     /// On for Instagram and off for another site by default.
     pub ambient_colors: bool,
     /// The mod that brings the phone's gestures and a few keys to the page:
-    /// a double-click likes, as a double tap does; `L` likes, `M` turns the
-    /// sound on or off, `C` opens the comments and `S` saves. Space is left to
-    /// Instagram, which uses it for the next reel.
+    /// a double-click likes, as a double tap does, and Shift with it reposts;
+    /// Space twice likes the reel being watched while one Space still goes to
+    /// the next; Enter twice likes; `L` likes, `R` reposts, `M` turns the
+    /// sound on or off, `C` opens the comments, `S` saves; a click on a story
+    /// pauses it or plays it again.
     ///
     /// On for Instagram and off for another site by default.
     pub shortcuts: bool,

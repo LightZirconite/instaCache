@@ -1,16 +1,20 @@
 // What the mods share: Instagram's words for the controls they look for, and
 // ways of finding things in a page whose class names change at every build.
 //
-// Every label here was read off instagram.com, in English and in French —
-// "Also from Meta" from the owner's own window — not guessed. A control whose
-// label is in no list is simply not found, and the mod that wanted it does
-// nothing rather than click something else.
+// Every label here was read off instagram.com — logged out, in English and in
+// French, or in the owner's own logged-in window — not guessed. A control
+// whose label is in no list is simply not found, and the mod that wanted it
+// does nothing rather than click something else. Note the apostrophe in the
+// French labels: it is U+2019, not the ASCII one.
 var LABELS = {
     audioMuted: ["Audio is muted", "Le son est coupé"],
     audioPlaying: ["Audio is playing", "L’audio est en cours de lecture"],
     like: ["Like", "J’aime"],
     comment: ["Comment", "Commenter"],
     save: ["Save", "Enregistrer"],
+    repost: ["Republier"],
+    storyPause: ["Mettre en pause"],
+    storyPlay: ["Lire"],
     alsoFromMeta: ["Also from Meta"]
 };
 
@@ -26,14 +30,21 @@ function control(root, labels) {
     return null;
 }
 
-// The post a picture or a video belongs to: the nearest ancestor that also
-// holds a Comment button, which every post has whether or not it is liked.
+// The post — or story — a picture or a video belongs to: the nearest
+// ancestor that also holds its Comment or Like button. A post has a Comment
+// button whether or not it is liked; a story has no Comment button, and its
+// Like button says "Like" until it is liked.
+var POST_MARKS = LABELS.comment.concat(LABELS.like);
 function postOf(media) {
     for (var e = media, depth = 0; e && depth < 16; e = e.parentElement, depth++) {
-        if (control(e, LABELS.comment))
+        if (control(e, POST_MARKS))
             return e;
     }
     return null;
+}
+
+function onStory() {
+    return location.pathname.indexOf("/stories/") === 0;
 }
 
 function isMedia(e) {

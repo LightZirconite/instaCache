@@ -491,8 +491,13 @@ can change how the page starts instead of repairing it afterwards.
   Instagram keeps one sound switch for every video; the mod presses its
   speaker button once (a synthetic `click()` works — measured on the real
   page), and the element is unmuted directly only when no button is found.
-  The shortcuts likewise press Like, Comment and Save. Space is not taken:
-  on Reels it is Instagram's way to the next reel.
+  The shortcuts likewise press Like, Repost, Comment, Save and a story's
+  pause button. One Space is never taken — on Reels it is Instagram's way to
+  the next reel — but a second Space within 350 ms likes the reel that was in
+  view at the first, and is itself kept from Instagram (the listener is in
+  the capture phase on `window`, ahead of Instagram's), or the pair would
+  skip a reel. A double-click is two clicks first: on a story it pauses and
+  plays again, and the like still lands.
 - **`WebEngineScript` is a value type in Qt 6.** `WebEngine.script()` makes
   one and `userScripts.insert()` takes it; declaring one in QML is what once
   stopped the scene loading. Measured on 6.4: a script inserted this way runs

@@ -539,7 +539,7 @@ Window {
                 "                onTriggered: root.toggleSetting('page_animations')\n" +
                 "            }\n" +
                 "            MenuItem {\n" +
-                "                text: 'Shortcuts (double-click, L, M, C, S)'; checkable: true\n" +
+                "                text: 'Shortcuts (double-click, Space Space, L, R, M, C, S)'; checkable: true\n" +
                 "                checked: root.settingIsOn('shortcuts')\n" +
                 "                onTriggered: root.toggleSetting('shortcuts')\n" +
                 "            }\n" +

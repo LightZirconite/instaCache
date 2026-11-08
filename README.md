@@ -102,7 +102,7 @@ page.
 | `video_volume` | `40` | The volume, from 0 to 100, that `videos_with_sound` starts a video at. |
 | `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black, a little differently on each kind of page, with thin scroll bars. |
 | `ambient_colors` | `true`¹ | With `instagram_colors`, the background takes on the colour of the picture or video in view. |
-| `shortcuts` | `true`¹ | Double-click a picture or video to like it; `L` like, `M` sound, `C` comments, `S` save. |
+| `shortcuts` | `true`¹ | Double-click a picture or video to like it, Shift+double-click to repost; Space twice likes the reel you were on, Enter twice likes; `L` like, `R` repost, `M` sound, `C` comments, `S` save; a click pauses a story. |
 | `hide_also_from_meta` | `true`¹ | Hide "Also from Meta" from Instagram's side bar. |
 | `page_animations` | `true`¹ | Dialogs and pictures fade in. Off wherever the desktop asks for reduced motion. |
 | `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". |
