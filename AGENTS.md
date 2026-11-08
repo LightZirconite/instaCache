@@ -108,7 +108,6 @@ The mods are built in: no marketplace, no mod loader for other people's code.
 Instagram first. XCache ships as the one extra site and `--add-site` stays a
 one-line command, but instaCache is not a launcher or a store for wrapping
 arbitrary sites, and work goes into Instagram before it goes anywhere else.
-Linux only, for now: Instagram has its own app on Windows and none here.
 
 ## Non-negotiables
 
