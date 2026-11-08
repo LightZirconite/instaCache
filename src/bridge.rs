@@ -799,15 +799,15 @@ impl Shell {
             return;
         };
         alerts.show(alerts::Toast {
-            // One tag for all of them: a second "2 new messages" replaces the
-            // first rather than piling up behind it.
-            tag: "instacache-unread".to_string(),
+            // A nudge, so it waits a moment for Instagram's push and gives
+            // way to it; `alerts` gives every nudge the same tag.
+            tag: String::new(),
             title: unread_summary(arrived),
             // Nobody is named: the count is all the title said. Instagram's
             // own notification, when one is pushed, carries the sender.
             body: String::new(),
             clickable: true,
-            kind: alerts::Kind::Message,
+            kind: alerts::Kind::Nudge,
             sound: config.notification_sounds,
             key: 0,
         });

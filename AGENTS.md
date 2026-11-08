@@ -772,6 +772,24 @@ after that the count only ever *pings* over a window in front, never posts.
 The twenty-second echo window is not enough on its own: a backgrounded page is
 throttled by Chromium and can update its title minutes after the push landed.
 
+**Instagram repeats itself too.** A real inbox showed two notifications for
+one arrival, both from Instagram: "You have unseen notifications." beside the
+message. A notification that says only that something arrived is a `Nudge` —
+Instagram's, and instaCache's own count-derived "New message" — and
+`Coalescer` in `alerts.rs` tells each arrival once: a nudge waits four seconds
+for the notification that names the sender and is dropped when it comes; a
+nudge within twenty seconds after one is an echo; a nudge already on screen
+is taken off when the detailed one follows. All nudges share one tag, so they
+replace each other rather than stack.
+
+**An unsent message leaves nothing behind.** Instagram re-posts the message's
+notification under the same tag as "This message is no longer available
+because it was unsent by the sender." That is `Kind::Unsent`: the notification
+under that tag is closed, and nothing replaces it.
+
+Both are recognised by their words, captured from a real account, in English
+only so far; the rule in the next section applies to extending them.
+
 ## Instagram does not say "call" in any language you guessed
 
 `alerts::classify` reads `CALL_PHRASES` out of the notification's words

@@ -42,6 +42,14 @@ pub enum Kind {
     Plain,
     /// Something a page sent, such as a new message.
     Message,
+    /// Says only that something arrived, and not what or from whom:
+    /// Instagram's "You have unseen notifications.", or instaCache's own
+    /// "New message" read off the unread count. Held back for a moment and
+    /// dropped if a notification that says more arrives — see `Coalescer`.
+    Nudge,
+    /// The page took a message back: its notification is closed, and nothing
+    /// is shown in its place.
+    Unsent,
     /// An incoming call. Rings.
     Call,
 }
@@ -157,6 +165,16 @@ const RING_LIMIT: Duration = Duration::from_secs(30);
 /// The silence between two rings.
 const RING_PAUSE: Duration = Duration::from_millis(900);
 
+/// How long a nudge waits for the notification that says more, before it is
+/// shown on its own.
+const NUDGE_GRACE: Duration = Duration::from_secs(4);
+/// How close a nudge and a detailed notification must be to count as one
+/// arrival told twice.
+const NUDGE_ECHO: Duration = Duration::from_secs(20);
+/// Every nudge is posted under this one tag, so a second replaces the first
+/// rather than piling up behind it.
+const NUDGE_TAG: &str = "instacache-nudge";
+
 /// How many notifications are kept track of. A server that keeps them in a
 /// history may never say they closed; past this, the oldest is let go of. It
 /// can still be clicked, and then only raises the window.
@@ -183,6 +201,7 @@ pub fn spawn(identity: Identity, report: impl Fn(Outcome) + Send + 'static) -> A
             ring,
             commands,
             registry: Registry::default(),
+            coalescer: Coalescer::default(),
             server: None,
         }
         .run(command_rx)
@@ -211,12 +230,34 @@ struct Notifier {
     /// Handed to the listener, which feeds the server's signals back in.
     commands: Sender<Request>,
     registry: Registry,
+    coalescer: Coalescer,
     server: Option<Server>,
 }
 
 impl Notifier {
     fn run(mut self, commands: Receiver<Request>) {
-        while let Ok(command) = commands.recv() {
+        loop {
+            // A held nudge sets how long to wait: when it is due, it is shown.
+            let command = match self.coalescer.due() {
+                Some(due) => {
+                    match commands.recv_timeout(due.saturating_duration_since(Instant::now())) {
+                        Ok(command) => command,
+                        Err(RecvTimeoutError::Timeout) => {
+                            if let Some(toast) = self.coalescer.release(Instant::now()) {
+                                if let Some(id) = self.post(toast) {
+                                    self.coalescer.nudge_shown(id, Instant::now());
+                                }
+                            }
+                            continue;
+                        }
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                None => match commands.recv() {
+                    Ok(command) => command,
+                    Err(_) => return,
+                },
+            };
             match command {
                 Request::Show(toast) => self.show(toast),
                 Request::Ping => {
@@ -277,18 +318,54 @@ impl Notifier {
         self.server.as_ref()
     }
 
-    fn show(&mut self, toast: Toast) {
+    /// Decides what a notification becomes — shown now, held as a nudge,
+    /// dropped as an echo, or a withdrawal — and posts it if it is shown.
+    fn show(&mut self, mut toast: Toast) {
+        let now = Instant::now();
+        match toast.kind {
+            Kind::Unsent => {
+                // Instagram re-posts an unsent message's notification under
+                // the same tag to say it is gone. Gone is what the desktop
+                // should show: nothing.
+                if let Some(id) = self.registry.showing(&toast.tag) {
+                    self.retract(id);
+                }
+                self.forget(toast.key);
+                return;
+            }
+            Kind::Nudge => {
+                toast.tag = NUDGE_TAG.to_string();
+                for key in self.coalescer.nudge(toast, now) {
+                    self.forget(key);
+                }
+                return;
+            }
+            Kind::Message | Kind::Call => {
+                let (dropped, shown_nudge) = self.coalescer.detailed(now);
+                for key in dropped {
+                    self.forget(key);
+                }
+                if let Some(id) = shown_nudge {
+                    self.retract(id);
+                }
+            }
+            Kind::Plain => {}
+        }
+        self.post(toast);
+    }
+
+    /// Puts a notification on the desktop, and returns the id the server
+    /// gave it.
+    fn post(&mut self, toast: Toast) -> Option<u32> {
         // A repeat under a tag we are already showing replaces that one.
         // Without this a ringing call, which Instagram re-posts every few
         // seconds, fills the screen with copies of itself.
         let replaces = self.registry.showing(&toast.tag).unwrap_or(0);
         if self.server().is_none() {
             self.failed(&toast);
-            return;
+            return None;
         }
-        let Some(server) = self.server.as_ref() else {
-            return;
-        };
+        let server = self.server.as_ref()?;
 
         let mut hints: HashMap<&str, Value> = HashMap::new();
         hints.insert(
@@ -296,8 +373,8 @@ impl Notifier {
             Value::from(self.identity.desktop_entry.as_str()),
         );
         match toast.kind {
-            Kind::Plain => {}
-            Kind::Message => {
+            Kind::Plain | Kind::Unsent => {}
+            Kind::Message | Kind::Nudge => {
                 hints.insert("category", Value::from("im.received"));
                 if toast.sound {
                     if server.plays_sounds {
@@ -359,11 +436,40 @@ impl Notifier {
                 ) {
                     (self.report)(Outcome::Forgotten(key));
                 }
+                Some(id)
             }
             Err(error) => {
                 eprintln!("instacache: could not post a notification: {error}");
                 self.failed(&toast);
+                None
             }
+        }
+    }
+
+    /// Takes one of our notifications off the desktop because a later one
+    /// made it pointless. The scene lets go of the page notification behind
+    /// it, which was neither clicked nor dismissed.
+    fn retract(&mut self, id: u32) {
+        let Some(entry) = self.registry.take(id) else {
+            return;
+        };
+        if let Some(server) = self.server.as_ref() {
+            let _ = server.connection.call_method(
+                Some(DESTINATION),
+                PATH,
+                Some(INTERFACE),
+                "CloseNotification",
+                &(id),
+            );
+        }
+        self.forget(entry.key);
+    }
+
+    /// A page notification that will never be shown or will never be heard
+    /// of again: the scene can let go of it.
+    fn forget(&self, key: u32) {
+        if key != 0 {
+            (self.report)(Outcome::Forgotten(key));
         }
     }
 
@@ -538,6 +644,75 @@ impl Registry {
     }
 }
 
+/// One arrival, told once.
+///
+/// Instagram often says the same thing twice: "You have unseen
+/// notifications." beside the message itself, and instaCache's count of
+/// unread messages can rise just before Instagram's push lands. Both are
+/// nudges — they say something arrived and no more — and the notification
+/// that names the sender is the one worth keeping. So a nudge waits
+/// `NUDGE_GRACE` for that notification before it is shown; one that comes
+/// within `NUDGE_ECHO` after it is dropped; and a nudge already on screen is
+/// taken off when the detailed one follows it.
+///
+/// Kept apart from D-Bus and the clock, so the rules can be tested.
+#[derive(Default)]
+struct Coalescer {
+    /// The nudge waiting to be shown, and when.
+    held: Option<(Toast, Instant)>,
+    /// When the last detailed notification was shown.
+    detailed_at: Option<Instant>,
+    /// The nudge on screen, by its desktop id, and when it went up.
+    shown: Option<(u32, Instant)>,
+}
+
+impl Coalescer {
+    /// When the held nudge is due, if one is held.
+    fn due(&self) -> Option<Instant> {
+        self.held.as_ref().map(|(_, due)| *due)
+    }
+
+    /// A nudge arrived. Returns the keys of the page notifications that will
+    /// never be shown: this one, if it is an echo, or the one it replaces.
+    fn nudge(&mut self, toast: Toast, now: Instant) -> Vec<u32> {
+        if self
+            .detailed_at
+            .is_some_and(|at| now.saturating_duration_since(at) < NUDGE_ECHO)
+        {
+            return vec![toast.key];
+        }
+        let replaced = self.held.replace((toast, now + NUDGE_GRACE));
+        replaced.map(|(old, _)| old.key).into_iter().collect()
+    }
+
+    /// A detailed notification is about to be shown. Returns the keys of the
+    /// held nudge it makes pointless, and the desktop id of a nudge on screen
+    /// to take off.
+    fn detailed(&mut self, now: Instant) -> (Vec<u32>, Option<u32>) {
+        self.detailed_at = Some(now);
+        let dropped = self.held.take().map(|(old, _)| old.key);
+        let shown = self
+            .shown
+            .take()
+            .filter(|(_, at)| now.saturating_duration_since(*at) < NUDGE_ECHO)
+            .map(|(id, _)| id);
+        (dropped.into_iter().collect(), shown)
+    }
+
+    /// The held nudge, if its time has come.
+    fn release(&mut self, now: Instant) -> Option<Toast> {
+        if self.due().is_some_and(|due| due <= now) {
+            self.held.take().map(|(toast, _)| toast)
+        } else {
+            None
+        }
+    }
+
+    fn nudge_shown(&mut self, id: u32, now: Instant) {
+        self.shown = Some((id, now));
+    }
+}
+
 /// The body as markup that says exactly what the text said. The spec allows a
 /// handful of tags and entities; a server that reads them would take `<3`
 /// for the start of a tag.
@@ -708,13 +883,26 @@ const CALL_PHRASES: &[&str] = &[
     "chiamata in arrivo",
 ];
 
+/// What Instagram posts when it says only that something is waiting.
+///
+/// Captured from a real account, not guessed, like everything in these
+/// lists; another language is added once its words have been seen. See
+/// "Instagram does not say "call" in any language you guessed" in AGENTS.md.
+const NUDGE_PHRASES: &[&str] = &["you have unseen notifications"];
+
+/// What Instagram posts, under the message's own tag, when its sender unsent
+/// it. Captured from a real account.
+const UNSENT_PHRASES: &[&str] = &["was unsent by the sender"];
+
 /// What a page's notification is.
 pub fn classify(title: &str, body: &str, ring_for_calls: bool) -> Kind {
-    if !ring_for_calls {
-        return Kind::Message;
-    }
     let text = format!("{title} {body}").to_lowercase();
-    if CALL_PHRASES.iter().any(|phrase| text.contains(phrase)) {
+    let says = |phrases: &[&str]| phrases.iter().any(|phrase| text.contains(phrase));
+    if says(UNSENT_PHRASES) {
+        Kind::Unsent
+    } else if says(NUDGE_PHRASES) {
+        Kind::Nudge
+    } else if ring_for_calls && says(CALL_PHRASES) {
         Kind::Call
     } else {
         Kind::Message
@@ -822,11 +1010,100 @@ mod tests {
     #[test]
     fn our_own_notifications_are_never_reported_to_the_scene() {
         let mut registry = Registry::default();
-        registry.record(1, entry(0, "instacache-unread"));
+        registry.record(1, entry(0, NUDGE_TAG));
+        assert_eq!(registry.record(2, entry(0, NUDGE_TAG)), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn what_says_nothing_and_what_takes_back_are_told_apart() {
         assert_eq!(
-            registry.record(2, entry(0, "instacache-unread")),
-            Vec::<u32>::new()
+            classify("Instagram", "You have unseen notifications.", true),
+            Kind::Nudge
         );
+        assert_eq!(
+            classify(
+                "Instagram",
+                "This message is no longer available because it was unsent by the sender.",
+                true
+            ),
+            Kind::Unsent
+        );
+        // Neither depends on ringing being switched on.
+        assert_eq!(
+            classify("Instagram", "You have unseen notifications.", false),
+            Kind::Nudge
+        );
+        assert_eq!(
+            classify("Instagram", "anna: on se voit ?", true),
+            Kind::Message
+        );
+    }
+
+    fn toast(key: u32) -> Toast {
+        Toast {
+            title: String::new(),
+            body: String::new(),
+            clickable: true,
+            kind: Kind::Nudge,
+            sound: true,
+            tag: String::new(),
+            key,
+        }
+    }
+
+    #[test]
+    fn a_nudge_waits_and_gives_way_to_the_message_it_announced() {
+        let start = Instant::now();
+        let mut c = Coalescer::default();
+        assert!(c.nudge(toast(1), start).is_empty());
+        assert_eq!(c.due(), Some(start + NUDGE_GRACE));
+        assert!(c.release(start).is_none(), "not due yet");
+
+        let (dropped, shown) = c.detailed(start + Duration::from_secs(1));
+        assert_eq!(dropped, vec![1], "the held nudge is let go of");
+        assert_eq!(shown, None);
+        assert_eq!(c.due(), None, "and nothing is left to show");
+    }
+
+    #[test]
+    fn a_nudge_after_the_message_is_an_echo() {
+        let start = Instant::now();
+        let mut c = Coalescer::default();
+        c.detailed(start);
+        assert_eq!(c.nudge(toast(2), start + Duration::from_secs(5)), vec![2]);
+        assert_eq!(c.due(), None);
+        // Long after, a nudge is news again.
+        assert!(c.nudge(toast(3), start + NUDGE_ECHO * 2).is_empty());
+        assert!(c.due().is_some());
+    }
+
+    #[test]
+    fn a_nudge_alone_is_shown_once_due_and_taken_off_by_a_late_message() {
+        let start = Instant::now();
+        let mut c = Coalescer::default();
+        c.nudge(toast(4), start);
+        let due = c.due().unwrap_or(start);
+        assert_eq!(c.release(due).map(|t| t.key), Some(4));
+        c.nudge_shown(77, due);
+
+        let (dropped, shown) = c.detailed(due + Duration::from_secs(3));
+        assert!(dropped.is_empty());
+        assert_eq!(shown, Some(77), "the nudge on screen is taken off");
+
+        // One that has been up for a while stays: it was its own arrival.
+        c.nudge_shown(78, due);
+        let (_, shown) = c.detailed(due + NUDGE_ECHO * 2);
+        assert_eq!(shown, None);
+    }
+
+    #[test]
+    fn a_second_nudge_replaces_the_one_still_held() {
+        let start = Instant::now();
+        let mut c = Coalescer::default();
+        c.nudge(toast(5), start);
+        assert_eq!(c.nudge(toast(6), start + Duration::from_secs(1)), vec![5]);
+        let due = c.due().unwrap_or(start);
+        assert_eq!(c.release(due).map(|t| t.key), Some(6));
     }
 
     #[test]
