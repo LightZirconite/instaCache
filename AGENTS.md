@@ -413,6 +413,14 @@ instantiate leaves a process that runs happily for as long as you let it,
 prints nothing at all — not one line — and never shows a window. It looks like
 a hang, or like the page failing to load, and it is neither.
 
+The cheapest way to cause it: a word Qt 6.4's JavaScript still reserves, used
+as a name. `function rest(long)` shipped in 2.8.0, parsed on the newer Qt of
+the reference machine, and left 6.4 — Debian 12, Ubuntu 24.04, the baseline —
+with no window at all. `long`, `int`, `short`, `byte`, `char`, `float`,
+`double`, `final`, `native`, `synchronized`, `throws`, `transient`,
+`volatile`, `goto`, `abstract`, `boolean`: none of them as a name. Running
+the scene tests on 6.4 is what catches it.
+
 If a change to `main.qml` produces silence, assume the scene did not build.
 Bisect by removing what you added rather than by adding logging, because your
 logging will not run either.

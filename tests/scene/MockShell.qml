@@ -36,9 +36,9 @@ QtObject {
     // when closed for long, never past what the view recommends, never a
     // call.
     property var lifecycles: []
-    function lifecycle_when_hidden(long, recommended, inCall) {
+    function lifecycle_when_hidden(forLong, recommended, inCall) {
         var order = ["Active", "Frozen", "Discarded"];
-        var wanted = inCall ? 0 : (long ? 2 : 1);
+        var wanted = inCall ? 0 : (forLong ? 2 : 1);
         var limit = Math.max(0, order.indexOf(recommended));
         var name = order[Math.min(wanted, limit)];
         lifecycles = lifecycles.concat([name]);

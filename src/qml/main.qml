@@ -275,8 +275,9 @@ Window {
         }
     }
 
-    // `long`: closed for long enough to discard.
-    function rest(long) {
+    // `forLong`: closed for long enough to discard. Not `long`, which Qt 6.4's
+    // JavaScript still reserves: the scene would not load at all there.
+    function rest(forLong) {
         if (!root.backgrounded)
             return;
         var views = root.allViews();
@@ -286,7 +287,7 @@ Window {
             if (v.lifecycleState === WebEngineView.LifecycleState.Discarded)
                 continue;
             var wanted = root.lifecycleValue(shell.lifecycle_when_hidden(
-                long, root.lifecycleName(v.recommendedState),
+                forLong, root.lifecycleName(v.recommendedState),
                 v !== view && v.inCall));
             if (v.lifecycleState !== wanted)
                 v.lifecycleState = wanted;
