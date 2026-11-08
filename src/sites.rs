@@ -434,30 +434,11 @@ pub fn add(
         crate::config::write(&config_file, &config).map_err(|err| err.to_string())?;
     }
 
-    // The icon lives in the profile's config directory rather than in the icon
-    // theme, and the entry points at it by absolute path, which the desktop
-    // entry specification allows. That keeps a site's icon out of the shared
-    // theme -- where it would need a size-matched directory and would outlive
-    // an uninstall -- and it means clearing the session or the cache never
-    // takes the icon with it.
     let icon_path = match icon {
         Some(path) => Some(install_icon_file(&paths, Path::new(path))?),
-        None => fetch_icon(url).and_then(|(bytes, ext)| {
-            let target = paths.config.join(format!("icon.{ext}"));
-            std::fs::write(&target, bytes).ok().map(|()| target)
-        }),
+        None => fetch_site_icon(&paths, url),
     };
-    let icon_entry = match icon_path.as_ref() {
-        Some(path) => {
-            let bytes = std::fs::read(path).unwrap_or_default();
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            install_theme_icon(&profile, &bytes, &ext, path)
-        }
-        None => ICON_NAME.to_string(),
-    };
+    let icon_entry = theme_icon_entry(&profile, icon_path.as_deref());
 
     let entry = desktop_file(&profile);
     if let Some(parent) = entry.parent() {
@@ -481,6 +462,86 @@ pub fn add(
 /// Copies a hand-picked icon into the profile, refusing anything that is not
 /// an image a desktop can draw -- an entry pointing at a text file shows no
 /// icon at all, with nothing to say why.
+/// Downloads the site's icon into the profile's config directory, which is
+/// the copy that is kept: clearing the session or the cache never takes it,
+/// and the theme copy is made from it.
+fn fetch_site_icon(paths: &Paths, url: &str) -> Option<PathBuf> {
+    let (bytes, ext) = fetch_icon(url)?;
+    let target = paths.config.join(format!("icon.{ext}"));
+    std::fs::write(&target, bytes).ok().map(|()| target)
+}
+
+/// The icon a profile has kept, if any.
+fn saved_icon(paths: &Paths) -> Option<PathBuf> {
+    ["png", "svg", "ico", "jpg", "webp"]
+        .iter()
+        .map(|ext| paths.config.join(format!("icon.{ext}")))
+        .find(|path| path.is_file())
+}
+
+/// What `Icon=` says for a site: its own icon installed into the theme under
+/// the site's name, or instaCache's when it has none.
+fn theme_icon_entry(profile: &str, icon: Option<&Path>) -> String {
+    match icon {
+        Some(path) => {
+            let bytes = std::fs::read(path).unwrap_or_default();
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            install_theme_icon(profile, &bytes, &ext, path)
+        }
+        None => ICON_NAME.to_string(),
+    }
+}
+
+/// The `Name=` of a menu entry, so rewriting it keeps what the user called
+/// the site.
+fn entry_name(entry: &str) -> Option<&str> {
+    entry
+        .lines()
+        .find_map(|line| line.strip_prefix("Name="))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+}
+
+/// Rewrites every site's menu entry in the current format, and puts its icon
+/// back into the theme — fetching it again if it never arrived. Returns the
+/// sites whose entry changed.
+///
+/// An entry is written once, by `--add-site` or the first install, and
+/// nothing rewrote it afterwards: a site added by an older version kept that
+/// version's entry for good, through every fix to how an entry and its icon
+/// are made. A site whose window sat in the task bar under instaCache's icon
+/// stayed that way. `install.sh` runs this at every install and update.
+pub fn refresh_existing() -> Vec<String> {
+    let mut changed = Vec::new();
+    for profile in list() {
+        let entry = desktop_file(&profile);
+        let Ok(old) = std::fs::read_to_string(&entry) else {
+            continue;
+        };
+        let paths = Paths::for_profile(&profile);
+        let icon = saved_icon(&paths).or_else(|| {
+            let home = Config::load_or_create(&paths).home_url;
+            fetch_site_icon(&paths, &home)
+        });
+        let name = entry_name(&old).unwrap_or(&profile).to_string();
+        let new = desktop_entry(
+            &name,
+            &profile,
+            &exec_command(),
+            &theme_icon_entry(&profile, icon.as_deref()),
+        );
+        if new != old && std::fs::write(&entry, new).is_ok() {
+            changed.push(profile);
+        }
+    }
+    // The icons went back into the theme whether or not an entry changed.
+    refresh_desktop_database(&applications_dir());
+    changed
+}
+
 fn install_icon_file(paths: &Paths, source: &Path) -> Result<PathBuf, String> {
     let bytes = std::fs::read(source)
         .map_err(|err| format!("could not read {}: {err}", source.display()))?;
@@ -714,6 +775,15 @@ mod tests {
         // icon lands in a directory that claims a size it does not have.
         assert_eq!(png_dimensions(b"<svg/>"), None);
         assert_eq!(png_dimensions(&[0u8; 4]), None);
+    }
+
+    #[test]
+    fn rewriting_an_entry_keeps_the_name_it_was_given() {
+        let entry = desktop_entry("My X", "xcache", "/usr/bin/instacache", "instacache-xcache");
+        assert_eq!(entry_name(&entry), Some("My X"));
+        assert_eq!(entry_name("[Desktop Entry]\nName=\n"), None);
+        // `GenericName=` is not the name.
+        assert_eq!(entry_name("GenericName=Web\nName=X\n"), Some("X"));
     }
 
     #[test]

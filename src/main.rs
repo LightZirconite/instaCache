@@ -102,6 +102,9 @@ instacache --profile {}",
             for profile in sites::ensure_defaults() {
                 println!("Added `{profile}` to your application menu.");
             }
+            for profile in sites::refresh_existing() {
+                println!("Brought `{profile}`'s menu entry and icon up to date.");
+            }
             return ExitCode::SUCCESS;
         }
         Mode::ListSites => {
@@ -477,8 +480,9 @@ OPTIONS:
                            Take a site out of the menu. Its data is kept.
         --list-sites       Show the sites currently in the menu.
         --setup-sites      Add the sites instaCache ships with, skipping any
-                           that already exist or that you removed. Run by the
-                           installer; harmless to run again.
+                           that already exist or that you removed, and bring
+                           every site's menu entry and icon up to date. Run by
+                           the installer; harmless to run again.
         --update           Check for a newer release and install it.
         --background       Start with the window hidden. Launching again shows it.
         --clear-cache      Delete the cached resources, keep the session.

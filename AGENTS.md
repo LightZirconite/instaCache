@@ -182,6 +182,15 @@ on purpose — if they ever disagree, the task bar cannot tell which application
 the window belongs to. The default profile still returns plain `instacache`,
 which is what keeps the shipped entry correct.
 
+A site's entry is written once, and was never rewritten: a site added by an
+older version kept that version's entry and icon through every fix, and its
+window sat in the task bar under instaCache's icon — the icon theme falls back
+from `instacache-xcache` to `instacache` by itself when the first is missing.
+`--setup-sites`, which `install.sh` runs at every install and update, now
+rewrites every site's entry in the current format and puts its icon back in
+the theme, fetching it again if it never arrived (`sites::refresh_existing`).
+A change to `desktop_entry` therefore reaches every existing site.
+
 ### The name the compositor actually reads
 
 `QCoreApplication::setApplicationName` is **not** what sets the Wayland

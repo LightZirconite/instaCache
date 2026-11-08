@@ -398,7 +398,8 @@ ok "using $BINARY"
 # its own session. The binary decides whether to add it: a site whose profile
 # already exists is left alone, which matters because this script runs again on
 # every update -- without that rule, a site somebody removed would come back
-# every time they updated.
+# every time they updated. The sites already in the menu get their entry and
+# icon rewritten in the current format, so a fix to either reaches them.
 setup_sites() {
     "$BIN_DIR/$APP" --setup-sites 2>/dev/null | while read -r line; do
         [ -n "$line" ] && ok "$line"
