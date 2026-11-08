@@ -5,6 +5,10 @@ repository. It is also the project's memory between sessions, and it is kept
 that way by whoever works here; see the first rule below. If a rule can be
 enforced by CI instead, enforce it there.
 
+This is the only instruction file. Claude Code reads `AGENTS.md` by itself when
+no `CLAUDE.md` exists, and ignores it when one does unless that file imports
+it — so do not add a `CLAUDE.md`, and do not split rules into a second file.
+
 ## How to work here
 
 These come from the owner and apply to every session, before anything else in
@@ -40,6 +44,16 @@ and pushed — not when the code compiles, and not with work left uncommitted
 in the tree. Commit each part as soon as it is validated, with Conventional
 Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `style:`). No `Co-authored-by`
 trailer and no line naming an AI tool in a commit message.
+
+**The owner works on `main`, with no pull requests.** The project is small
+enough that a branch and a review add nothing: an agent working for the owner
+commits on `main` and pushes to `main` directly — no feature branch, no pull
+request, even if a session's tooling suggests one. The checks above are the
+gate, and CI runs on every push. Anyone without push access to this repository
+has no such route, and contributes through a pull request as usual.
+
+**A release is cut only when the owner asks for one**, with
+`scripts/release.sh` (see "Releasing"). Pushing to `main` does not release.
 
 ### Not a yes-man
 
