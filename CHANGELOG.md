@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   puts it back. Nothing is sent to Instagram.
 - **The mouse wheel over an open story** goes to the next story, or back,
   one story for one turn of the wheel.
+- **The window's own title bar**, in the app's colours, instead of the
+  desktop's frame: the title, minimize, maximize and close, dragging and
+  double-clicking, and the edges to resize by (`own_title_bar`).
 - **Shortcuts and tips**: a card listing every shortcut and gesture, from
   `F1`, the tray menu, or the small `?` in the bottom corner.
 - **More motion in the window**: a page laid over Instagram sinks away when
@@ -36,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   never while a video plays, a page scrolls or you type.
 
 ### Fixed
+- **The tray's Mods menu works on KDE**: it was exported as an empty
+  sub-menu. The mods are now in the main menu, under a header, and switching
+  one applies it at once by loading Instagram again.
 - **Space glides to the next reel again** instead of jumping to it: Qt
   WebEngine turns off Chromium's smooth scrolling, so the move is now eased
   by the mod itself.

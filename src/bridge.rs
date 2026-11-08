@@ -115,6 +115,7 @@ pub struct Shell {
     discard_after_ms: qt_property!(i32; READ discard_after_ms),
     /// Whether to put an icon in the system tray while instaCache runs.
     tray_icon: qt_property!(bool; READ tray_icon),
+    own_title_bar: qt_property!(bool; READ own_title_bar),
     /// The icon theme name this profile's entry uses, for the tray icon.
     icon_name: qt_property!(QString; READ icon_name),
     /// Started with `--background`: the window begins hidden. What a quiet
@@ -279,6 +280,12 @@ pub struct Shell {
     set_setting: qt_method!(
         fn set_setting(&self, name: String, value: bool) {
             self.update_config(|config| write_setting(config, &name, value));
+        }
+    ),
+    /// Whether a switched setting only reaches the page by loading it again.
+    reloads_page: qt_method!(
+        fn reloads_page(&self, name: String) -> bool {
+            crate::mods::shapes_the_page(&name)
         }
     ),
     /// Whether instaCache starts with the desktop session. Read from the
@@ -671,6 +678,10 @@ impl Shell {
 
     fn tray_icon(&self) -> bool {
         self.config().tray_icon
+    }
+
+    fn own_title_bar(&self) -> bool {
+        self.config().own_title_bar
     }
 
     fn icon_name(&self) -> QString {

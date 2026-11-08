@@ -27,6 +27,7 @@ QtObject {
     property bool instagram_shortcuts: true
     property bool start_hidden: false
     property bool tray_icon: true
+    property bool own_title_bar: true
     property string icon_name: "instacache"
     property string user_stylesheet: ""
     property string user_script: ""
@@ -146,6 +147,7 @@ QtObject {
     function set_start_with_session(on) { autostart = on; return on; }
     function setting(name) { return settings[name] === true; }
     function set_setting(name, value) { settings[name] = value; }
+    function reloads_page(name) { return name === "shortcuts" || name === "videos_with_sound"; }
 
     // A stand-in for the built-in mods that leaves a mark, so a test can see
     // whether it ran, and how early.

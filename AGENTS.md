@@ -104,10 +104,16 @@ with the cache and session pinned to persistent XDG directories. The value is
 in the persistence and the desktop integration, not in any UI of our own.
 Resist adding chrome: what exists is the splash over a cold start, the
 loading bar, the back button shown over a page, the pills for a call and an
-update, the tray icon, and the card of shortcuts and tips with its dim `?`
-in the bottom corner, and each of those is there because the window has no
-other way to offer it. The card is the owner's request: gestures nobody can
-see are gestures nobody finds. It is also on `F1` and in the tray menu. The splash is drawn with `Canvas` from the same
+update, the tray icon, the card of shortcuts and tips with its dim `?` in
+the bottom corner, and the window's own title bar, and each of those is
+there because the window has no other way to offer it. The last two are the
+owner's requests: gestures nobody can see are gestures nobody finds (the
+card is also on `F1` and in the tray menu), and the desktop's frame made the
+window look like a browser rather than one application, as Discord's does
+not. The title bar sits above the page, never over it, in the page's colour;
+moving and resizing are handed to the compositor (`startSystemMove`,
+`startSystemResize`, both in Qt 6.4), the only way a Wayland client may do
+either. `own_title_bar: false` gives the desktop's frame back. The splash is drawn with `Canvas` from the same
 shapes as `assets/instacache.svg`, because an SVG image needs a Qt module a
 distribution may not install, and a missing one costs the whole scene. Change
 one and change the other.
@@ -158,10 +164,12 @@ below was checked against the real engine, not assumed; keep it true.
   posts, no private API calls. Moving to the next story, which tells the
   author it was seen, is one story for one turn of the wheel. That is why
   "mark every story as seen" is not built: it can only be done by acting
-  without the user. The owner asked for it; the risks — a pattern no person
-  makes, and authors shown a view of stories nobody watched — were put to
-  them, and it is built only on their explicit confirmation, and then only
-  from a click, at a person's pace.
+  without the user.
+- **A feature that puts the account at any risk is not built, even when it
+  is asked for.** The owner's own words, when the risks of marking every
+  story as seen were put to them: an account is a whole life, nobody wants
+  it banned, and what is strange or cannot be done safely is not done. Say
+  so when such a feature is requested, with the risk, and leave it out.
 - **A coherent browser, never a disguised one.** The user agent says Chrome
   on Linux at the engine's real Chromium version (`config::user_agent_for`),
   and `Accept-Language` is the session's language
@@ -647,8 +655,9 @@ can change how the page starts instead of repairing it afterwards.
   newer than that, such as `@starting-style`.
 - Mods are on for Instagram and off for another site by default, like the
   messenger settings below: they are written for Instagram's page.
-- Switching a mod in the tray reinstalls the script; it takes effect at the
-  next load, not in the page already running.
+- Switching a mod in the tray reinstalls the script and loads Instagram
+  again, so it takes effect at once (`reloads_page`). A switch that changed
+  nothing visible until the next load read as a menu that did nothing.
 
 Check a mod against a local page with the real binary rather than against
 Instagram: a page that creates the element the way Instagram does, attached
@@ -1176,6 +1185,12 @@ the security boundary of the app and `developer_tools` opens the inspector;
 neither belongs one click away in a menu. `Shell` holds its `Config` behind a
 `RefCell` for this, and `update_config` rewrites the whole `config.json`,
 which is what `load_or_create` already does on a first run.
+
+The menu is **flat**, the mods under a disabled "Mods" header. A `Menu`
+inside the tray's menu is exported over `com.canonical.dbusmenu` as a
+sub-menu with no children at all — measured on Qt 6.4 with `GetLayout`,
+before and after `AboutToShow` — so on KDE it opened empty and the owner's
+clicks on it did nothing. Do not nest menus there again.
 
 The menu itself is built from a **QML string**, because `Qt.labs.platform` may
 not be installed and a failed import in the scene would stop the window

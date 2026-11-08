@@ -393,6 +393,10 @@ pub struct Config {
     pub show_loading_indicator: bool,
     /// Open maximized the first time, and whenever no geometry has been saved.
     pub start_maximized: bool,
+    /// Draw the window's title bar in the app's own colours — the title, the
+    /// three buttons, dragging and double-clicking, the edges to resize by —
+    /// instead of the desktop's frame. `false` gives the frame back.
+    pub own_title_bar: bool,
     /// Check GitHub for a newer release and install it. Nothing else updates
     /// instaCache: it is installed from an archive, not by a package manager.
     pub auto_update: bool,
@@ -439,6 +443,7 @@ impl Default for Config {
             remember_window_state: true,
             show_loading_indicator: true,
             start_maximized: false,
+            own_title_bar: true,
             auto_update: true,
             update_check_interval_hours: DEFAULT_UPDATE_CHECK_HOURS,
         }

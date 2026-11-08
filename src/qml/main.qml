@@ -65,6 +65,8 @@ Window {
     visibility: shell.start_hidden ? Window.Hidden
               : geometry.maximized ? Window.Maximized : Window.Windowed
     visible: !shell.start_hidden
+    // Without the desktop's frame when the app draws its own title bar.
+    flags: shell.own_title_bar ? Qt.Window | Qt.FramelessWindowHint : Qt.Window
     // Instagram's dark background as the `instagram_colors` mod tints it, so
     // nothing changes colour between the splash, the window and the page.
     color: "#1e0c2c"
@@ -455,10 +457,16 @@ Window {
     }
 
     // Settings the tray may switch, by the names `bridge.rs` accepts.
+    // A mod's switch takes effect at once: the script is installed again and
+    // Instagram loads again to run it. A click that changed nothing visible
+    // read as a menu that did nothing.
     function toggleSetting(name) {
         shell.set_setting(name, !shell.setting(name));
         root.settingsRevision++;
-        root.installMods();
+        if (shell.reloads_page(name)) {
+            root.installMods();
+            view.reload();
+        }
     }
     // Bumped so the menu's bindings re-read `shell.setting`, which is a plain
     // method and notifies nothing on its own.
@@ -517,40 +525,41 @@ Window {
                 "            checked: root.settingIsOn('ring_for_calls')\n" +
                 "            onTriggered: root.toggleSetting('ring_for_calls')\n" +
                 "        }\n" +
-                "        Menu {\n" +
-                "            title: 'Mods'\n" +
-                "            MenuItem {\n" +
-                "                text: 'Videos with sound'; checkable: true\n" +
-                "                checked: root.settingIsOn('videos_with_sound')\n" +
-                "                onTriggered: root.toggleSetting('videos_with_sound')\n" +
-                "            }\n" +
-                "            MenuItem {\n" +
-                "                text: 'Instagram colours'; checkable: true\n" +
-                "                checked: root.settingIsOn('instagram_colors')\n" +
-                "                onTriggered: root.toggleSetting('instagram_colors')\n" +
-                "            }\n" +
-                "            MenuItem {\n" +
-                "                text: 'Colours follow the post'; checkable: true\n" +
-                "                checked: root.settingIsOn('ambient_colors')\n" +
-                "                onTriggered: root.toggleSetting('ambient_colors')\n" +
-                "            }\n" +
-                "            MenuItem {\n" +
-                "                text: 'Animations'; checkable: true\n" +
-                "                checked: root.settingIsOn('page_animations')\n" +
-                "                onTriggered: root.toggleSetting('page_animations')\n" +
-                "            }\n" +
-                "            MenuItem {\n" +
-                "                text: 'Shortcuts and gestures'; checkable: true\n" +
-                "                checked: root.settingIsOn('shortcuts')\n" +
-                "                onTriggered: root.toggleSetting('shortcuts')\n" +
-                "            }\n" +
-                "            MenuItem {\n" +
-                "                text: 'Hide \\'Also from Meta\\''; checkable: true\n" +
-                "                checked: root.settingIsOn('hide_also_from_meta')\n" +
-                "                onTriggered: root.toggleSetting('hide_also_from_meta')\n" +
-                "            }\n" +
-                "            MenuItem { text: 'Changes apply at the next load'; enabled: false }\n" +
+                // Flat, under a header, rather than in a sub-menu: a sub-menu
+                // in a tray menu did nothing on the owner's KDE.
+                "        MenuSeparator {}\n" +
+                "        MenuItem { text: 'Mods'; enabled: false }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Videos with sound'; checkable: true\n" +
+                "            checked: root.settingIsOn('videos_with_sound')\n" +
+                "            onTriggered: root.toggleSetting('videos_with_sound')\n" +
                 "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Instagram colours'; checkable: true\n" +
+                "            checked: root.settingIsOn('instagram_colors')\n" +
+                "            onTriggered: root.toggleSetting('instagram_colors')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Colours follow the post'; checkable: true\n" +
+                "            checked: root.settingIsOn('ambient_colors')\n" +
+                "            onTriggered: root.toggleSetting('ambient_colors')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Animations'; checkable: true\n" +
+                "            checked: root.settingIsOn('page_animations')\n" +
+                "            onTriggered: root.toggleSetting('page_animations')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Shortcuts and gestures'; checkable: true\n" +
+                "            checked: root.settingIsOn('shortcuts')\n" +
+                "            onTriggered: root.toggleSetting('shortcuts')\n" +
+                "        }\n" +
+                "        MenuItem {\n" +
+                "            text: 'Hide \\'Also from Meta\\''; checkable: true\n" +
+                "            checked: root.settingIsOn('hide_also_from_meta')\n" +
+                "            onTriggered: root.toggleSetting('hide_also_from_meta')\n" +
+                "        }\n" +
+                "        MenuSeparator {}\n" +
                 "        MenuItem {\n" +
                 "            text: 'Keep running when closed'; checkable: true\n" +
                 "            checked: root.settingIsOn('run_in_background')\n" +
@@ -961,7 +970,10 @@ Window {
 
     Item {
         id: stage
+        // Under the title bar, never beneath it: nothing of Instagram is
+        // covered by the window's own chrome.
         anchors.fill: parent
+        anchors.topMargin: titleBar.visible ? titleBar.height : 0
         scale: root.revealScale
 
         WebEngineView {
@@ -1170,6 +1182,144 @@ Window {
         }
     }
 
+    // The window's own title bar, in place of the desktop's frame: the
+    // owner's request, for a window that looks like one application rather
+    // than a browser in a frame. A thin band above the page, never over it,
+    // in the page's colour. Dragging it moves the window and a double-click
+    // maximizes, both handed to the compositor (`startSystemMove`), which is
+    // the only way a Wayland client may move itself. Hidden in full screen.
+    Rectangle {
+        id: titleBar
+        visible: shell.own_title_bar && root.visibility !== Window.FullScreen
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 32
+        color: root.color
+
+        function toggleMaximized() {
+            if (root.visibility === Window.Maximized)
+                root.showNormal();
+            else
+                root.showMaximized();
+        }
+
+        // Moves on a press that drags, maximizes on a double-click; a single
+        // click does nothing, as on any title bar.
+        TapHandler {
+            gesturePolicy: TapHandler.DragThreshold
+            onTapped: function (eventPoint, button) {
+                if (tapCount === 2)
+                    titleBar.toggleMaximized();
+            }
+        }
+        DragHandler {
+            target: null
+            grabPermissions: PointerHandler.CanTakeOverFromAnything
+            onActiveChanged: if (active) root.startSystemMove()
+        }
+
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: 14
+            anchors.right: buttons.left
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.title
+            elide: Text.ElideRight
+            color: root.active ? "#d8d0e0" : "#8e8698"
+            font.pixelSize: 12
+            font.weight: Font.DemiBold
+        }
+
+        Row {
+            id: buttons
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+
+            TitleButton {
+                objectName: "minimize"
+                onClicked: root.showMinimized()
+                Rectangle { anchors.centerIn: parent; width: 10; height: 1; color: parent.ink }
+            }
+            TitleButton {
+                objectName: "maximize"
+                onClicked: titleBar.toggleMaximized()
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 9; height: 9
+                    color: "transparent"
+                    border.color: parent.ink
+                    border.width: 1
+                }
+            }
+            TitleButton {
+                objectName: "close"
+                danger: true
+                // The ordinary close, so closing to the background still holds.
+                onClicked: root.close()
+                Rectangle { anchors.centerIn: parent; width: 12; height: 1; rotation: 45; color: parent.ink }
+                Rectangle { anchors.centerIn: parent; width: 12; height: 1; rotation: -45; color: parent.ink }
+            }
+        }
+    }
+
+    component TitleButton: Rectangle {
+        id: titleButton
+        signal clicked()
+        property bool danger: false
+        readonly property color ink: hovered.hovered && danger ? "#ffffff" : "#d8d0e0"
+        width: 46
+        height: parent ? parent.height : 32
+        color: hovered.hovered ? (danger ? "#e81123" : "#33ffffff") : "transparent"
+        Behavior on color { ColorAnimation { duration: 120 } }
+        HoverHandler { id: hovered }
+        TapHandler {
+            gesturePolicy: TapHandler.ReleaseWithinBounds
+            onTapped: titleButton.clicked()
+        }
+    }
+
+    // The edges to resize by, once the desktop's frame is gone: a few pixels
+    // inside the window, handed to the compositor like the move. Not while
+    // maximized or in full screen, where there is nothing to resize.
+    Item {
+        anchors.fill: parent
+        visible: titleBar.visible && root.visibility !== Window.Maximized
+        z: 10
+        Repeater {
+            model: [
+                { edges: Qt.LeftEdge, x: 0, y: 1, w: 0, h: 1, cursor: Qt.SizeHorCursor },
+                { edges: Qt.RightEdge, x: 1, y: 1, w: 0, h: 1, cursor: Qt.SizeHorCursor },
+                { edges: Qt.TopEdge, x: 1, y: 0, w: 1, h: 0, cursor: Qt.SizeVerCursor },
+                { edges: Qt.BottomEdge, x: 1, y: 2, w: 1, h: 0, cursor: Qt.SizeVerCursor },
+                { edges: Qt.LeftEdge | Qt.TopEdge, x: 0, y: 0, w: 0, h: 0, cursor: Qt.SizeFDiagCursor },
+                { edges: Qt.RightEdge | Qt.BottomEdge, x: 2, y: 2, w: 0, h: 0, cursor: Qt.SizeFDiagCursor },
+                { edges: Qt.RightEdge | Qt.TopEdge, x: 2, y: 0, w: 0, h: 0, cursor: Qt.SizeBDiagCursor },
+                { edges: Qt.LeftEdge | Qt.BottomEdge, x: 0, y: 2, w: 0, h: 0, cursor: Qt.SizeBDiagCursor }
+            ]
+            // x and y: 0 the start, 1 along the side, 2 the end; w and h: 1
+            // along the side, 0 just the grip.
+            Item {
+                required property var modelData
+                readonly property int grip: 5
+                readonly property int corner: 12
+                x: modelData.x === 0 ? 0 : modelData.x === 2 ? parent.width - width : corner
+                y: modelData.y === 0 ? 0 : modelData.y === 2 ? parent.height - height : corner
+                width: modelData.w === 1 ? parent.width - 2 * corner
+                     : modelData.h === 1 ? grip : corner
+                height: modelData.h === 1 ? parent.height - 2 * corner
+                      : modelData.w === 1 ? grip : corner
+                HoverHandler { cursorShape: modelData.cursor }
+                DragHandler {
+                    target: null
+                    onActiveChanged: if (active) root.startSystemResize(modelData.edges)
+                }
+            }
+        }
+    }
+
     // The mouse's back and forward buttons. Qt WebEngine already follows them
     // through a page's history, but not out of a page and back to Instagram,
     // so they are taken here. Only those two buttons: a click, a scroll or a
@@ -1218,7 +1368,8 @@ Window {
     // Not shown when started hidden, where nobody is watching the load.
     Rectangle {
         id: splash
-        anchors.fill: parent
+        // The title bar stays usable while Instagram starts.
+        anchors.fill: stage
         color: root.color
         visible: opacity > 0
         opacity: shell.start_hidden ? 0 : 1
@@ -1348,7 +1499,7 @@ Window {
     // The loading bar: a 3px gradient line.
     Rectangle {
         id: bar
-        anchors.top: parent.top
+        anchors.top: stage.top
         anchors.left: parent.left
         height: 3
         visible: shell.show_loading_indicator && opacity > 0
@@ -1408,7 +1559,7 @@ Window {
     // Instagram itself, which has its own navigation.
     Pill {
         id: backButton
-        anchors.top: parent.top
+        anchors.top: stage.top
         anchors.left: parent.left
         anchors.margins: 12
         shown: root.current !== null && root.visibility !== Window.FullScreen
@@ -1418,7 +1569,7 @@ Window {
 
     // A call keeps running while the user is elsewhere; this is the way back.
     Row {
-        anchors.top: parent.top
+        anchors.top: stage.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 12
         spacing: 6
@@ -1712,7 +1863,7 @@ Window {
                         font.pixelSize: 13
                         text: "Keys do nothing while you type. Likes, reposts and saves "
                               + "happen one per gesture, at most every 0.8 s. The mods are "
-                              + "switched in the tray icon's menu, and take effect at the next load."
+                              + "switched in the tray icon's menu, and apply at once."
                     }
                 }
             }

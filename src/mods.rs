@@ -66,6 +66,13 @@ fn enabled(config: &Config, setting: &str) -> Option<bool> {
     }
 }
 
+/// Whether switching `setting` changes the script the page runs: a mod's own
+/// switch, or one of the options the mods read. The page has to load again
+/// for such a change to reach it.
+pub fn shapes_the_page(setting: &str) -> bool {
+    enabled(&Config::default(), setting).is_some() || setting == "ambient_colors"
+}
+
 /// What the mods are told about the configuration.
 fn options(config: &Config) -> serde_json::Value {
     json!({
@@ -199,6 +206,14 @@ mod tests {
         let helpers = carried.find("function postOf(").unwrap_or(usize::MAX);
         let first_mod = carried.find("Videos with sound").unwrap_or(0);
         assert!(helpers < first_mod);
+    }
+
+    #[test]
+    fn a_mod_switch_reloads_the_page_and_a_messenger_switch_does_not() {
+        assert!(shapes_the_page("shortcuts"));
+        assert!(shapes_the_page("ambient_colors"));
+        assert!(!shapes_the_page("notifications"));
+        assert!(!shapes_the_page("run_in_background"));
     }
 
     #[test]

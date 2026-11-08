@@ -87,10 +87,17 @@ The `?` in the bottom corner, `F1` and the tray menu all open the same card.
 ## Opening Instagram from your browser
 
 instaCache answers to `instacache:` links: `instacache:https://www.instagram.com/reels/`
-opens that page in the app. With [Violentmonkey](https://violentmonkey.github.io/)
-or Tampermonkey, [`extras/open-in-instacache.user.js`](extras/open-in-instacache.user.js)
-puts an *Open in instaCache* button on instagram.com, for the times you forgot
-the app was there.
+opens that page in the app, from any link, a terminal (`xdg-open`) or a bookmark.
+
+An *Open in instaCache* button on instagram.com itself, for the times you
+forgot the app was there, needs a userscript manager in your browser:
+
+1. Install [Violentmonkey](https://violentmonkey.github.io/) from your
+   browser's add-on store (Firefox, Chrome, Edge, Brave…).
+2. Open [`open-in-instacache.user.js`](https://raw.githubusercontent.com/lightzirconite/instacache/main/extras/open-in-instacache.user.js)
+   — Violentmonkey offers to install it — and click *Install*.
+3. The first time you press the button, your browser asks whether to open
+   instaCache: allow it, and tick *always* if it offers.
 
 ## Settings
 
@@ -143,6 +150,7 @@ page.
 | `remember_window_state` | `true` | Restore size, position and zoom. |
 | `show_loading_indicator` | `true` | The thin bar at the top. |
 | `start_maximized` | `false` | Always open maximized. |
+| `own_title_bar` | `true` | The app's own title bar, in its colours, instead of your desktop's frame. Drag it to move, double-click to maximize, drag an edge to resize. |
 | `auto_update` | `true` | Install new releases by itself. |
 | `update_check_interval_hours` | `6` | Hours between checks. `0`: at launch only. |
 

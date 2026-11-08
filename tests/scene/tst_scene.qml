@@ -144,9 +144,28 @@ Item {
             main.runJavaScript("window.__clicks", function (n) { reached = n; });
             waitFor(function () { return reached !== -1; }, 2000, "the page answers");
             compare(reached, 0, "a click on a pill stays on the pill");
-            mouseClick(tips, 4, 4);
+            mouseClick(tips, 30, tips.height - 30);
             waitFor(function () { return !tips.visible; }, 2000, "a click beside the card closes them");
             compare(win.current, null, "and reaches nothing underneath");
+        }
+
+        function test_01f_the_title_bar_sits_above_the_page() {
+            function find(item, name) {
+                if (item.objectName === name) return item;
+                for (var i = 0; i < item.children.length; i++) {
+                    var f = find(item.children[i], name);
+                    if (f) return f;
+                }
+                return null;
+            }
+            verify((win.flags & Qt.FramelessWindowHint) !== 0, "no desktop frame");
+            var close = find(win.contentItem, "close");
+            verify(close !== null && close.visible, "the close button is drawn");
+            verify(find(win.contentItem, "minimize") !== null && find(win.contentItem, "maximize") !== null);
+            var main = win.activeView();
+            var top = main.mapToItem(win.contentItem, 0, 0).y;
+            verify(top >= close.height, "Instagram starts below the bar, not under it: " + top);
+            compare(close.mapToItem(win.contentItem, close.width, 0).x, win.width, "the buttons sit at the right edge");
         }
 
         function test_02_call_opens_as_page_and_survives_back() {
