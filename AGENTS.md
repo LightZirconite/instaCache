@@ -61,6 +61,12 @@ If a request is mistaken, breaks a non-negotiable, duplicates something that
 already exists or has a better route, say so with the reason before doing it.
 Agreeing is not the goal; a project that works is.
 
+### English in the repository, the owner's language in conversation
+
+Everything committed is English: code, comments, documentation, this file,
+commit messages, release notes. Talk to the owner in the language they write
+in — French, so far — and translate when it goes into the repository.
+
 ### Intent over wording
 
 The owner often dictates. Take what they mean, not the exact words: a request
