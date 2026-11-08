@@ -4,6 +4,46 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] - 2026-11-08
+
+### Added
+- **The volume of videos is yours, and remembered**: `+` and `-` set it,
+  shown for a moment at the top, and every video after — in this session and
+  the next — starts there.
+- **Right-click a picture or a video to repost it**, with a sign where you
+  clicked. It replaces Shift+double-click. With `context_menu` on, the
+  right-click stays the engine's menu.
+- **`O` turns a video sideways, full screen**, for a clip filmed that way;
+  `O` again turns it the other way, a third time — or Escape, or a click —
+  puts it back. Nothing is sent to Instagram.
+- **The mouse wheel over an open story** goes to the next story, or back,
+  one story for one turn of the wheel.
+- **Shortcuts and tips**: a card listing every shortcut and gesture, from
+  `F1`, the tray menu, or the small `?` in the bottom corner.
+- **More motion in the window**: a page laid over Instagram sinks away when
+  it closes, the pills grow into place, the splash comes forward as it goes.
+  Transform and opacity only.
+- **A larger cache** (`http_cache_size_mb`, 1 GB), so Instagram's scripts
+  survive an evening of video and the next start fetches less. Link
+  addresses are looked up in advance, as every Chrome does.
+
+### Changed
+- **Videos start at 75 % instead of 40 %.** A config still holding the old
+  default is moved to the new one.
+- **Instagram's colours are more present**: deeper purples, magentas and
+  blues instead of near-black, a stronger colour from the post in view, and
+  a slow drift between neighbouring colours while the page is at rest —
+  never while a video plays, a page scrolls or you type.
+
+### Fixed
+- **Space glides to the next reel again** instead of jumping to it: Qt
+  WebEngine turns off Chromium's smooth scrolling, so the move is now eased
+  by the mod itself.
+- **"Also from Meta" is hidden wherever it appears**, not only its first copy
+  in the page.
+- **Escape and F11 bring a page's full screen back properly**, rather than
+  leaving the page believing it was still full screen.
+
 ## [2.11.0] - 2026-11-08
 
 ### Added

@@ -115,6 +115,40 @@ Item {
             compare(mark(), "loading", "and back once switched on again");
         }
 
+        function test_01e_the_tips_open_and_close() {
+            var tips = null;
+            function find(item) {
+                if (item.objectName === "tips") return item;
+                for (var i = 0; i < item.children.length; i++) {
+                    var f = find(item.children[i]);
+                    if (f) return f;
+                }
+                return null;
+            }
+            tips = find(win.contentItem);
+            verify(tips !== null, "the tips card exists");
+            verify(!tips.shown);
+            var button = findByLabel(win.contentItem, "?");
+            waitFor(function () { return button !== null && button.visible; }, 3000, "the ? button is shown over Instagram");
+            keyClick(Qt.Key_F1);
+            waitFor(function () { return tips.shown && tips.opacity === 1; }, 2000, "F1 shows the tips");
+            verify(!button.shown, "the button steps aside under the card");
+            keyClick(Qt.Key_Escape);
+            waitFor(function () { return !tips.visible; }, 2000, "Escape closes them");
+            var main = win.activeView();
+            main.runJavaScript("window.__clicks = 0; document.addEventListener('click', function () { window.__clicks++; }, true);");
+            wait(300);
+            mouseClick(button);
+            waitFor(function () { return tips.shown; }, 2000, "the ? button shows them");
+            var reached = -1;
+            main.runJavaScript("window.__clicks", function (n) { reached = n; });
+            waitFor(function () { return reached !== -1; }, 2000, "the page answers");
+            compare(reached, 0, "a click on a pill stays on the pill");
+            mouseClick(tips, 4, 4);
+            waitFor(function () { return !tips.visible; }, 2000, "a click beside the card closes them");
+            compare(win.current, null, "and reaches nothing underneath");
+        }
+
         function test_02_call_opens_as_page_and_survives_back() {
             var main = win.activeView();
             main.runJavaScript("window.open('/call.html', 'call', 'width=640,height=480')");

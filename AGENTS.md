@@ -55,6 +55,15 @@ has no such route, and contributes through a pull request as usual.
 **A release is cut only when the owner asks for one**, with
 `scripts/release.sh` (see "Releasing"). Pushing to `main` does not release.
 
+### Every point gets an answer
+
+A request with several points — the owner's usually has a dozen — is kept
+as a numbered list for the whole of the work, and the report at the end
+takes them one by one: done, and how it was checked; not done, and why; or
+a question only the owner can answer. No point disappears in silence, and
+nothing is reported as done that was only written. Doing half of a request
+without saying which half is the failure this rule exists for.
+
 ### Not a yes-man
 
 If a request is mistaken, breaks a non-negotiable, duplicates something that
@@ -95,8 +104,10 @@ with the cache and session pinned to persistent XDG directories. The value is
 in the persistence and the desktop integration, not in any UI of our own.
 Resist adding chrome: what exists is the splash over a cold start, the
 loading bar, the back button shown over a page, the pills for a call and an
-update, and the tray icon, and each of those is there because the window has
-no other way to offer it. The splash is drawn with `Canvas` from the same
+update, the tray icon, and the card of shortcuts and tips with its dim `?`
+in the bottom corner, and each of those is there because the window has no
+other way to offer it. The card is the owner's request: gestures nobody can
+see are gestures nobody finds. It is also on `F1` and in the tray menu. The splash is drawn with `Canvas` from the same
 shapes as `assets/instacache.svg`, because an SVG image needs a Qt module a
 distribution may not install, and a missing one costs the whole scene. Change
 one and change the other.
@@ -144,8 +155,13 @@ below was checked against the real engine, not assumed; keep it true.
   pause — on its own, but a like, a repost, a save or a comment is pressed
   only for a click or a key, one for one, at most once every 800 ms
   (`paced` in `shortcuts.js`). No timers that act, no queues, no loops over
-  posts, no private API calls. That is why "mark every story as seen" is
-  not built: it can only be done by acting without the user.
+  posts, no private API calls. Moving to the next story, which tells the
+  author it was seen, is one story for one turn of the wheel. That is why
+  "mark every story as seen" is not built: it can only be done by acting
+  without the user. The owner asked for it; the risks — a pattern no person
+  makes, and authors shown a view of stories nobody watched — were put to
+  them, and it is built only on their explicit confirmation, and then only
+  from a click, at a person's pace.
 - **A coherent browser, never a disguised one.** The user agent says Chrome
   on Linux at the engine's real Chromium version (`config::user_agent_for`),
   and `Accept-Language` is the session's language
@@ -545,6 +561,33 @@ can change how the page starts instead of repairing it afterwards.
   reels itself (`scrollerOf`); where it finds nothing to scroll, Space stays
   Instagram's. A double-click is two clicks, and a click pauses a reel: the
   state at the first `pointerdown` is put back once the like is done.
+- **A smooth scroll asked for by the page is not smooth here.** Qt WebEngine
+  turns Chromium's scroll animator off (`ScrollAnimatorEnabled`, which QML
+  in 6.4 cannot reach), so `scrollBy({behavior: "smooth"})` lands in one
+  frame — measured, 0 to 796 pixels between two frames — and the next reel
+  appeared with no movement. `glide` in `shortcuts.js` eases it over
+  frames instead, with the scroller's snapping suspended for the move.
+- **A right-click reaches the page.** Chromium hands `contextmenu` to the
+  page first and shows its menu only if the page lets it, so the repost on
+  a right-click works with `context_menu` off, and steps aside with it on.
+  Shift+double-click, which it replaces, did nothing on the owner's
+  account.
+- **Full screen refuses a transform**, and Instagram's containers clip a
+  video turned inside them. `O` therefore shows a copy — the video's own
+  frames through `captureStream()`, in a layer of the mod's own — which
+  costs no second decoding and is silent; its source keeps playing. Escape
+  and F11 in the scene ask the page to leave its full screen
+  (`leaveFullScreen`): setting the window alone left the page believing it
+  was still in it.
+- **The wheel over an open story sends Instagram its own arrow keys**, which
+  it answers on a story, rather than pressing buttons whose labels are not
+  captured yet. Whether the real page takes a dispatched key the way it
+  takes a typed one is the owner's to confirm.
+- **The volume is the page's to remember.** `+` and `-` set it, and it is
+  kept in the page's `localStorage` (`instacache:video-volume`), which is
+  the profile's: no channel back into Rust, which a page could also write
+  through, and it takes effect in the very page that set it.
+  `video_volume` in the config only says where a profile starts.
 - **`WebEngineScript` is a value type in Qt 6.** `WebEngine.script()` makes
   one and `userScripts.insert()` takes it; declaring one in QML is what once
   stopped the scene loading. Measured on 6.4: a script inserted this way runs
@@ -570,12 +613,23 @@ can change how the page starts instead of repairing it afterwards.
   `--ig-primary-background` to know the page is dark, marks `<html>` with a
   class of its own, and overrides the `--ig-*` variables — as `R, G, B`,
   which is how Instagram writes them — under that class.
+- **Hide every copy, at every change.** Instagram can hold one side bar per
+  layout, and the first match in the document need not be the one on
+  screen: hiding only the first and then watching it is the likeliest
+  reason "Autres applications Meta" stayed visible for the owner, though
+  their window has not confirmed it yet. `hide_meta.js` hides
+  all of them, and an `a:has(…)` rule does it before React draws on Qt 6.5
+  and later.
 - **Restyling the page is the expensive thing.** `--ig-*` live on `<html>`, so
-  changing one restyles every element. `instagram_colors` writes them from one
+  changing one restyles every element — measured at 55 to 90 ms for ten
+  thousand elements in a container with no GPU. `instagram_colors` writes them from one
   tint — per kind of page, and with `ambient_colors` the colour of the media
   in view mixed in — only when the media in view changes, after it has a
   frame, once a scroll has come to rest, in four steps. Reading the colour of
-  a playing reel every two seconds made the next reel stutter in. Pictures
+  a playing reel every two seconds made the next reel stutter in. The slow
+  drift of the tint (with `ambient_colors`) writes a step every six seconds
+  and only while nothing moves: window focused, no scroll, no video playing
+  in view, nobody typing, not in Direct. Pictures
   carry `crossorigin="anonymous"` and Reels are `blob:` sources of the page's
   own, so both can be read into a canvas; weigh pixels by their alpha, or a
   video with no picture reads as black.
@@ -641,13 +695,21 @@ tests/scene/run.sh
 
 In a container with no GPU — a cloud session, say — `qmltestrunner` on Qt
 6.4 dies with a segmentation fault as Qt WebEngine starts, on an untouched
-tree too, because it initialises the engine from a plugin. The `qml` runtime
-does not: build `Harness.qml` the way `run.sh` does and load it from a small
-QML file of your own with `/usr/lib/qt6/bin/qml` (package `qml-qt6`), with
-`QTWEBENGINE_DISABLE_SANDBOX=1` when running as root. `grabToImage` on the
-window's `contentItem` then shows what the scene drew, off screen. Clear the
-cache directory between runs, or a page served slowly on purpose comes back
-from the cache at once.
+tree too, because it initialises the engine from a plugin without
+`Qt::AA_ShareOpenGLContexts`. Setting that attribute before `main` runs is
+enough: preload a two-line library whose constructor calls
+`QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts)`, built with
+`g++ -shared -fPIC … $(pkg-config --cflags --libs Qt6Core)`, and run the
+suite with `LD_PRELOAD` and `QTWEBENGINE_DISABLE_SANDBOX=1` when running as
+root. On Qt 6.4.2 in such a container, `test_05` fails and the run dies
+after `test_14`, on an untouched tree as well; compare against one before
+blaming a change. Clear the cache directory between runs, or a page served
+slowly on purpose comes back from the cache at once.
+
+An overlay that fades in is invisible for its first frame if `visible` is
+`opacity > 0`, and a click in that frame goes to the page underneath — a
+test clicking straight after opening the tips opened a link instead. One
+that must catch clicks is visible from the moment it is shown.
 
 A new `shell` property or method has to be added to `MockShell.qml` too. A
 missing one does not stop the scene loading; it throws only when called. The
@@ -837,6 +899,18 @@ Discarding closes the socket, which is unambiguous. `freeze_in_background:
 false` is the switch if a real account shows the problem; test it with
 `INSTACACHE_LOG_NOTIFICATIONS=1` and a message sent from a phone a few minutes
 after closing the window.
+
+## The HTTP cache
+
+Chromium sizes the disk cache itself unless told, and kept about 300 MB
+here: 272 of 300 one-megabyte responses survived. An evening of Reels is
+more than that, and what it evicts is Instagram's scripts, fetched again at
+the next start. `http_cache_size_mb` (1 GB by default) is passed as
+`httpCacheMaximumSize`, which is an `int` of bytes, so it stops at 2047.
+Nothing about it is visible to Instagram. Prefetching pages or media is
+not done: requests the user did not ask for are what a bot makes.
+`dnsPrefetchEnabled` is on, as in every Chrome; it asks the resolver, never
+the site.
 
 ## Per-site defaults
 

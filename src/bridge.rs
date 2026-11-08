@@ -87,6 +87,8 @@ pub struct Shell {
     accept_language: qt_property!(QString; READ accept_language),
     storage_path: qt_property!(QString; READ storage_path),
     cache_path: qt_property!(QString; READ cache_path),
+    /// `httpCacheMaximumSize`, in bytes: see `config::http_cache_bytes`.
+    http_cache_size: qt_property!(i32; READ http_cache_size),
     window_title: qt_property!(QString; READ window_title),
     show_loading_indicator: qt_property!(bool; READ show_loading_indicator),
     developer_tools: qt_property!(bool; READ developer_tools),
@@ -573,6 +575,10 @@ impl Shell {
             .map(|p| p.cache.to_string_lossy().into_owned())
             .unwrap_or_default()
             .into()
+    }
+
+    fn http_cache_size(&self) -> i32 {
+        crate::config::http_cache_bytes(self.config().http_cache_size_mb)
     }
 
     fn window_title(&self) -> QString {

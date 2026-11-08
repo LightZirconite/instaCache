@@ -5,6 +5,8 @@
 // messages, Explore, a profile — and, with `options.ambient`, the colour of
 // the picture or video in view mixed in, the way a video player's ambient
 // mode lights the room. A change of tint is eased over a third of a second.
+// And the tint drifts, slowly, towards a neighbouring colour and back, so the
+// page is never quite one flat colour — see `drift`.
 //
 // Every change restyles the whole page, so it is rare: the colour is read
 // once per picture or video, when one comes into view and has a frame to
@@ -16,13 +18,24 @@
 // all been seen — so the colour it paints is what is read, and `<html>` is
 // marked with a class of ours, which instagram_colors.css keys on.
 var MARK = "instacache-dark";
+// Each page's tint, and the colour it drifts to and back. Deep enough to sit
+// behind white text — none is lighter than a tenth of white — and coloured
+// enough to read as Instagram's purple, magenta and blue rather than black.
 var PAGES = {
-    home: [18, 12, 26],
-    reels: [16, 8, 22],
-    direct: [12, 12, 30],
-    explore: [24, 10, 24],
-    profile: [20, 13, 28],
-    login: [18, 12, 26]
+    home: [30, 12, 44],
+    reels: [26, 8, 36],
+    direct: [16, 16, 48],
+    explore: [38, 10, 36],
+    profile: [32, 14, 46],
+    login: [30, 12, 44]
+};
+var DRIFTS = {
+    home: [44, 10, 38],
+    reels: [36, 8, 30],
+    direct: [26, 12, 50],
+    explore: [46, 12, 26],
+    profile: [24, 14, 52],
+    login: [44, 10, 38]
 };
 var theirs = null;
 var palette = null;
@@ -93,8 +106,10 @@ function ease(to) {
         step++;
         var t = step / 4;
         write(from.map(function (c, i) { return c + (to[i] - c) * t; }));
-        if (step >= 4)
+        if (step >= 4) {
             clearInterval(easing);
+            easing = null;
+        }
     }, 80);
 }
 
@@ -129,16 +144,33 @@ function colourOf(media) {
 function darken(rgb) {
     var max = Math.max.apply(null, rgb) || 1;
     var min = Math.min.apply(null, rgb);
-    var saturation = Math.min(0.75, (max - min) / max * 1.3);
-    var grey = 22;
+    var saturation = Math.min(0.9, (max - min) / max * 1.6);
+    var grey = 24;
     return rgb.map(function (c) {
-        var hue = c / max * 42;
+        var hue = c / max * 58;
         return grey * (1 - saturation) + hue * saturation;
     });
 }
 
 // What the tint was last worked out from, so the same media is read once.
-var lastKind = null, lastMedia = null;
+var lastKind = null, lastMedia = null, lastColour = null;
+
+// Where the drift is: 0 at the page's tint, 1 at its neighbour, over
+// `DRIFT_PERIOD_MS` there and back.
+var DRIFT_PERIOD_MS = 90000;
+var DRIFT_EVERY_MS = 6000;
+function phase() {
+    return 0.5 - 0.5 * Math.cos(2 * Math.PI * (Date.now() % DRIFT_PERIOD_MS) / DRIFT_PERIOD_MS);
+}
+
+function target(page) {
+    var base = PAGES[page], other = DRIFTS[page], at = options.ambient ? phase() : 0;
+    var tint = base.map(function (c, i) { return c + (other[i] - c) * at; });
+    if (!lastColour)
+        return tint;
+    var weight = page === "reels" ? 0.85 : 0.7;
+    return tint.map(function (c, i) { return c + (lastColour[i] - c) * weight; });
+}
 
 function refresh() {
     var html = document.documentElement;
@@ -159,10 +191,32 @@ function refresh() {
     }
     lastKind = page;
     lastMedia = media;
-    var base = PAGES[page];
-    var weight = page === "reels" ? 0.8 : 0.6;
-    ease(colour ? base.map(function (c, i) { return c + (colour[i] - c) * weight; }) : base);
+    lastColour = colour || null;
+    ease(target(page));
 }
+
+// The drift, with `options.ambient`: the colours that move. Every step
+// restyles the whole page like any other change — measured at 55 to 90 ms
+// for ten thousand elements on a slow machine with no GPU — so a step is
+// taken only where nobody can feel it: the window focused, nothing
+// scrolling, no video playing in view, nobody typing, not in Direct, no ease
+// under way. On Reels, where a video always plays, the tint holds still,
+// which is the point: restyling under a playing reel is what made the next
+// one stutter. Each step is a few units out of 255, too small to see as one.
+function playing() {
+    var media = mediaInView();
+    return media instanceof HTMLVideoElement && !media.paused;
+}
+setInterval(function () {
+    var html = document.documentElement;
+    if (!options.ambient || !html || !html.classList.contains(MARK)
+        || lastKind === null || lastKind === "login" || lastKind === "direct")
+        return;
+    if (document.visibilityState !== "visible" || !document.hasFocus() || scrolling
+        || easing !== null || typing() || playing())
+        return;
+    write(target(lastKind));
+}, DRIFT_EVERY_MS);
 
 function check(force) {
     var html = document.documentElement;
@@ -210,8 +264,12 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function (
 });
 onPageChange(refresh);
 // Once a scroll has come to rest, not during it.
-var resting = null;
+var resting = null, scrolling = false;
 document.addEventListener("scroll", function () {
+    scrolling = true;
     clearTimeout(resting);
-    resting = setTimeout(refresh, 300);
+    resting = setTimeout(function () {
+        scrolling = false;
+        refresh();
+    }, 300);
 }, true);

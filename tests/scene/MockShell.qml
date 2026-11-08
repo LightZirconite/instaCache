@@ -13,6 +13,7 @@ QtObject {
     property string accept_language: "en-US,en;q=0.9"
     property string storage_path: "@TMP@/data"
     property string cache_path: "@TMP@/cache"
+    property int http_cache_size: 0
     property string window_title: "instaCache"
     property bool show_loading_indicator: true
     property bool developer_tools: false

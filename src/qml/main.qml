@@ -67,7 +67,7 @@ Window {
     visible: !shell.start_hidden
     // Instagram's dark background as the `instagram_colors` mod tints it, so
     // nothing changes colour between the splash, the window and the page.
-    color: "#120c1a"
+    color: "#1e0c2c"
 
     function writeState() {
         var maximized = root.visibility === Window.Maximized
@@ -495,6 +495,7 @@ Window {
                 "        MenuSeparator {}\n" +
                 "        MenuItem { text: root.visible ? 'Hide window' : 'Open window'; onTriggered: root.toggleFromTray() }\n" +
                 "        MenuItem { text: 'Restart to update'; visible: root.updateState === 'ready'; onTriggered: root.restartForUpdate() }\n" +
+                "        MenuItem { text: 'Shortcuts and tips'; onTriggered: { root.bringToFront(); root.showTips(); } }\n" +
                 "        MenuSeparator {}\n" +
                 "        MenuItem {\n" +
                 "            text: 'Start at login'; checkable: true\n" +
@@ -539,7 +540,7 @@ Window {
                 "                onTriggered: root.toggleSetting('page_animations')\n" +
                 "            }\n" +
                 "            MenuItem {\n" +
-                "                text: 'Shortcuts (double-click, Space Space, L, R, M, C, S)'; checkable: true\n" +
+                "                text: 'Shortcuts and gestures'; checkable: true\n" +
                 "                checked: root.settingIsOn('shortcuts')\n" +
                 "                onTriggered: root.toggleSetting('shortcuts')\n" +
                 "            }\n" +
@@ -563,6 +564,10 @@ Window {
         } catch (error) {
             shell.log("no tray icon: " + error);
         }
+    }
+
+    function showTips() {
+        tips.shown = true;
     }
 
     function activeView() {
@@ -589,17 +594,19 @@ Window {
             root.current = null;
     }
 
+    // Discarded before it stops being current, so it knows it was on screen
+    // and slides away rather than vanishing.
     function closePage(page) {
         pages = pages.filter(function (p) { return p !== page; });
+        root.discard(page);
         if (root.current === page)
             root.current = null;
-        root.discard(page);
     }
 
-    // Destroyed later, never from inside one of the page's own handlers.
+    // Destroyed later, never from inside one of the page's own handlers --
+    // after it has slid away, when it was the one on screen.
     function discard(page) {
-        page.visible = false;
-        Qt.callLater(function () { page.destroy(); });
+        page.leave();
     }
 
     // target="_blank", window.open and calls, from Instagram or from a page.
@@ -831,6 +838,18 @@ Window {
             request.accepted = true;
     }
 
+    // Out of full screen, whoever asked for it. A page in full screen — a
+    // video, the `O` of the shortcuts mod — is told to leave it, and its
+    // answer brings the window back through `handleFullScreen`; setting the
+    // window alone left the page believing it was still in full screen.
+    function leaveFullScreen() {
+        var shown = root.activeView();
+        if (shown.isFullScreen)
+            shown.triggerWebAction(WebEngineView.ExitFullScreen);
+        else
+            root.visibility = Window.Windowed;
+    }
+
     function handleFullScreen(request) {
         root.visibility = request.toggleOn ? Window.FullScreen : Window.Windowed;
         request.accept();
@@ -848,6 +867,9 @@ Window {
         persistentStoragePath: shell.storage_path
         cachePath: shell.cache_path
         httpCacheType: WebEngineProfile.DiskHttpCache
+        // Room for Instagram's scripts to survive an evening of video, which
+        // Chromium's own choice of size did not leave. `config.rs` says why.
+        httpCacheMaximumSize: shell.http_cache_size
         persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
         // The engine's own string, read off the default profile, is where
         // its real Chromium version comes from; Rust says what is sent.
@@ -962,6 +984,10 @@ Window {
             settings.javascriptCanPaste: true
             settings.screenCaptureEnabled: false
             settings.showScrollBars: false
+            // What every Chrome does by default and Qt does not: the address
+            // of a link is looked up before it is followed. Only DNS, and
+            // nothing reaches the site itself.
+            settings.dnsPrefetchEnabled: true
 
             // The unread badge reads Instagram's title, whatever is shown --
             // and so does the alert for a message that arrived while the page
@@ -1042,13 +1068,31 @@ Window {
             profile: session
             zoomFactor: view.zoomFactor
             backgroundColor: root.color
-            visible: root.current === page && !root.backgrounded
+            // Still drawn while it slides away, once it is no longer current.
+            property bool leaving: false
+            visible: (root.current === page || leaving) && !root.backgrounded
 
             // A page rises into place over Instagram rather than appearing
-            // in one frame. Only when it is opened or brought back from the
-            // pill: a window shown again comes back as it was, without it.
+            // in one frame, and sinks away when it is closed. Only when it is
+            // opened, brought back from the pill or closed: a window shown
+            // again comes back as it was, without it.
             transform: Translate { id: shift }
             function enter() { entrance.restart(); }
+            function leave() {
+                if (page.leaving)
+                    return;
+                page.leaving = page.visible;
+                entrance.stop();
+                if (page.leaving)
+                    exit.restart();
+                else
+                    page.gone();
+            }
+            function gone() {
+                page.leaving = false;
+                page.visible = false;
+                Qt.callLater(function () { page.destroy(); });
+            }
             ParallelAnimation {
                 id: entrance
                 NumberAnimation {
@@ -1059,6 +1103,18 @@ Window {
                     target: shift; property: "y"
                     from: 14; to: 0; duration: 220; easing.type: Easing.OutCubic
                 }
+            }
+            ParallelAnimation {
+                id: exit
+                NumberAnimation {
+                    target: page; property: "opacity"
+                    to: 0; duration: 150; easing.type: Easing.InCubic
+                }
+                NumberAnimation {
+                    target: shift; property: "y"
+                    to: 14; duration: 150; easing.type: Easing.InCubic
+                }
+                onFinished: page.gone()
             }
 
             // Set once the page is granted the microphone or camera, which
@@ -1073,6 +1129,7 @@ Window {
             settings.javascriptCanPaste: true
             settings.screenCaptureEnabled: false
             settings.showScrollBars: false
+            settings.dnsPrefetchEnabled: true
 
             onNavigationRequested: function (request) {
                 // A page whose very first address leaves for the browser
@@ -1171,6 +1228,9 @@ Window {
             splash.opacity = 0;
             splashCap.stop();
         }
+        // The mark comes forward as the splash fades, rather than just going.
+        scale: opacity > 0.99 || shell.start_hidden ? 1 : 1.04
+        Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
         // Instagram's colours as light from the corners, the way its own
         // gradient runs: purple above, orange and pink below.
@@ -1504,20 +1564,200 @@ Window {
         }
     }
 
+    // Every shortcut and gesture, on a card over the page: F1, the tray's
+    // menu, or the small "?" in the corner, which is the one way to find it
+    // for somebody who knows none of the others. The gestures of the mods are
+    // listed only while their mod is on, so the card never promises what the
+    // page will not do.
+    property bool shortcutsOn: root.settingIsOn("shortcuts")
+    property bool soundOn: root.settingIsOn("videos_with_sound")
+    readonly property var tipSections: [
+        { title: "Posts and Reels", shown: root.shortcutsOn, rows: [
+            ["Double-click", "Like a picture or a video, with a heart"],
+            // With the engine's menu asked for, a right-click is the menu.
+            shell.context_menu ? ["Right-click", "The engine's menu: save image, copy link"]
+                               : ["Right-click", "Repost it"],
+            ["Space", "Next reel"],
+            ["Space Space", "Like the reel and stay on it"],
+            ["Enter Enter", "Like what is on screen"],
+            ["L · R · S", "Like · repost · save, or take it back out"],
+            ["C", "Comments"],
+            ["M", "Sound on or off"],
+            ["O", "Turn a video sideways, full screen; again for the other way"]
+        ] },
+        { title: "Sound", shown: root.soundOn, rows: [
+            ["+  −", "Louder, quieter — remembered for every video after"]
+        ] },
+        { title: "Stories", shown: root.shortcutsOn, rows: [
+            ["Click", "Pause the story, or play it again"],
+            ["Mouse wheel", "Next story, or the one before"],
+            ["Wheel over the row", "Scroll the row of stories on the feed"]
+        ] },
+        { title: "The window", shown: true, rows: [
+            ["Ctrl 1 · 2 · 3 · 4", "Home · Explore · Reels · Messages"],
+            ["Alt ←  or mouse back", "Back, out of a page laid over Instagram"],
+            ["Ctrl W", "Close that page, or the window"],
+            ["Ctrl R · Ctrl Shift R", "Reload · reload ignoring the cache"],
+            ["Ctrl +  −  0", "Zoom in, out, back to normal"],
+            ["F11", "Full screen"],
+            ["Ctrl Q", "Quit, even when closing only hides the window"],
+            ["F1", "This card"]
+        ] }
+    ]
+
+    Rectangle {
+        id: tips
+        objectName: "tips"
+        property bool shown: false
+        anchors.fill: parent
+        color: "#99000000"
+        // Shown from the moment it is asked for, not from its first frame of
+        // fading in: until then a click went through to the page.
+        visible: shown || opacity > 0
+        opacity: shown ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        // A click beside the card closes it, and reaches nothing underneath.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            hoverEnabled: true
+            onClicked: tips.shown = false
+            onWheel: function (wheel) { wheel.accepted = true; }
+        }
+
+        Rectangle {
+            id: tipsCard
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 48, 520)
+            height: Math.min(parent.height - 48, tipsColumn.implicitHeight + 48)
+            radius: 18
+            color: "#1c1622"
+            border.color: "#3a3040"
+            clip: true
+            // Rises into place as it appears: transform and opacity only.
+            scale: tips.shown ? 1 : 0.96
+            Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            // Clicks on the card stay on the card.
+            MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
+
+            Flickable {
+                anchors.fill: parent
+                anchors.margins: 24
+                contentHeight: tipsColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+
+                Column {
+                    id: tipsColumn
+                    width: parent.width
+                    spacing: 18
+
+                    Text {
+                        text: "Shortcuts and tips"
+                        color: "#ffffff"
+                        font.pixelSize: 20
+                        font.weight: Font.Bold
+                    }
+                    Repeater {
+                        model: root.tipSections
+                        Column {
+                            required property var modelData
+                            width: tipsColumn.width
+                            visible: modelData.shown
+                            spacing: 8
+                            Text {
+                                text: modelData.title
+                                color: "#e1306c"
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                                font.capitalization: Font.AllUppercase
+                            }
+                            Repeater {
+                                model: modelData.rows
+                                Row {
+                                    required property var modelData
+                                    spacing: 12
+                                    Rectangle {
+                                        width: 168
+                                        height: keys.implicitHeight + 8
+                                        radius: 6
+                                        color: "#2c2433"
+                                        Text {
+                                            id: keys
+                                            anchors.centerIn: parent
+                                            width: parent.width - 12
+                                            horizontalAlignment: Text.AlignHCenter
+                                            elide: Text.ElideRight
+                                            text: modelData[0]
+                                            color: "#ffffff"
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                        }
+                                    }
+                                    Text {
+                                        width: tipsColumn.width - 180
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        wrapMode: Text.WordWrap
+                                        text: modelData[1]
+                                        color: "#c7c7cc"
+                                        font.pixelSize: 14
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        width: tipsColumn.width
+                        wrapMode: Text.WordWrap
+                        color: "#8e8e93"
+                        font.pixelSize: 13
+                        text: "Keys do nothing while you type. Likes, reposts and saves "
+                              + "happen one per gesture, at most every 0.8 s. The mods are "
+                              + "switched in the tray icon's menu, and take effect at the next load."
+                    }
+                }
+            }
+        }
+    }
+
+    // The way to the card for somebody who knows no shortcut. Small and dim
+    // in the corner, brighter under the pointer; never over a page laid over
+    // Instagram, in full screen, or in Direct, where Instagram keeps its own
+    // controls in that corner.
+    Pill {
+        id: tipsButton
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 14
+        width: 30
+        height: 30
+        dim: true
+        label: "?"
+        shown: !tips.shown && root.current === null && splash.opacity === 0
+               && root.visibility !== Window.FullScreen
+               && view.url.toString().indexOf("/direct/") < 0
+               && updateOffer.opacity === 0 && !updatedNotice.shown
+        onClicked: tips.shown = true
+    }
+
     component Pill: Rectangle {
         id: pill
         property string label
         property bool shown: false
         property bool accent: false
+        // Present without asking for attention, until the pointer comes.
+        property bool dim: false
         signal clicked()
 
         height: 34
         width: text.implicitWidth + 28
         radius: height / 2
         color: accent ? "#1f8f4e" : "#000000"
-        opacity: shown ? (hover.hovered ? 0.95 : 0.78) : 0
+        opacity: shown ? (hover.hovered ? 0.95 : dim ? 0.4 : 0.78) : 0
         visible: opacity > 0
+        // Grows into place as it fades in, and a little under the pointer.
+        scale: !shown ? 0.88 : hover.hovered ? 1.04 : 1
         Behavior on opacity { NumberAnimation { duration: 150 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
         Text {
             id: text
@@ -1636,16 +1876,27 @@ Window {
     Shortcut { sequence: "Ctrl+4"; enabled: shell.instagram_shortcuts; onActivated: root.goTo("/direct/inbox/") }
     Shortcut {
         sequence: "F11"
-        onActivated: root.visibility = root.visibility === Window.FullScreen
-                                     ? Window.Windowed : Window.FullScreen
+        onActivated: {
+            if (root.visibility === Window.FullScreen)
+                root.leaveFullScreen();
+            else
+                root.visibility = Window.FullScreen;
+        }
     }
-    // Enabled only in fullscreen: a shortcut takes its key whether or not it
-    // does anything with it, and Instagram closes its own dialogs on Escape.
+    // Enabled only in fullscreen or over the tips: a shortcut takes its key
+    // whether or not it does anything with it, and Instagram closes its own
+    // dialogs on Escape.
     Shortcut {
         sequence: "Escape"
-        enabled: root.visibility === Window.FullScreen
-        onActivated: root.visibility = Window.Windowed
+        enabled: root.visibility === Window.FullScreen || tips.shown
+        onActivated: {
+            if (tips.shown)
+                tips.shown = false;
+            else
+                root.leaveFullScreen();
+        }
     }
+    Shortcut { sequence: "F1"; onActivated: tips.shown = !tips.shown }
     Shortcut {
         sequences: ["Ctrl+Shift+I", "F12"]
         enabled: shell.developer_tools

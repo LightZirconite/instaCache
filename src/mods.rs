@@ -71,6 +71,9 @@ fn options(config: &Config) -> serde_json::Value {
     json!({
         "volume": f64::from(config.video_volume.min(100)) / 100.0,
         "ambient": config.ambient_colors,
+        // A right-click is the engine's menu when the user asked for it,
+        // and a repost otherwise.
+        "contextMenu": config.context_menu,
     })
 }
 

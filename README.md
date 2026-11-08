@@ -64,8 +64,25 @@ application menu and offers to install the Qt packages it needs. To remove it:
 | `Ctrl+=` `Ctrl+-` `Ctrl+0` | Zoom in · out · reset |
 | `F11` | Fullscreen |
 | `Ctrl+W` · `Ctrl+Q` | Close the page on top · quit for real |
+| `F1` | Every shortcut and gesture, on a card |
 
 The mouse's back and forward buttons work too.
+
+On Instagram, the built-in mods add the phone's gestures:
+
+| Gesture | Action |
+|---|---|
+| Double-click a picture or video | Like it, with a heart |
+| Right-click a picture or video | Repost it |
+| `Space` · `Space` `Space` | On Reels: the next reel · like this one and stay |
+| `Enter` `Enter` | Like what is on screen |
+| `L` `R` `S` `C` `M` | Like · repost · save · comments · sound |
+| `O` | Turn the video sideways, full screen; again for the other way, a third time to put it back |
+| `+` · `-` | Louder · quieter, remembered for every video after |
+| Click a story · mouse wheel over it | Pause or play · next story or the one before |
+| Mouse wheel over the stories row | Scroll the row |
+
+The `?` in the bottom corner, `F1` and the tray menu all open the same card.
 
 ## Opening Instagram from your browser
 
@@ -99,13 +116,13 @@ page.
 | `video_decoding` | `gpu` | `gpu` (VA-API), `software` or `auto`. Change it only if playback misbehaves. |
 | `allow_autoplay_with_sound` | `true` | Let videos start with sound. |
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
-| `video_volume` | `40` | The volume, from 0 to 100, that `videos_with_sound` starts a video at. |
+| `video_volume` | `75` | The volume, from 0 to 100, that `videos_with_sound` starts a video at until you set one with `+` and `-`, which is remembered. |
 | `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black, a little differently on each kind of page, with thin scroll bars. |
-| `ambient_colors` | `true`¹ | With `instagram_colors`, the background takes on the colour of the picture or video in view. |
-| `shortcuts` | `true`¹ | Double-click a picture or video to like it, Shift+double-click to repost; on Reels Space twice likes the reel and stays on it, Enter twice likes; `L` like, `R` repost, `M` sound, `C` comments, `S` save or unsave; a click pauses a story; the mouse wheel scrolls the stories row. |
+| `ambient_colors` | `true`¹ | With `instagram_colors`, the background takes on the colour of the picture or video in view, and drifts slowly while the page is at rest. |
+| `shortcuts` | `true`¹ | Double-click a picture or video to like it, right-click to repost; on Reels Space twice likes the reel and stays on it, Enter twice likes; `L` like, `R` repost, `M` sound, `C` comments, `S` save or unsave, `O` turns a video sideways; a click pauses a story and the wheel moves between stories; the mouse wheel scrolls the stories row. |
 | `hide_also_from_meta` | `true`¹ | Hide "Also from Meta" from Instagram's side bar. |
 | `page_animations` | `true`¹ | Dialogs and pictures fade in. Off wherever the desktop asks for reduced motion. |
-| `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". |
+| `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". With it on, a right-click no longer reposts. |
 | `developer_tools` | `false` | The Web Inspector (`F12`). |
 | `notifications` | `true` | Forward notifications to your desktop. |
 | `push_notifications` | `true`¹ | Web Push, which is how messages arrive while the window is closed. Needs Qt 6.5. |
@@ -115,6 +132,7 @@ page.
 | `run_in_background` | `true`¹ | Closing the window hides it instead of quitting. |
 | `freeze_in_background` | `true` | Freeze the page ten seconds after the window closes. Messages then arrive through Web Push and the unread badge waits. |
 | `discard_in_background_after_minutes` | `30` | Free the page's memory after this long closed; it reloads when you open the window. `0` never does. |
+| `http_cache_size_mb` | `1024` | Disk space for the resource cache, so Instagram's scripts survive an evening of video. `0` leaves it to Chromium, which chose about 300 MB. |
 | `start_with_session` | `true`¹ | Start at login, in the background. Your desktop's startup settings win after the first run. |
 | `unread_badge` | `true` | Unread count on the task bar icon. |
 | `tray_icon` | `true`¹ | Tray icon. GNOME needs the AppIndicator extension. |

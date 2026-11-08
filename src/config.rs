@@ -142,9 +142,28 @@ pub const DEFAULT_UPDATE_CHECK_HOURS: u64 = 6;
 /// that a page left behind overnight is not holding its memory all night.
 pub const DEFAULT_DISCARD_MINUTES: u64 = 30;
 
-/// The volume `videos_with_sound` starts a video at: there to be heard, not
-/// to startle anyone at the first reel.
-pub const DEFAULT_VIDEO_VOLUME: u8 = 40;
+/// The HTTP cache's size: room for Instagram's scripts and a long evening of
+/// media together.
+pub const DEFAULT_HTTP_CACHE_MB: u32 = 1024;
+
+/// The largest cache Qt can be told about: its size is a C `int` of bytes.
+const MAX_HTTP_CACHE_MB: u32 = 2047;
+
+/// What `WebEngineProfile.httpCacheMaximumSize` is given: bytes, with `0`
+/// meaning the engine's own choice, and never more than an `int` holds.
+pub fn http_cache_bytes(megabytes: u32) -> i32 {
+    let bytes = u64::from(megabytes.min(MAX_HTTP_CACHE_MB)) * 1024 * 1024;
+    i32::try_from(bytes).unwrap_or(i32::MAX)
+}
+
+/// The volume `videos_with_sound` starts a video at until the user sets one
+/// of their own, which the page then remembers: loud enough to be heard
+/// over a room, short of full.
+pub const DEFAULT_VIDEO_VOLUME: u8 = 75;
+
+/// The default until 2.11.0, found too quiet. Written out by every first run
+/// since the setting existed, so it says nothing about what the user wants.
+const SUPERSEDED_VIDEO_VOLUME: u8 = 40;
 
 /// The default until 2.4.0. See `DEFAULT_USER_AGENT` for why an old default
 /// found in a config file is migrated rather than kept.
@@ -184,7 +203,8 @@ pub struct Config {
     ///
     /// On for Instagram and off for another site by default.
     pub videos_with_sound: bool,
-    /// The volume `videos_with_sound` starts a video at, from 0 to 100.
+    /// The volume `videos_with_sound` starts a video at, from 0 to 100, until
+    /// the user picks one with `+` and `-`; the page remembers that one.
     pub video_volume: u8,
     /// The mod that tints Instagram's dark theme plum, in its own colours,
     /// instead of black. Its light theme is left as it is.
@@ -192,17 +212,19 @@ pub struct Config {
     /// On for Instagram and off for another site by default.
     pub instagram_colors: bool,
     /// With `instagram_colors`, the background takes on the colour of the
-    /// picture or video in view, the way a video player's ambient mode does.
+    /// picture or video in view, the way a video player's ambient mode does,
+    /// and drifts slowly towards a neighbouring colour while the page rests.
     ///
     /// On for Instagram and off for another site by default.
     pub ambient_colors: bool,
     /// The mod that brings the phone's gestures and a few keys to the page:
-    /// a double-click likes, as a double tap does, and Shift with it reposts;
+    /// a double-click likes, as a double tap does, and a right-click reposts;
     /// on Reels, Space twice likes the reel and stays on it while one Space goes to
     /// the next; Enter twice likes; `L` likes, `R` reposts, `M` turns the
-    /// sound on or off, `C` opens the comments, `S` saves or unsaves; a click
-    /// on a story pauses it or plays it again; the mouse wheel scrolls the
-    /// row of stories at the top of the feed.
+    /// sound on or off, `C` opens the comments, `S` saves or unsaves, `O`
+    /// turns a video sideways; a click on a story pauses it or plays it
+    /// again, and the wheel over it moves to the next story or back; the
+    /// mouse wheel scrolls the row of stories at the top of the feed.
     ///
     /// On for Instagram and off for another site by default.
     pub shortcuts: bool,
@@ -309,6 +331,12 @@ pub struct Config {
     /// A discarded page has no connection, so Instagram delivers what arrives
     /// through Web Push, and the unread badge waits for the reload.
     pub discard_in_background_after_minutes: u64,
+    /// How much of the disk the HTTP cache may use, in megabytes; `0` leaves
+    /// it to Chromium. Its own choice was measured near 300 MB, which an
+    /// evening of Reels fills with video and then pays for by evicting
+    /// Instagram's scripts, fetched again at the next start. See
+    /// `http_cache_bytes`.
+    pub http_cache_size_mb: u32,
     /// Show the number of unread items on the task bar icon, read from the
     /// `(3)` Instagram puts in front of its page title.
     pub unread_badge: bool,
@@ -397,6 +425,7 @@ impl Default for Config {
             run_in_background: true,
             freeze_in_background: true,
             discard_in_background_after_minutes: DEFAULT_DISCARD_MINUTES,
+            http_cache_size_mb: DEFAULT_HTTP_CACHE_MB,
             unread_badge: true,
             start_with_session: true,
             tray_icon: true,
@@ -512,6 +541,9 @@ impl Config {
         }
         self.default_zoom = self.default_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
         self.video_volume = self.video_volume.min(100);
+        if self.video_volume == SUPERSEDED_VIDEO_VOLUME {
+            self.video_volume = DEFAULT_VIDEO_VOLUME;
+        }
         // Written out by every first run before 2.4.0, so it says nothing
         // about what the user wants, only what the default was.
         if self.update_check_interval_hours == SUPERSEDED_UPDATE_CHECK_HOURS {
@@ -781,6 +813,22 @@ mod tests {
             accept_language(env(&[("LANG", "C.UTF-8")])),
             "en-US,en;q=0.9"
         );
+    }
+
+    #[test]
+    fn the_cache_size_reaches_qt_as_an_int_of_bytes() {
+        assert_eq!(http_cache_bytes(0), 0);
+        assert_eq!(http_cache_bytes(1024), 1 << 30);
+        assert_eq!(http_cache_bytes(2047), 2047 * 1024 * 1024);
+        assert_eq!(http_cache_bytes(u32::MAX), 2047 * 1024 * 1024);
+    }
+
+    #[test]
+    fn the_old_quiet_volume_is_raised_and_a_chosen_one_kept() {
+        let old: Config = serde_json::from_str(r#"{"video_volume": 40}"#).unwrap();
+        assert_eq!(old.normalized().video_volume, DEFAULT_VIDEO_VOLUME);
+        let chosen: Config = serde_json::from_str(r#"{"video_volume": 55}"#).unwrap();
+        assert_eq!(chosen.normalized().video_volume, 55);
     }
 
     #[test]

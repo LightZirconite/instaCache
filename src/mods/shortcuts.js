@@ -1,13 +1,14 @@
 // The phone app's gestures, and a few keys, on the web page.
 //
 //   double-click a picture or a video   like it, as a double tap does
-//   Shift + double-click                repost it
+//   right-click a picture or a video    repost it
 //   Space, Space                        on Reels, like the reel and stay on
 //                                       it; one Space still goes to the next
 //   Enter, Enter                        like what is in view
 //   L   like      R   repost      M   sound on or off
-//   C   comments  S   save
+//   C   comments  S   save        O   turn the video sideways, full screen
 //   click a story                       pause it, or play it again
+//   mouse wheel over an open story      the next story, or the one before
 //   mouse wheel over the stories row    scroll the row, which otherwise only
 //                                       moves with an arrow that misses
 //
@@ -28,7 +29,14 @@ addStyle("instacache-mod-shortcuts-heart",
     "  width: 96px; height: 96px; animation: instacache-heart 800ms ease-out forwards;" +
     "  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.35)); }");
 
-function heart(x, y) {
+var HEART = "M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 " +
+    "7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 " +
+    "8.5c0 3.78-3.4 6.86-8.55 11.54z";
+// Two arrows chasing each other round: the usual sign for a repost.
+var REPOST = "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z";
+
+// What a gesture did, drawn where it was made, the way the phone shows it.
+function pop(x, y, shape, colour) {
     if (calm.matches)
         return;
     var ns = "http://www.w3.org/2000/svg";
@@ -38,10 +46,8 @@ function heart(x, y) {
     svg.style.left = x + "px";
     svg.style.top = y + "px";
     var path = document.createElementNS(ns, "path");
-    path.setAttribute("fill", "#ff3040");
-    path.setAttribute("d", "M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 " +
-        "7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 " +
-        "8.5c0 3.78-3.4 6.86-8.55 11.54z");
+    path.setAttribute("fill", colour);
+    path.setAttribute("d", shape);
     svg.appendChild(path);
     document.body.appendChild(svg);
     setTimeout(function () { svg.remove(); }, 900);
@@ -70,7 +76,7 @@ function press(media, labels) {
 function like(media, x, y) {
     if (!paced())
         return;
-    heart(x, y);
+    pop(x, y, HEART, "#ff3040");
     // After Instagram has had its own say on the same gesture: if it liked
     // the post itself, "Like" is gone and nothing is pressed twice.
     setTimeout(function () { press(media, LABELS.like); }, 150);
@@ -112,13 +118,25 @@ document.addEventListener("dblclick", function (event) {
     var media = mediaAt(event.clientX, event.clientY);
     if (!media || !postOf(media))
         return;
-    if (event.shiftKey) {
-        if (paced())
-            press(media, LABELS.repost);
-    } else
-        like(media, event.clientX, event.clientY);
+    like(media, event.clientX, event.clientY);
     keepPlaying(media);
 });
+
+// A right-click on a picture or a video reposts it. The engine's own menu is
+// off unless `context_menu` asks for it, and then the right-click is left to
+// it. The event reaches the page either way: Chromium hands it to the page
+// first and shows its menu only when the page lets it. Nothing is kept from
+// the page when there is no repost button to press.
+document.addEventListener("contextmenu", function (event) {
+    if (options.contextMenu)
+        return;
+    var media = mediaAt(event.clientX, event.clientY);
+    if (!media || !postOf(media) || !control(postOf(media), LABELS.repost))
+        return;
+    event.preventDefault();
+    if (paced() && press(media, LABELS.repost))
+        pop(event.clientX, event.clientY, REPOST, "#ffffff");
+}, true);
 
 // A click on a story pauses it, or plays it again: Instagram only does that
 // from its small button at the top. A click on one of the story's own
@@ -154,6 +172,57 @@ function second(key, media) {
 // 2.10 did, liked the reel and skipped it as well.
 var SPACE_MS = 250;
 var pendingNext = null;
+
+// The move to the next reel, eased over `GLIDE_MS`. Not `behavior: "smooth"`:
+// Qt WebEngine switches Chromium's scroll animator off, so a smooth scroll
+// asked for by the page lands in one frame — measured, 0 to 796 pixels
+// between two frames — and the reels jumped. Snapping is suspended while it
+// moves, or the scroller would be pulled back to the reel it is leaving at
+// every frame, and put back when it arrives.
+var GLIDE_MS = 380;
+var gliding = null;
+
+function glide(scroller, by) {
+    if (gliding)
+        gliding.stop();
+    var from = scroller.scrollTop;
+    var to = Math.max(0, Math.min(from + by, scroller.scrollHeight - scroller.clientHeight));
+    if (calm.matches || to === from) {
+        scroller.scrollTop = to;
+        return;
+    }
+    var snap = scroller.style.getPropertyValue("scroll-snap-type");
+    scroller.style.setProperty("scroll-snap-type", "none");
+    var start = null, frame = 0;
+    var move = {
+        stop: function () {
+            cancelAnimationFrame(frame);
+            scroller.style.setProperty("scroll-snap-type", snap);
+            if (!snap)
+                scroller.style.removeProperty("scroll-snap-type");
+            gliding = null;
+        }
+    };
+    function step(now) {
+        if (start === null)
+            start = now;
+        var t = Math.min(1, (now - start) / GLIDE_MS);
+        scroller.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3));
+        if (t < 1)
+            frame = requestAnimationFrame(step);
+        else
+            move.stop();
+    }
+    gliding = move;
+    frame = requestAnimationFrame(step);
+}
+// A wheel or a press takes over from a glide rather than fighting it.
+["wheel", "pointerdown"].forEach(function (type) {
+    window.addEventListener(type, function () {
+        if (gliding)
+            gliding.stop();
+    }, { capture: true, passive: true });
+});
 
 function onReels() {
     return /^\/reels?\//.test(location.pathname);
@@ -203,7 +272,7 @@ window.addEventListener("keydown", function (event) {
         } else {
             pendingNext = setTimeout(function () {
                 pendingNext = null;
-                scroller.scrollBy({ top: scroller.clientHeight, behavior: "smooth" });
+                glide(scroller, scroller.clientHeight);
             }, SPACE_MS);
         }
         handled = true;
@@ -244,12 +313,138 @@ window.addEventListener("keydown", function (event) {
         // Saves, or takes it back out, as the phone's button does.
         handled = paced() && press(media, LABELS.save.concat(LABELS.saved));
         break;
+    case "o":
+    case "O":
+        handled = media instanceof HTMLVideoElement && turn(media);
+        break;
     }
     if (handled) {
         event.preventDefault();
         event.stopImmediatePropagation();
     }
 }, true);
+
+// `O` turns the video in view a quarter turn, full screen, so a clip filmed
+// sideways fills the screen the way it was shot; `O` again turns it the
+// other way, a third time — or Escape, or a click — puts it back.
+//
+// The picture is a copy: the video's own frames, through `captureStream()`,
+// shown by a video of this mod's own in a layer over the page. Turning
+// Instagram's element itself is not possible — its containers clip it, and
+// the browser refuses any transform on an element in full screen. The copy
+// costs no second decoding, and Instagram's video goes on playing, and
+// being heard, underneath; the copy is silent. Nothing is sent anywhere.
+addStyle("instacache-mod-shortcuts-turn",
+    ".instacache-turn { position: fixed; inset: 0; z-index: 2147483647; background: #000;" +
+    "  cursor: zoom-out; animation: instacache-turn-in 220ms ease-out; }" +
+    ".instacache-turn video { position: absolute; left: 50%; top: 50%;" +
+    "  width: 100vh; height: 100vw; object-fit: contain;" +
+    "  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }" +
+    "@keyframes instacache-turn-in { from { opacity: 0; } to { opacity: 1; } }" +
+    "@media (prefers-reduced-motion: reduce) {" +
+    "  .instacache-turn { animation: none; } .instacache-turn video { transition: none; } }");
+
+var turned = null;
+
+function closeTurn() {
+    if (!turned)
+        return;
+    var layer = turned.layer;
+    turned = null;
+    layer.remove();
+    if (document.fullscreenElement === layer)
+        document.exitFullscreen().catch(function () {});
+}
+
+function turn(media) {
+    if (turned) {
+        if (turned.angle === 90) {
+            turned.angle = -90;
+            turned.copy.style.transform = "translate(-50%, -50%) rotate(-90deg)";
+        } else
+            closeTurn();
+        return true;
+    }
+    var stream;
+    try {
+        stream = media.captureStream();
+    } catch (e) {
+        // A video from another origin cannot be copied; it stays as it is.
+        return false;
+    }
+    var layer = document.createElement("div");
+    layer.className = "instacache-turn";
+    var copy = document.createElement("video");
+    copy.muted = true;
+    copy.autoplay = true;
+    copy.playsInline = true;
+    copy.srcObject = stream;
+    copy.style.transform = "translate(-50%, -50%) rotate(90deg)";
+    layer.appendChild(copy);
+    layer.addEventListener("click", closeTurn);
+    document.body.appendChild(layer);
+    turned = { layer: layer, copy: copy, source: media, angle: 90, wasFull: false };
+    copy.play().catch(function () {});
+    // Full screen when the engine allows it; a layer over the window when not.
+    if (layer.requestFullscreen)
+        layer.requestFullscreen().catch(function () {});
+    return true;
+}
+
+// Leaving full screen by any way — Escape, F11 — puts the video back.
+document.addEventListener("fullscreenchange", function () {
+    if (turned && document.fullscreenElement !== turned.layer && turned.wasFull)
+        closeTurn();
+    else if (turned && document.fullscreenElement === turned.layer)
+        turned.wasFull = true;
+});
+window.addEventListener("keydown", function (event) {
+    if (turned && event.key === "Escape") {
+        closeTurn();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+}, true);
+// Another page, and the copy has nothing left to show.
+onPageChange(function () {
+    if (turned && !document.contains(turned.source))
+        closeTurn();
+});
+
+// The wheel over an open story goes to the next story, or back to the one
+// before: one story for one turn of the wheel, however many events a
+// touchpad sends for it. The step is Instagram's own arrow keys, which it
+// already answers on a story; the wheel has to rest for `QUIET_MS` before it
+// can move another story.
+var QUIET_MS = 250;
+var wheelSum = 0, wheelLocked = false, wheelQuiet = null;
+
+function arrow(key) {
+    var event = new KeyboardEvent("keydown", { key: key, code: key, bubbles: true, cancelable: true });
+    var code = key === "ArrowRight" ? 39 : 37;
+    Object.defineProperty(event, "keyCode", { get: function () { return code; } });
+    Object.defineProperty(event, "which", { get: function () { return code; } });
+    (document.activeElement || document.body).dispatchEvent(event);
+}
+
+document.addEventListener("wheel", function (event) {
+    if (!onStory() || event.ctrlKey)
+        return;
+    event.preventDefault();
+    clearTimeout(wheelQuiet);
+    wheelQuiet = setTimeout(function () {
+        wheelLocked = false;
+        wheelSum = 0;
+    }, QUIET_MS);
+    if (wheelLocked)
+        return;
+    var dy = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    wheelSum += dy * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1);
+    if (Math.abs(wheelSum) < 40)
+        return;
+    wheelLocked = true;
+    arrow(wheelSum > 0 ? "ArrowRight" : "ArrowLeft");
+}, { passive: false });
 
 // The wheel over a row that scrolls sideways — the stories at the top of the
 // feed, a scroll container of its own, measured at 12 489 pixels of avatars
@@ -268,7 +463,7 @@ function sideways(start) {
 }
 
 document.addEventListener("wheel", function (event) {
-    if (event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY))
+    if (onStory() || event.ctrlKey || event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY))
         return;
     var row = sideways(event.target);
     if (!row)
