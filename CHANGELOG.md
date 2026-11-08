@@ -4,6 +4,21 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.1] - 2026-11-08
+
+### Fixed
+- **The background is dark again.** 2.12.0 could paint Instagram's
+  background bright red. The colours are back to 2.11's — a deep tint for
+  each kind of page, fading towards the colour of the post in view — and no
+  colour brighter than a deep shade can reach the page any more.
+- **The title bar is one with the page**: it takes the page's own background
+  colour, fading as the page changes, so the window and Instagram meet
+  without a seam.
+- **"Autres applications Meta" is hidden**, even where Instagram writes its
+  label with non-breaking spaces, which 2.12.0 compared character for
+  character and missed. Every label the mods look for is now compared the
+  same tolerant way.
+
 ## [2.12.0] - 2026-11-08
 
 ### Added
@@ -33,10 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - **Videos start at 75 % instead of 40 %.** A config still holding the old
   default is moved to the new one.
-- **Instagram's colours are more present**: deeper purples, magentas and
-  blues instead of near-black, a stronger colour from the post in view, and
-  a slow drift between neighbouring colours while the page is at rest —
-  never while a video plays, a page scrolls or you type.
+- **Instagram's colours are more present**: brighter tints, and a slow
+  drift between them while the page is at rest. Withdrawn in 2.12.1.
 
 ### Fixed
 - **The tray's Mods menu works on KDE**: it was exported as an empty

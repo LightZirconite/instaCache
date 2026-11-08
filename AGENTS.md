@@ -110,7 +110,9 @@ there because the window has no other way to offer it. The last two are the
 owner's requests: gestures nobody can see are gestures nobody finds (the
 card is also on `F1` and in the tray menu), and the desktop's frame made the
 window look like a browser rather than one application, as Discord's does
-not. The title bar sits above the page, never over it, in the page's colour;
+not. The title bar sits above the page, never over it, in the page's colour
+— read from `--ig-primary-background`, or the body's for another site, and
+faded to, so the two meet without a seam;
 moving and resizing are handed to the compositor (`startSystemMove`,
 `startSystemResize`, both in Qt 6.4), the only way a Wayland client may do
 either. `own_title_bar: false` gives the desktop's frame back. The splash is drawn with `Canvas` from the same
@@ -543,7 +545,12 @@ can change how the page starts instead of repairing it afterwards.
   and French, and `postOf` finds the post a picture or video belongs to as
   the nearest ancestor holding a Comment button, which every post has, liked
   or not. A label in no list means the control is not found and nothing is
-  pressed, which is the failure to want. To capture more, run in a browser
+  pressed, which is the failure to want. Labels are compared through
+  `plain`: any run of spaces as one, either apostrophe as U+2019. A label
+  that reads "Autres applications Meta" in the console may hold
+  non-breaking spaces, and 2.12.0's exact comparison — script and CSS —
+  missed exactly that case on a test page; CSS matches the first and last
+  words (`^=` and `$=`) for the same reason. To capture more, run in a browser
   console on the page: every `svg[aria-label]` with the role of its
   clickable ancestor, and every element that overflows sideways. Logged-out
   post pages (`/p/<id>/`) show the post's controls; stories and the side bar
@@ -625,27 +632,31 @@ can change how the page starts instead of repairing it afterwards.
   `--ig-primary-background` to know the page is dark, marks `<html>` with a
   class of its own, and overrides the `--ig-*` variables — as `R, G, B`,
   which is how Instagram writes them — under that class.
-- **"Also from Meta" stayed visible for the owner, cause unknown.** Their
-  logged-in French page, captured in the browser console, holds one copy:
-  `a[role=link]` around `svg[aria-label="Autres applications Meta"]`,
-  exactly what the script looks for. So the script is not trusted alone:
-  `hide_meta.js` hides every copy at every change, and an `a:has(…)` rule
-  hides it on Qt 6.5 and later before React draws, whatever happens to the
-  element afterwards. If it still shows, capture from inside instaCache
-  (`developer_tools: true`, `F12`), not from a browser.
+- **"Also from Meta" stayed visible for the owner through 2.12.0**, whose
+  exact rule should have hidden their one copy (`a[role=link]` around the
+  labelled icon). The likeliest cause is a non-breaking space in the label;
+  2.12.1 compares loosely. If it still shows, capture from inside
+  instaCache (`developer_tools: true`, `F12`), with the label's character
+  codes, not from a browser.
 - **Restyling the page is the expensive thing.** `--ig-*` live on `<html>`, so
   changing one restyles every element — measured at 55 to 90 ms for ten
   thousand elements in a container with no GPU. `instagram_colors` writes them from one
   tint — per kind of page, and with `ambient_colors` the colour of the media
   in view mixed in — only when the media in view changes, after it has a
   frame, once a scroll has come to rest, in four steps. Reading the colour of
-  a playing reel every two seconds made the next reel stutter in. The slow
-  drift of the tint (with `ambient_colors`) writes a step every six seconds
-  and only while nothing moves: window focused, no scroll, no video playing
-  in view, nobody typing, not in Direct. Pictures
+  a playing reel every two seconds made the next reel stutter in. Pictures
   carry `crossorigin="anonymous"` and Reels are `blob:` sources of the page's
   own, so both can be read into a canvas; weigh pixels by their alpha, or a
   video with no picture reads as black.
+- **The background stays dark, a tint per page, eased.** The owner's rule:
+  Instagram's colours on, a tint for each kind of page as before, changes
+  as a light fade, and nothing garish. 2.12.0 made the tints brighter and
+  let them drift slowly, and the owner's logged-in page came up bright red —
+  every surface painted with `--ig-primary-background` — which no test page
+  reproduced and no arithmetic in the mod explains. 2.12.1 went back to
+  2.11's tints and easing, and `write` refuses anything but finite numbers
+  and bounds every channel to 0–48. Do not brighten the tints or bring the
+  drift back without the owner's own window to check it on.
 - **Opaque colours, not transparency.** A tinted background that let a
   gradient through looked right on one layer and disappeared on the page:
   Instagram stacks several containers painting the same background, and

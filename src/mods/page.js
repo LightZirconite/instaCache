@@ -22,13 +22,26 @@ var LABELS = {
     alsoFromMeta: ["Also from Meta", "Autres applications Meta"]
 };
 
+// A label as it is compared: any run of spaces — the non-breaking ones
+// Instagram may put between two words included — as one plain space, and
+// either apostrophe as U+2019. What the console prints as "Autres
+// applications Meta" need not be those bytes, and an exact comparison then
+// misses it without a word.
+function plain(label) {
+    return (label || "").replace(/\s+/g, " ").replace(/'/g, "\u2019").trim();
+}
+
+function labelled(icon, labels) {
+    return labels.indexOf(plain(icon.getAttribute("aria-label"))) >= 0;
+}
+
 // The clickable control under `root` whose icon carries one of `labels`.
 function control(root, labels) {
     if (!root)
         return null;
     var icons = root.querySelectorAll("svg[aria-label]");
     for (var i = 0; i < icons.length; i++) {
-        if (labels.indexOf(icons[i].getAttribute("aria-label")) >= 0)
+        if (labelled(icons[i], labels))
             return icons[i].closest("[role=button], button, a");
     }
     return null;
@@ -63,7 +76,7 @@ function speakerOf(media) {
 // Whether a speaker button says the sound is off.
 function saysMuted(speaker) {
     var icon = speaker && speaker.querySelector("svg[aria-label]");
-    return !!icon && LABELS.audioMuted.indexOf(icon.getAttribute("aria-label")) >= 0;
+    return !!icon && labelled(icon, LABELS.audioMuted);
 }
 
 function onStory() {

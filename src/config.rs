@@ -212,8 +212,7 @@ pub struct Config {
     /// On for Instagram and off for another site by default.
     pub instagram_colors: bool,
     /// With `instagram_colors`, the background takes on the colour of the
-    /// picture or video in view, the way a video player's ambient mode does,
-    /// and drifts slowly towards a neighbouring colour while the page rests.
+    /// picture or video in view, the way a video player's ambient mode does.
     ///
     /// On for Instagram and off for another site by default.
     pub ambient_colors: bool,

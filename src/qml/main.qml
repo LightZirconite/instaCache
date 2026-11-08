@@ -69,7 +69,7 @@ Window {
     flags: shell.own_title_bar ? Qt.Window | Qt.FramelessWindowHint : Qt.Window
     // Instagram's dark background as the `instagram_colors` mod tints it, so
     // nothing changes colour between the splash, the window and the page.
-    color: "#1e0c2c"
+    color: "#120c1a"
 
     function writeState() {
         var maximized = root.visibility === Window.Maximized
@@ -1195,7 +1195,43 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 32
+        // The page's own background, read from it and faded to, so the bar
+        // and the page meet with no seam, whichever tint the page has.
         color: root.color
+        Behavior on color { ColorAnimation { duration: 450; easing.type: Easing.InOutQuad } }
+        readonly property bool light: color.hslLightness > 0.6
+        readonly property color ink: light ? "#262626" : "#d8d0e0"
+
+        function follow() {
+            if (!titleBar.visible || root.backgrounded || !root.visible)
+                return;
+            root.activeView().runJavaScript(
+                // Instagram's own background variable first, which is what
+                // its surfaces paint and what the colours mod tints; the
+                // body's colour for any other site.
+                "(function () { var h = document.documentElement;" +
+                "  var v = getComputedStyle(h).getPropertyValue('--ig-primary-background').trim();" +
+                "  if (/^\\d+, *\\d+, *\\d+$/.test(v)) return 'rgb(' + v.replace(/ /g, '').split(',').join(', ') + ')';" +
+                "  return document.body ? getComputedStyle(document.body).backgroundColor : ''; })()",
+                function (css) {
+                    var m = /^rgba?\((\d+), (\d+), (\d+)(, ([\d.]+))?\)$/.exec(css || "");
+                    if (m && (m[5] === undefined || parseFloat(m[5]) > 0.5))
+                        titleBar.color = Qt.rgba(m[1] / 255, m[2] / 255, m[3] / 255, 1);
+                });
+        }
+        // The page changes colour as it goes — a tint per page, the colour of
+        // the post in view — so it is read again now and then while shown.
+        Timer {
+            interval: 1500
+            repeat: true
+            running: titleBar.visible && root.visible && !root.backgrounded
+            onTriggered: titleBar.follow()
+        }
+        Connections {
+            target: view
+            function onUrlChanged() { titleBar.follow(); }
+            function onLoadingChanged() { titleBar.follow(); }
+        }
 
         function toggleMaximized() {
             if (root.visibility === Window.Maximized)
@@ -1227,7 +1263,8 @@ Window {
             anchors.verticalCenter: parent.verticalCenter
             text: root.title
             elide: Text.ElideRight
-            color: root.active ? "#d8d0e0" : "#8e8698"
+            color: titleBar.ink
+            opacity: root.active ? 0.9 : 0.5
             font.pixelSize: 12
             font.weight: Font.DemiBold
         }
@@ -1269,10 +1306,11 @@ Window {
         id: titleButton
         signal clicked()
         property bool danger: false
-        readonly property color ink: hovered.hovered && danger ? "#ffffff" : "#d8d0e0"
+        readonly property color ink: hovered.hovered && danger ? "#ffffff" : titleBar.ink
         width: 46
         height: parent ? parent.height : 32
-        color: hovered.hovered ? (danger ? "#e81123" : "#33ffffff") : "transparent"
+        color: hovered.hovered ? (danger ? "#e81123" : titleBar.light ? "#1a000000" : "#26ffffff")
+                               : "transparent"
         Behavior on color { ColorAnimation { duration: 120 } }
         HoverHandler { id: hovered }
         TapHandler {

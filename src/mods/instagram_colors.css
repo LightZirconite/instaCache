@@ -2,23 +2,23 @@
    same variables it writes, at the feed's tint. Keyed on the class that
    script sets only while the page is dark. */
 html.instacache-dark {
-  --ig-primary-background: 30, 12, 44 !important;
-  --ig-secondary-background: 50, 32, 64 !important;
-  --ig-elevated-background: 43, 25, 57 !important;
-  --ig-highlight-background: 58, 40, 72 !important;
-  --ig-banner-background: 50, 32, 64 !important;
-  --ig-secondary-elevated-background: 58, 40, 72 !important;
-  --ig-elevated-highlight-background: 64, 46, 78 !important;
-  --ig-bubble-background: 43, 25, 57 !important;
-  --ig-incoming-message-bubble: 58, 40, 72 !important;
+  --ig-primary-background: 18, 12, 26 !important;
+  --ig-secondary-background: 38, 32, 46 !important;
+  --ig-elevated-background: 31, 25, 39 !important;
+  --ig-highlight-background: 46, 40, 54 !important;
+  --ig-banner-background: 38, 32, 46 !important;
+  --ig-secondary-elevated-background: 46, 40, 54 !important;
+  --ig-elevated-highlight-background: 52, 46, 60 !important;
+  --ig-bubble-background: 31, 25, 39 !important;
+  --ig-incoming-message-bubble: 46, 40, 54 !important;
   /* Meta's shared design system, which some surfaces use instead, as plain
      colours rather than "R, G, B". */
-  --card-background: #2b1939 !important;
-  --surface-background: #2b1939 !important;
-  --popover-card-background: #2b1939 !important;
-  --nav-bar-background: #2b1939 !important;
-  --toast-background: #322040 !important;
-  --messenger-card-background: #2b1939 !important;
+  --card-background: #1f1927 !important;
+  --surface-background: #1f1927 !important;
+  --popover-card-background: #1f1927 !important;
+  --nav-bar-background: #1f1927 !important;
+  --toast-background: #26202e !important;
+  --messenger-card-background: #1f1927 !important;
 }
 
 /* The login page: the splash's glow behind it, and the sign-in card as
