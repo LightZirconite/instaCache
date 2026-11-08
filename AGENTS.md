@@ -908,6 +908,14 @@ taken off when a detailed one follows, however late — on a real inbox,
 Instagram's came well before the message it announced. All nudges share one tag, so they
 replace each other rather than stack.
 
+**What was read leaves the desktop.** When the unread count falls to zero —
+read in the window, on the phone, or answered — `unread_changed` asks
+`alerts.rs` to take every message notification and nudge off the desktop
+(`Registry::messages`); a call's notification stays, and so do instaCache's
+own. Only zero is trusted: a count that merely falls says some thread was
+read, not which. A frozen page reads no count, so a notification read on the
+phone while the window is closed goes when the window opens.
+
 **An unsent message leaves nothing behind.** Instagram re-posts the message's
 notification under the same tag as "This message is no longer available
 because it was unsent by the sender." That is `Kind::Unsent`: the notification

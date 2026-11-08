@@ -753,6 +753,13 @@ impl Shell {
     fn unread_changed(&self, count: u32, window_active: bool) {
         let before = self.unread.get();
         self.update_badge(count);
+        // Nothing unread any more — read here, on the phone, or answered —
+        // so what the notifications announced has been seen.
+        if count == 0 && before > 0 {
+            if let Some(alerts) = self.alerts.as_ref() {
+                alerts.clear_messages();
+            }
+        }
         if count <= before || !self.announces_unread(count) {
             return;
         }

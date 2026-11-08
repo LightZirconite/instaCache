@@ -114,6 +114,8 @@ enum Request {
     /// The page closed its notification. It leaves the desktop too, and a
     /// call stops ringing.
     Withdraw(u32),
+    /// Everything was read: every message notification leaves the desktop.
+    ClearMessages,
     /// What the notification server said.
     Server(Signal),
     /// The listener lost the bus.
@@ -144,6 +146,12 @@ impl Alerts {
 
     pub fn withdraw(&self, key: u32) {
         let _ = self.commands.send(Request::Withdraw(key));
+    }
+
+    /// Takes every message notification off the desktop — read in the app,
+    /// on the phone or answered, they announce nothing any more. Calls stay.
+    pub fn clear_messages(&self) {
+        let _ = self.commands.send(Request::ClearMessages);
     }
 
     pub fn stop_ringing(&self) {
@@ -266,6 +274,15 @@ impl Notifier {
                     }
                 }
                 Request::Withdraw(key) => self.withdraw(key),
+                Request::ClearMessages => {
+                    // A nudge still waiting is about what was just read too.
+                    if let Some(toast) = self.coalescer.release(Instant::now() + NUDGE_GRACE) {
+                        self.forget(toast.key);
+                    }
+                    for id in self.registry.messages() {
+                        self.retract(id);
+                    }
+                }
                 Request::Server(signal) => self.server_said(signal),
                 Request::BusLost => {
                     self.server = None;
@@ -595,6 +612,16 @@ impl Registry {
 
     fn get(&self, id: u32) -> Option<&Entry> {
         self.by_id.get(&id)
+    }
+
+    /// The ids of the message notifications on the desktop: a page's
+    /// messages and the nudges, not calls and not instaCache's own.
+    fn messages(&self) -> Vec<u32> {
+        self.by_id
+            .iter()
+            .filter(|(_, entry)| matches!(entry.kind, Kind::Message | Kind::Nudge))
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     /// Records what the server answered `id` for, and returns the keys the
@@ -1105,5 +1132,38 @@ mod tests {
     fn a_heart_survives_a_server_that_reads_markup() {
         assert_eq!(escape_markup("<3 & more >"), "&lt;3 &amp; more &gt;");
         assert_eq!(escape_markup("plain"), "plain");
+    }
+
+    #[test]
+    fn reading_everything_clears_messages_but_never_a_call() {
+        let mut registry = Registry::default();
+        registry.record(1, entry(10, "thread-a"));
+        registry.record(
+            2,
+            Entry {
+                key: 11,
+                kind: Kind::Call,
+                tag: "call".into(),
+            },
+        );
+        registry.record(
+            3,
+            Entry {
+                key: 0,
+                kind: Kind::Nudge,
+                tag: NUDGE_TAG.into(),
+            },
+        );
+        registry.record(
+            4,
+            Entry {
+                key: 0,
+                kind: Kind::Plain,
+                tag: String::new(),
+            },
+        );
+        let mut ids = registry.messages();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 3]);
     }
 }
