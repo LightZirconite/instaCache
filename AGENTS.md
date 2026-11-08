@@ -474,6 +474,25 @@ the page with its mods. That is the difference from `user.js`,
 which runs after the load: a mod is there before Instagram's own code, so it
 can change how the page starts instead of repairing it afterwards.
 
+- **Find Instagram's controls by their labels, never guess the labels.**
+  `page.js` comes first in the script and is shared by every mod: `LABELS`
+  holds the `aria-label`s of the controls the mods press — speaker, Like,
+  Comment, Save, "Also from Meta" — each read off instagram.com in English
+  and French, and `postOf` finds the post a picture or video belongs to as
+  the nearest ancestor holding a Comment button, which every post has, liked
+  or not. A label in no list means the control is not found and nothing is
+  pressed, which is the failure to want. To capture more, run in a browser
+  console on the page: every `svg[aria-label]` with the role of its
+  clickable ancestor. Logged-out post pages (`/p/<id>/`) show the post's
+  controls; stories and the side bar need an account.
+- **Press Instagram's own switch rather than working around it.**
+  `videos_with_sound` once set `muted = false` on the element: the first video
+  had sound under an icon that said muted, and the next video started muted.
+  Instagram keeps one sound switch for every video; the mod presses its
+  speaker button once (a synthetic `click()` works — measured on the real
+  page), and the element is unmuted directly only when no button is found.
+  The shortcuts likewise press Like, Comment and Save. Space is not taken:
+  on Reels it is Instagram's way to the next reel.
 - **`WebEngineScript` is a value type in Qt 6.** `WebEngine.script()` makes
   one and `userScripts.insert()` takes it; declaring one in QML is what once
   stopped the scene loading. Measured on 6.4: a script inserted this way runs
@@ -494,6 +513,15 @@ can change how the page starts instead of repairing it afterwards.
   `--ig-primary-background` to know the page is dark, marks `<html>` with a
   class of its own, and overrides the `--ig-*` variables — as `R, G, B`,
   which is how Instagram writes them — under that class.
+- **Restyling the page is the expensive thing.** `--ig-*` live on `<html>`, so
+  changing one restyles every element. `instagram_colors` writes them from one
+  tint — per kind of page, and with `ambient_colors` the colour of the media
+  in view mixed in — only when the media in view changes, after it has a
+  frame, once a scroll has come to rest, in four steps. Reading the colour of
+  a playing reel every two seconds made the next reel stutter in. Pictures
+  carry `crossorigin="anonymous"` and Reels are `blob:` sources of the page's
+  own, so both can be read into a canvas; weigh pixels by their alpha, or a
+  video with no picture reads as black.
 - **Opaque colours, not transparency.** A tinted background that let a
   gradient through looked right on one layer and disappeared on the page:
   Instagram stacks several containers painting the same background, and

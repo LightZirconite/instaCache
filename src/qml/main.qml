@@ -159,11 +159,22 @@ Window {
         }
     }
 
+    // A window opened again settles into place: the page, and the snapshot
+    // over it, grow the last few percent to full size, the way the splash
+    // fades in at a cold start.
+    property real revealScale: 1
+    NumberAnimation {
+        id: reveal
+        target: root; property: "revealScale"
+        from: 0.965; to: 1; duration: 260; easing.type: Easing.OutCubic
+    }
+
     function bringToFront() {
         if (!root.visible) {
             // The snapshot first, so the window opens on the page as it was
             // left rather than on nothing while Chromium draws again.
             snapshot.visible = snapshot.status === Image.Ready;
+            reveal.restart();
             // Before the views are shown: a visible page must be Active.
             var reloading = root.rouse();
             if (root.hiddenMaximized)
@@ -518,9 +529,24 @@ Window {
                 "                onTriggered: root.toggleSetting('instagram_colors')\n" +
                 "            }\n" +
                 "            MenuItem {\n" +
+                "                text: 'Colours follow the post'; checkable: true\n" +
+                "                checked: root.settingIsOn('ambient_colors')\n" +
+                "                onTriggered: root.toggleSetting('ambient_colors')\n" +
+                "            }\n" +
+                "            MenuItem {\n" +
                 "                text: 'Animations'; checkable: true\n" +
                 "                checked: root.settingIsOn('page_animations')\n" +
                 "                onTriggered: root.toggleSetting('page_animations')\n" +
+                "            }\n" +
+                "            MenuItem {\n" +
+                "                text: 'Shortcuts (double-click, L, M, C, S)'; checkable: true\n" +
+                "                checked: root.settingIsOn('shortcuts')\n" +
+                "                onTriggered: root.toggleSetting('shortcuts')\n" +
+                "            }\n" +
+                "            MenuItem {\n" +
+                "                text: 'Hide \\'Also from Meta\\''; checkable: true\n" +
+                "                checked: root.settingIsOn('hide_also_from_meta')\n" +
+                "                onTriggered: root.toggleSetting('hide_also_from_meta')\n" +
                 "            }\n" +
                 "            MenuItem { text: 'Changes apply at the next load'; enabled: false }\n" +
                 "        }\n" +
@@ -911,6 +937,7 @@ Window {
     Item {
         id: stage
         anchors.fill: parent
+        scale: root.revealScale
 
         WebEngineView {
             id: view
@@ -1105,6 +1132,7 @@ Window {
     Image {
         id: snapshot
         anchors.fill: stage
+        scale: root.revealScale
         visible: false
         cache: false
         smooth: false

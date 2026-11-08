@@ -37,7 +37,21 @@ const BUILT_IN: &[Mod] = &[
         script: None,
         style: Some(include_str!("mods/animations.css")),
     },
+    Mod {
+        setting: "shortcuts",
+        script: Some(include_str!("mods/shortcuts.js")),
+        style: None,
+    },
+    Mod {
+        setting: "hide_also_from_meta",
+        script: Some(include_str!("mods/hide_meta.js")),
+        style: None,
+    },
 ];
+
+/// What every mod may use: Instagram's labels for its controls, and ways of
+/// finding a post, the media in view, and a change of page.
+const PAGE: &str = include_str!("mods/page.js");
 
 /// Whether the mod behind `setting` is switched on, or `None` for a setting
 /// that is not a mod's.
@@ -46,6 +60,8 @@ fn enabled(config: &Config, setting: &str) -> Option<bool> {
         "videos_with_sound" => Some(config.videos_with_sound),
         "instagram_colors" => Some(config.instagram_colors),
         "page_animations" => Some(config.page_animations),
+        "shortcuts" => Some(config.shortcuts),
+        "hide_also_from_meta" => Some(config.hide_also_from_meta),
         _ => None,
     }
 }
@@ -54,6 +70,7 @@ fn enabled(config: &Config, setting: &str) -> Option<bool> {
 fn options(config: &Config) -> serde_json::Value {
     json!({
         "volume": f64::from(config.video_volume.min(100)) / 100.0,
+        "ambient": config.ambient_colors,
     })
 }
 
@@ -92,6 +109,7 @@ pub fn script(config: &Config) -> String {
     }
     let mut out = String::from("(function (options) {\n\"use strict\";\n");
     out.push_str(ADD_STYLE);
+    out.push_str(PAGE);
     for m in mods {
         let mut body = String::new();
         if let Some(style) = m.style {
@@ -123,6 +141,8 @@ mod tests {
             videos_with_sound: false,
             instagram_colors: false,
             page_animations: false,
+            shortcuts: false,
+            hide_also_from_meta: false,
             ..Config::default()
         }
     }
@@ -159,9 +179,23 @@ mod tests {
             video_volume: 40,
             ..none_enabled()
         };
-        assert!(script(&config).contains(r#"{"volume":0.4}"#));
+        assert!(script(&config).contains(r#""volume":0.4"#));
         config.video_volume = 250;
-        assert!(script(&config).contains(r#"{"volume":1.0}"#));
+        assert!(script(&config).contains(r#""volume":1.0"#));
+    }
+
+    #[test]
+    fn the_shared_helpers_come_once_and_before_the_mods() {
+        let config = Config {
+            shortcuts: true,
+            videos_with_sound: true,
+            ..none_enabled()
+        };
+        let carried = script(&config);
+        assert_eq!(carried.matches("function postOf(").count(), 1);
+        let helpers = carried.find("function postOf(").unwrap_or(usize::MAX);
+        let first_mod = carried.find("Videos with sound").unwrap_or(0);
+        assert!(helpers < first_mod);
     }
 
     #[test]

@@ -1203,7 +1203,10 @@ const SWITCHABLE: &[&str] = &[
     "run_in_background",
     "videos_with_sound",
     "instagram_colors",
+    "ambient_colors",
     "page_animations",
+    "shortcuts",
+    "hide_also_from_meta",
 ];
 
 fn read_setting(config: &Config, name: &str) -> bool {
@@ -1218,7 +1221,10 @@ fn read_setting(config: &Config, name: &str) -> bool {
         "run_in_background" => config.run_in_background,
         "videos_with_sound" => config.videos_with_sound,
         "instagram_colors" => config.instagram_colors,
+        "ambient_colors" => config.ambient_colors,
         "page_animations" => config.page_animations,
+        "shortcuts" => config.shortcuts,
+        "hide_also_from_meta" => config.hide_also_from_meta,
         _ => false,
     }
 }
@@ -1235,7 +1241,10 @@ fn write_setting(config: &mut Config, name: &str, value: bool) {
         "run_in_background" => config.run_in_background = value,
         "videos_with_sound" => config.videos_with_sound = value,
         "instagram_colors" => config.instagram_colors = value,
+        "ambient_colors" => config.ambient_colors = value,
         "page_animations" => config.page_animations = value,
+        "shortcuts" => config.shortcuts = value,
+        "hide_also_from_meta" => config.hide_also_from_meta = value,
         _ => {}
     }
 }

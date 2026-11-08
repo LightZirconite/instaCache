@@ -1,23 +1,42 @@
-/* Instagram's colours instead of black: the dark theme's backgrounds, tinted
-   plum. Instagram paints everything from these variables, as "R, G, B", so
-   changing them recolours the page without touching an element. Keyed on a
-   class of ours, set by instagram_colors.js only while the page is dark. */
+/* Instagram's dark theme, tinted, before instagram_colors.js has run: the
+   same variables it writes, at the feed's tint. Keyed on the class that
+   script sets only while the page is dark. */
 html.instacache-dark {
   --ig-primary-background: 18, 12, 26 !important;
-  --ig-secondary-background: 38, 25, 48 !important;
-  --ig-elevated-background: 31, 20, 40 !important;
-  --ig-highlight-background: 46, 31, 58 !important;
-  --ig-banner-background: 38, 25, 48 !important;
-  --ig-secondary-elevated-background: 46, 31, 58 !important;
-  --ig-elevated-highlight-background: 52, 36, 66 !important;
-  --ig-bubble-background: 31, 20, 40 !important;
-  --ig-incoming-message-bubble: 46, 31, 58 !important;
+  --ig-secondary-background: 38, 32, 46 !important;
+  --ig-elevated-background: 31, 25, 39 !important;
+  --ig-highlight-background: 46, 40, 54 !important;
+  --ig-banner-background: 38, 32, 46 !important;
+  --ig-secondary-elevated-background: 46, 40, 54 !important;
+  --ig-elevated-highlight-background: 52, 46, 60 !important;
+  --ig-bubble-background: 31, 25, 39 !important;
+  --ig-incoming-message-bubble: 46, 40, 54 !important;
   /* Meta's shared design system, which some surfaces use instead, as plain
      colours rather than "R, G, B". */
-  --card-background: #1f1428 !important;
-  --surface-background: #1f1428 !important;
-  --popover-card-background: #1f1428 !important;
-  --nav-bar-background: #1f1428 !important;
-  --toast-background: #261930 !important;
-  --messenger-card-background: #1f1428 !important;
+  --card-background: #1f1927 !important;
+  --surface-background: #1f1927 !important;
+  --popover-card-background: #1f1927 !important;
+  --nav-bar-background: #1f1927 !important;
+  --toast-background: #26202e !important;
+  --messenger-card-background: #1f1927 !important;
+}
+
+/* Thin scroll bars that show only what they need to — the one in a chat
+   included — in either theme. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.35);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(128, 128, 128, 0.6);
 }

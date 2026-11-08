@@ -71,7 +71,8 @@ The mouse's back and forward buttons work too.
 
 The tray menu covers the everyday ones: start at login, notifications,
 sounds, ringing, keep running when closed, and the mods: videos with sound,
-Instagram's colours instead of black, animations.
+Instagram's colours instead of black, colours that follow the post, animations,
+shortcuts, and hiding "Also from Meta".
 
 Everything else lives in `~/.config/instacache/config.json`, written with its
 defaults on first run. A `user.css` or `user.js` beside it is applied to every
@@ -91,7 +92,10 @@ page.
 | `allow_autoplay_with_sound` | `true` | Let videos start with sound. |
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
 | `video_volume` | `40` | The volume, from 0 to 100, that `videos_with_sound` starts a video at. |
-| `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black. |
+| `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black, a little differently on each kind of page, with thin scroll bars. |
+| `ambient_colors` | `true`¹ | With `instagram_colors`, the background takes on the colour of the picture or video in view. |
+| `shortcuts` | `true`¹ | Double-click a picture or video to like it; `L` like, `M` sound, `C` comments, `S` save. |
+| `hide_also_from_meta` | `true`¹ | Hide "Also from Meta" from Instagram's side bar. |
 | `page_animations` | `true`¹ | Dialogs and pictures fade in. Off wherever the desktop asks for reduced motion. |
 | `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". |
 | `developer_tools` | `false` | The Web Inspector (`F12`). |

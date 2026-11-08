@@ -99,6 +99,23 @@ pub struct Config {
     ///
     /// On for Instagram and off for another site by default.
     pub instagram_colors: bool,
+    /// With `instagram_colors`, the background takes on the colour of the
+    /// picture or video in view, the way a video player's ambient mode does.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub ambient_colors: bool,
+    /// The mod that brings the phone's gestures and a few keys to the page:
+    /// a double-click likes, as a double tap does; `L` likes, `M` turns the
+    /// sound on or off, `C` opens the comments and `S` saves. Space is left to
+    /// Instagram, which uses it for the next reel.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub shortcuts: bool,
+    /// The mod that hides "Also from Meta", a menu of Meta's other apps, from
+    /// Instagram's side bar.
+    ///
+    /// On for Instagram and off for another site by default.
+    pub hide_also_from_meta: bool,
     /// The mod that adds small motion to the page: dialogs and pictures fade
     /// in. Off by itself wherever the desktop asks for reduced motion.
     ///
@@ -271,7 +288,10 @@ impl Default for Config {
             videos_with_sound: true,
             video_volume: DEFAULT_VIDEO_VOLUME,
             instagram_colors: true,
+            ambient_colors: true,
             page_animations: true,
+            shortcuts: true,
+            hide_also_from_meta: true,
             context_menu: false,
             developer_tools: false,
             notifications: true,
@@ -323,7 +343,10 @@ impl Config {
             // The mods are written for Instagram's page.
             config.videos_with_sound = false;
             config.instagram_colors = false;
+            config.ambient_colors = false;
             config.page_animations = false;
+            config.shortcuts = false;
+            config.hide_also_from_meta = false;
             // A window that stops running when it is closed has nothing to
             // deliver a push to, so the connection to the push service would
             // be held for nothing.
@@ -642,7 +665,12 @@ mod tests {
                 .unwrap();
         assert!(!x.run_in_background && !x.tray_icon && !x.calls && !x.ring_for_calls);
         assert!(
-            !x.videos_with_sound && !x.instagram_colors && !x.page_animations,
+            !x.videos_with_sound
+                && !x.instagram_colors
+                && !x.ambient_colors
+                && !x.page_animations
+                && !x.shortcuts
+                && !x.hide_also_from_meta,
             "the mods are written for Instagram"
         );
         assert!(
@@ -660,7 +688,8 @@ mod tests {
         assert!(instagram.run_in_background && instagram.tray_icon && instagram.calls);
         assert!(instagram.ring_for_calls && instagram.start_with_session);
         assert!(instagram.videos_with_sound && instagram.instagram_colors);
-        assert!(instagram.page_animations);
+        assert!(instagram.page_animations && instagram.ambient_colors);
+        assert!(instagram.shortcuts && instagram.hide_also_from_meta);
         assert!(
             instagram.push_notifications,
             "a config written before the key existed still gets the push service"

@@ -137,7 +137,8 @@ QtObject {
     property var settings: ({
         notifications: true, notification_sounds: true, ring_for_calls: true,
         unread_badge: true, run_in_background: true, videos_with_sound: true,
-        instagram_colors: true, page_animations: true
+        instagram_colors: true, ambient_colors: true, page_animations: true,
+        shortcuts: true, hide_also_from_meta: true
     })
     function starts_with_session() { return autostart; }
     function set_start_with_session(on) { autostart = on; return on; }
