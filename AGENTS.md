@@ -1146,6 +1146,15 @@ leave an empty page behind once the browser took the destination.
 and the scene sends that straight to the browser, from a navigation and from a
 new window alike. A destination that is itself internal is left to the shim.
 
+Whatever leaves goes through `external_target` in `bridge.rs`, which refuses
+the engine's own schemes — a page cannot have a local `file:` opened — and
+then `Qt.openUrlExternally` in the scene. Not a spawned `xdg-open`: on
+Wayland a window comes to the front only with an activation token, and from
+Qt 6.5 `QDesktopServices::openUrl` requests one from the focused window and
+hands it to the portal or to `xdg-open` (`runWithXdgActivationToken` in
+`qgenericunixservices.cpp`). Spawned without one, the browser opened the link
+behind instaCache's window. Qt 6.4 has no token to give, and behaves as before.
+
 `facebook.com` and `meta.com` are in the default on purpose: Instagram's login,
 two-factor and Accounts Center flows redirect through them. Removing them
 breaks signing in. `threads.com` and `threads.net` are there by choice, not by

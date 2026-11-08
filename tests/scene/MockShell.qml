@@ -67,7 +67,8 @@ QtObject {
     function is_engine_scheme(u) {
         return /^(about|blob|data|javascript|file):/.test(u) || !/^[a-z]+:/.test(u);
     }
-    function open_externally(u) { externals = externals.concat([u]); }
+    // Records what would leave, and opens nothing.
+    function external_target(u) { externals = externals.concat([u]); return ""; }
     function initial_geometry(w, h) {
         return JSON.stringify({width: 1000, height: 700, x: null, y: null,
                                maximized: false, zoom: 1.0});

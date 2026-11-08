@@ -583,7 +583,7 @@ Window {
             return;
         var blank = target === "" || target === "about:blank";
         if (!blank && shell.external_links_in_browser && !shell.is_internal(target)) {
-            shell.open_externally(target);
+            root.openExternally(target);
             return;
         }
         var page = pageComponent.createObject(stage);
@@ -665,6 +665,15 @@ Window {
         return granted ? name : "";
     }
 
+    // Out to the browser, or whatever handles the scheme, once Rust agrees.
+    // Through Qt rather than a process of our own, so on Qt 6.5 and later the
+    // browser is handed an activation token and comes to the front.
+    function openExternally(url) {
+        var target = shell.external_target(url);
+        if (target !== "")
+            Qt.openUrlExternally(target);
+    }
+
     // A link through Meta's link shim (`l.instagram.com/?u=…`) goes straight
     // to its destination in the browser: no detour through the shim in the
     // window, no click recorded, no empty page left to go back from.
@@ -675,7 +684,7 @@ Window {
         var destination = shell.unwrap_link(target);
         if (destination === "" || shell.is_internal(destination))
             return false;
-        shell.open_externally(destination);
+        root.openExternally(destination);
         return true;
     }
 
@@ -693,7 +702,7 @@ Window {
             || shell.is_internal(target))
             return false;
         request.action = WebEngineNavigationRequest.IgnoreRequest;
-        shell.open_externally(target);
+        root.openExternally(target);
         return true;
     }
 

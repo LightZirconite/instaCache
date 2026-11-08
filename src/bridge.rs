@@ -151,9 +151,14 @@ pub struct Shell {
             urls::is_engine_scheme(&url)
         }
     ),
-    open_externally: qt_method!(
-        fn open_externally(&self, url: String) {
-            open_externally(&url);
+    /// The URL the scene may hand to the system's browser or mail client,
+    /// or an empty string. The scene opens it with `Qt.openUrlExternally`,
+    /// which on Qt 6.5 and later passes the browser a Wayland activation
+    /// token, so its window comes to the front; spawning `xdg-open` from here
+    /// opened the page behind instaCache's window.
+    external_target: qt_method!(
+        fn external_target(&self, url: String) -> QString {
+            external_target(&url).unwrap_or_default().into()
         }
     ),
     /// Geometry for a fresh window, as JSON. The screen size has to come from
@@ -1385,14 +1390,12 @@ fn unread_summary(arrived: u32) -> String {
     }
 }
 
-/// Hands a URL to the system browser, without a shell in between.
-pub fn open_externally(uri: &str) {
-    if urls::scheme_of(uri).is_none() {
-        return;
-    }
-    if let Err(error) = std::process::Command::new("xdg-open").arg(uri).spawn() {
-        eprintln!("instacache: could not open {uri} externally: {error}");
-    }
+/// Whether a URL may leave for another application: anything with a scheme
+/// — a web page, `mailto:`, `tel:` — except what the engine itself handles.
+/// A page asking to open `file:` or `javascript:` in a new window does not
+/// get a local file opened or a script handed to the desktop.
+fn external_target(uri: &str) -> Option<String> {
+    (urls::scheme_of(uri).is_some() && !urls::is_engine_scheme(uri)).then(|| uri.to_string())
 }
 
 #[cfg(test)]
@@ -1813,5 +1816,17 @@ mod tests {
             "https://www.instagram.com/reels/"
         );
         assert_eq!(shell.home_url().to_string(), Config::default().home_url);
+    }
+
+    #[test]
+    fn only_what_another_application_should_open_leaves() {
+        assert_eq!(
+            external_target("https://example.com/").as_deref(),
+            Some("https://example.com/")
+        );
+        assert!(external_target("mailto:someone@example.com").is_some());
+        assert_eq!(external_target("file:///etc/passwd"), None);
+        assert_eq!(external_target("javascript:alert(1)"), None);
+        assert_eq!(external_target("no scheme at all"), None);
     }
 }
