@@ -4,6 +4,45 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] - 2026-11-08
+
+### Added
+- **Shortcuts, the phone's gestures on the page** (the `shortcuts` mod):
+  double-click a picture or a video to like it, with a heart, and
+  Shift+double-click to repost it. Space still goes to the next reel, and
+  Space twice likes the reel you were watching without skipping one; Enter
+  twice likes too. `L` like, `R` repost, `M` sound, `C` comments, `S` save.
+  Nothing happens while you type.
+- **A click pauses a story**, and another plays it again, instead of aiming
+  for the small button at the top.
+- **Colours that follow the post** (`ambient_colors`): the background takes on
+  the colour of the picture or video in view, eased in. Each kind of page —
+  feed, Reels, messages, Explore, a profile — has its own tint, and the scroll
+  bars, the chat's included, are thin.
+- **"Also from Meta" is hidden** from the side bar (`hide_also_from_meta`).
+- **Notifications go once everything is read**, in the window, on the phone
+  or by answering. A call's notification stays.
+- **Open Instagram from your browser in instaCache**: `instacache:` links open
+  a page in the app, and `extras/open-in-instacache.user.js` puts an *Open in
+  instaCache* button on instagram.com.
+- **A window opened again settles into place** with a short zoom.
+- The tray's Mods menu switches every mod.
+
+### Changed
+- **Videos with sound press Instagram's own speaker button**, so its icon says
+  the sound is on and every video after the first starts with sound too.
+- **A link opened outside brings the browser to the front** on Qt 6.5 and
+  later, instead of opening behind instaCache's window.
+
+### Fixed
+- **Reels: the speaker button paused the video**, and a click drew a white
+  outline round the reel. The press effect of the animations mod caused both;
+  it is gone.
+- **Reels no longer stutter as the next one comes in** because of the colours
+  mod, which now reads a colour once per picture or video.
+- A page can no longer have a local file opened by asking for it in a new
+  window.
+
 ## [2.9.0] - 2026-11-08
 
 ### Added
