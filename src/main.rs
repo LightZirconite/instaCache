@@ -3,9 +3,12 @@
 //! Everything of substance lives in the library crate; this file only parses
 //! arguments and starts the Qt application.
 
+use std::io::Read;
+use std::os::fd::IntoRawFd;
+use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use qmetaobject::qtcore::core_application::QCoreApplication;
 use qmetaobject::{QObjectPinned, QmlEngine};
@@ -154,7 +157,7 @@ instacache --profile {}",
     let profile = paths.profile.clone();
     let paths = Rc::new(paths);
 
-    install_termination_handlers();
+    let signalled = install_termination_handlers();
 
     // Both of these must run before any QGuiApplication exists, which is why
     // neither can wait until the engine is built: Qt WebEngine reads the flags
@@ -189,6 +192,12 @@ instacache --profile {}",
     ));
     let pinned = unsafe { QObjectPinned::new(&shell) };
     engine.set_object_property("shell".into(), pinned);
+    // Exposing the object is what created its C++ side, which the wake-up
+    // needs to reach it.
+    shell.borrow().attach_wake();
+    if let Some(signalled) = signalled {
+        watch_termination(signalled, shell.borrow().waker());
+    }
     engine.load_data(SCENE.into());
     engine.exec();
 
@@ -231,23 +240,64 @@ const SIGTERM: i32 = 15;
 
 extern "C" {
     fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+    fn write(fd: i32, buf: *const u8, count: usize) -> isize;
 }
 
-/// Only sets a flag: a signal handler may call almost nothing safely, and
-/// saving the window geometry from inside one would be writing a file from
-/// an interrupted allocation. The scene's own timer notices the flag on its
-/// next tick and shuts down through the ordinary path.
+/// Where the handler writes its one byte. `-1` until the pair exists.
+static SIGNAL_FD: AtomicI32 = AtomicI32::new(-1);
+
+/// Sets a flag and writes a byte, both of which a signal handler may do: it
+/// may call almost nothing else safely, and saving the window geometry from
+/// inside one would be writing a file from an interrupted allocation. The
+/// byte wakes `watch_termination`, which wakes the scene, which shuts down
+/// through the ordinary path.
 extern "C" fn on_terminate(_signum: i32) {
     SHUTDOWN.store(true, Ordering::SeqCst);
+    let fd = SIGNAL_FD.load(Ordering::SeqCst);
+    if fd >= 0 {
+        let byte = 1u8;
+        // Non-blocking: a full buffer only means the scene is already being
+        // woken.
+        unsafe {
+            write(fd, &byte, 1);
+        }
+    }
 }
 
 /// A desktop session ending, `systemctl --user stop` or a plain `kill` never
 /// delivers a window close, so the geometry would be lost without this.
-fn install_termination_handlers() {
+///
+/// Returns the end the handler's byte arrives on. Without one — no socket pair
+/// could be made — the flag is still set and the scene's slow timer finds it.
+fn install_termination_handlers() -> Option<UnixStream> {
+    let pair = UnixStream::pair()
+        .and_then(|(reader, writer)| writer.set_nonblocking(true).map(|()| (reader, writer)));
+    let reader = match pair {
+        Ok((reader, writer)) => {
+            // Kept open for the life of the process, deliberately.
+            SIGNAL_FD.store(writer.into_raw_fd(), Ordering::SeqCst);
+            Some(reader)
+        }
+        Err(error) => {
+            eprintln!("instacache: termination signals will be noticed late: {error}");
+            None
+        }
+    };
     unsafe {
         signal(SIGINT, on_terminate);
         signal(SIGTERM, on_terminate);
     }
+    reader
+}
+
+/// Wakes the scene for every byte the signal handler writes.
+fn watch_termination(mut signalled: UnixStream, waker: instacache::wake::Wake) {
+    std::thread::spawn(move || {
+        let mut byte = [0u8; 1];
+        while matches!(signalled.read(&mut byte), Ok(1)) {
+            waker.wake();
+        }
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

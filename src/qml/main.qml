@@ -132,6 +132,8 @@ Window {
             root.backgrounded = true;
             root.hide();
             shell.window_hidden(root.trayShown);
+            // An update waiting for the window to close takes over now.
+            root.handleEvents();
         }
         if (!stage.grabToImage(function (result) {
                 snapshot.source = result.url;
@@ -597,10 +599,21 @@ Window {
         onPresentNotification: function (notification) {
             if (!shell.notifications_enabled)
                 return;
-            lastNotification = notification;
+            var key = ++root.notificationSerial;
             // A message, or a call, which rings until somebody acts on it.
-            shell.notify_page(notification.title, notification.message,
-                              notification.tag, root.inFront);
+            if (!shell.notify_page(notification.title, notification.message,
+                                   notification.tag, key, root.inFront))
+                return;
+            root.pageNotifications[key] = notification;
+            // The page closing it itself takes it off the desktop and stops a
+            // ring. Whether Instagram does so when a call is given up on is
+            // not verified yet; a test page does it, and the path works.
+            notification.closed.connect(function () {
+                if (root.pageNotifications[key] === undefined)
+                    return;
+                delete root.pageNotifications[key];
+                shell.page_notification_closed(key);
+            });
             notification.show();
         }
 
@@ -621,9 +634,21 @@ Window {
         }
     }
 
-    // Held so a click on a desktop notification can be handed back to the
-    // page, which is what makes Instagram open the right thread.
-    property var lastNotification: null
+    // Every page notification still on the desktop, by the key Rust was
+    // given for it, so a click is handed back to the notification that was
+    // clicked -- which is what makes Instagram open the right thread. Rust
+    // reports each key as clicked, closed or forgotten, and nothing stays here
+    // longer than the desktop shows it.
+    property var pageNotifications: ({})
+    property int notificationSerial: 0
+
+    function takeNotification(key) {
+        var notification = root.pageNotifications[key];
+        if (notification === undefined)
+            return null;
+        delete root.pageNotifications[key];
+        return notification;
+    }
 
     // --- What is shown ---------------------------------------------------
 
@@ -981,52 +1006,76 @@ Window {
     }
 
     // Anything that happened off the UI thread: a second launch asking for
-    // this window, a notification being clicked, an update check finishing.
-    Timer {
-        // Faster while hidden: that is when a launch from the menu is waiting
-        // on this timer to show the window, and nothing else is going on.
-        interval: root.visible ? 250 : 80
-        running: true
-        repeat: true
-        onTriggered: {
-            var events = JSON.parse(shell.poll());
+    // this window, a notification being clicked, an update check finishing, a
+    // termination signal. Rust says when there is something, with `wake`;
+    // nothing runs while nothing happens. It used to be a timer firing four
+    // times a second, and twelve and a half with the window closed.
+    function handleEvents() {
+        var events = JSON.parse(shell.poll());
 
-            // A termination signal only sets a flag -- see main.rs for why --
-            // so this is where the session actually ends, through the same
-            // path a window close takes. Without it a desktop session ending
-            // loses the window geometry, which is the whole reason the signal
-            // is caught at all.
-            if (events.quit) {
-                root.quit();
-                return;
-            }
+        // A termination signal only sets a flag -- see main.rs for why --
+        // so this is where the session actually ends, through the same
+        // path a window close takes. Without it a desktop session ending
+        // loses the window geometry, which is the whole reason the signal
+        // is caught at all.
+        if (events.quit) {
+            root.quit();
+            return;
+        }
 
-            if (events.present) {
-                root.bringToFront();
-                if (root.lastNotification) {
-                    // Tells the page the notification was clicked.
-                    root.showInstagram();
-                    root.lastNotification.click();
-                    root.lastNotification = null;
-                }
-            }
-            for (var i = 0; i < events.urls.length; i++) {
+        if (events.present)
+            root.bringToFront();
+        var i;
+        for (i = 0; i < events.clicked.length; i++) {
+            // Kept, not taken: a call's notification stays on the desktop
+            // after a click, and the page withdrawing it later still has to
+            // reach it. The server's own close, which usually follows a
+            // click, is what lets go of it.
+            var clicked = root.pageNotifications[events.clicked[i]];
+            if (clicked !== undefined) {
+                // Tells the page which notification was clicked.
                 root.showInstagram();
-                view.url = events.urls[i];
-            }
-
-            root.updateState = events.update;
-            root.updateVersion = events.update_version;
-            // The way a browser updates itself: the new version is already on
-            // disk, so while nobody is looking it simply takes over, staying
-            // hidden. A visible window gets the pill instead, and closing it
-            // brings this path round on the next tick.
-            if (events.update === "ready"
-                && shell.may_restart_quietly(root.visible, root.callPage !== null)
-                && shell.restart_for_update(true, view.url.toString())) {
-                root.quit();
+                clicked.click();
             }
         }
+        // Dismissed on the desktop: the page is told, the way a browser
+        // tells it.
+        for (i = 0; i < events.closed.length; i++) {
+            var closed = root.takeNotification(events.closed[i]);
+            if (closed !== null)
+                closed.close();
+        }
+        for (i = 0; i < events.forgotten.length; i++)
+            root.takeNotification(events.forgotten[i]);
+        for (i = 0; i < events.urls.length; i++) {
+            root.showInstagram();
+            view.url = events.urls[i];
+        }
+
+        root.updateState = events.update;
+        root.updateVersion = events.update_version;
+        // The way a browser updates itself: the new version is already on
+        // disk, so while nobody is looking it simply takes over, staying
+        // hidden. A visible window gets the pill instead, and closing it
+        // brings this path round again.
+        if (events.update === "ready"
+            && shell.may_restart_quietly(root.visible, root.callPage !== null)
+            && shell.restart_for_update(true, view.url.toString())) {
+            root.quit();
+        }
+    }
+    Connections {
+        target: shell
+        function onWake() { root.handleEvents(); }
+    }
+    // What nobody announces: the hourly question whether an update check is
+    // due, and a binary replaced on disk by hand. Both are cheap and neither
+    // is urgent, so twenty seconds is plenty.
+    Timer {
+        interval: 20000
+        running: true
+        repeat: true
+        onTriggered: root.handleEvents()
     }
 
     // Bound on the window, so the page keeps receiving every other key it

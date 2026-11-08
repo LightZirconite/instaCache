@@ -57,11 +57,15 @@ struct CheckRecord {
 /// Starts a check if one is due, and hands back the channel its result will
 /// arrive on. `None` means no check was started and nothing will arrive.
 ///
-/// The caller polls the receiver from wherever its own event loop makes UI
-/// calls legal. Delivering the result was once a GLib timer living here, which
-/// tied this module — plain HTTP and file work — to a particular toolkit for
-/// no reason.
-pub fn check_in_background(config: &Config, paths: &Paths) -> Option<Receiver<Outcome>> {
+/// `arrived` is called once the result is on the channel, so the caller can
+/// collect it from wherever its own event loop makes UI calls legal.
+/// Delivering the result was once a GLib timer living here, which tied this
+/// module — plain HTTP and file work — to a particular toolkit for no reason.
+pub fn check_in_background(
+    config: &Config,
+    paths: &Paths,
+    arrived: impl FnOnce() + Send + 'static,
+) -> Option<Receiver<Outcome>> {
     if !config.auto_update {
         return None;
     }
@@ -83,7 +87,9 @@ pub fn check_in_background(config: &Config, paths: &Paths) -> Option<Receiver<Ou
     std::thread::spawn(move || {
         let outcome = run_check(&paths, auto_install);
         // A send failure only means the app is shutting down.
-        let _ = sender.send(outcome);
+        if sender.send(outcome).is_ok() {
+            arrived();
+        }
     });
     Some(receiver)
 }
@@ -159,7 +165,11 @@ pub fn can_install_elevated() -> bool {
 
 /// Installs `version` as root on the user's request, on a thread, and hands
 /// back the channel the outcome arrives on.
-pub fn install_elevated_in_background(version: String) -> Receiver<Outcome> {
+/// `arrived` is called once it is there.
+pub fn install_elevated_in_background(
+    version: String,
+    arrived: impl FnOnce() + Send + 'static,
+) -> Receiver<Outcome> {
     let (sender, receiver) = std::sync::mpsc::channel::<Outcome>();
     std::thread::spawn(move || {
         let outcome = match install_update(Privilege::Elevated) {
@@ -169,7 +179,9 @@ pub fn install_elevated_in_background(version: String) -> Receiver<Outcome> {
                 Outcome::Available { version }
             }
         };
-        let _ = sender.send(outcome);
+        if sender.send(outcome).is_ok() {
+            arrived();
+        }
     });
     receiver
 }

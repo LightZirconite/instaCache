@@ -55,6 +55,8 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/qml/main.qml` | The window, its pages, the loading bar, the shortcuts. |
 | `src/badge.rs` | The unread count on the task bar icon, over D-Bus. |
 | `src/alerts.rs` | Notifications, their sounds, and ringing for a call. |
+| `src/bus.rs` | The one session bus connection everything shares. |
+| `src/wake.rs` | How a thread with news wakes the scene. |
 | `src/chromium.rs` | Config settings translated into Chromium flags. |
 | `src/config.rs` | `config.json` and window geometry, both fault-tolerant. |
 | `src/paths.rs` | XDG locations and named profiles. |
@@ -171,8 +173,10 @@ instead.
 That path is deliberately indirect. The signal handler in `main.rs` sets an
 atomic flag and does nothing else, because a signal handler may safely do
 almost nothing — writing a JSON file from inside one means allocating on a
-thread it interrupted mid-allocation. The scene's own 250 ms timer notices the
-flag and shuts down through the ordinary close path.
+thread it interrupted mid-allocation. It also writes one byte to a socket pair,
+which is the other thing a signal handler may do; a thread blocked on the other
+end wakes the scene, which notices the flag and shuts down through the ordinary
+close path.
 
 ## Adding a setting
 
@@ -381,7 +385,17 @@ tests/scene/run.sh
 ```
 
 A new `shell` property or method has to be added to `MockShell.qml` too. A
-missing one does not stop the scene loading; it throws only when called.
+missing one does not stop the scene loading; it throws only when called. The
+mock's `wake` fires whenever a test changes `pollResult` or `update`, which is
+how a test stands in for a thread with news.
+
+The scene tests run the mock, so they cannot see anything the real bridge does
+wrong — the binding trap above passed every one of them. After changing
+`bridge.rs` or a signature the scene calls, run the real binary once as well:
+a QML call with the wrong number of arguments only prints `Insufficient
+arguments` to the log, and does nothing. And rebuild the binary itself:
+`cargo test` builds the test harness, not `target/debug/instacache`, which
+keeps the scene it was last built with.
 
 To check the real binary and the real bridge together, still off screen:
 
@@ -426,7 +440,8 @@ from. `bridge.rs` then holds the update as `Ready`, and the new version takes
 over by a restart that `main.rs` performs after the scene has quit:
 
 - **Quietly**, when `quiet_restart_allowed` says so — window closed, no call.
-  The scene asks on every poll and quits; `main` starts the new binary with
+  The scene asks whenever it drains (see "The scene is woken, not polled")
+  and when the window closes, and quits; `main` starts the new binary with
   `--background`, so nothing appears.
 - **On request**, from the pill in a visible window, reopening its page.
 
@@ -518,9 +533,36 @@ New settings that only make sense for a messenger belong in `Config::for_home`.
 
 ## Notifications and ringing
 
-`alerts.rs` shows each notification on a thread of its own. Waiting for a click
-blocks, and a call's notification stays up until acted on; on one shared
-thread, every notification after it would wait.
+`alerts.rs` keeps every notification's state on one thread and listens for the
+server's `ActionInvoked` and `NotificationClosed` on one more, both over the
+connection in `bus.rs`. Do not go back to a thread per notification: that is
+what `notify-rust` did, opening a D-Bus connection — a socket and a zbus
+executor thread — for each one and holding it until the notification closed.
+Measured, thirty notifications left on screen took 2.7.0 from 48 threads to
+108; the same thirty now leave it at 50. A desktop that keeps notifications in
+a history may never close them, so that was a leak by the hour. It also
+`unwrap`ped D-Bus errors inside its threads, and `panic = "abort"` turned a
+hiccup on the bus into the whole application quitting.
+
+The listener is subscribed *before* the first `Notify` goes out, or a click
+quicker than the subscription is lost. The bus carries every application's
+notifications: an id that is not in the registry is somebody else's, and is
+ignored.
+
+Every page notification has a key the scene chooses, and each key comes back
+from `poll` exactly once as `clicked`, `closed` or `forgotten` — the scene
+holds the `WebEngineNotification` until then, and a key that never came back
+would hold it for ever. `Registry` in `alerts.rs` is where that promise is
+kept, and tested: replaced under a tag, forgotten; past `TRACKED`, the oldest
+forgotten; a `Notify` that failed, forgotten at once. In the other direction,
+the page closing its own notification (`closed` on the notification) reaches
+`page_notification_closed`, which takes it off the desktop and stops a ring.
+Whether Instagram closes a call's notification when the caller gives up is not
+yet verified against a real call; if it does, the ring stops with it instead
+of running on for thirty seconds.
+
+A server with `body-markup` reads the body as markup, and `<3` is the start of
+a tag to it: the body is escaped for such a server and only for one.
 
 A message names `message-new-instant` in the notification when the server has
 the `sound` capability, so the server plays it and honours Do Not Disturb, and
@@ -538,7 +580,41 @@ merely mentions calling must not ring. Nothing about a notification's content
 is logged, only that a call rang.
 
 Check it without Instagram, on a local page that posts `new Notification(…)`,
-by watching `Notify` with `dbus-monitor` and the player with `pgrep`.
+by watching `Notify` with `dbus-monitor` and the player with `pgrep`. To click
+and dismiss without touching your own desktop, run the binary under
+`dbus-run-session` with a stand-in notification server on that private bus — a
+few lines of Python with `Gio` that answers `Notify` and emits `ActionInvoked`
+and `NotificationClosed` on request — and stub `xdg-open` on `PATH` so no link
+reaches your browser. Kill the app on the way out: a `timeout` around
+`dbus-run-session` does not, and a leftover instance writes into the next run's
+log.
+
+## The scene is woken, not polled
+
+The scene used to ask Rust what happened on a timer: every 250 ms with the
+window open and every 80 ms with it closed, so a launch from the menu would
+show the window quickly. Measured on the main thread of a window closed to the
+background, ten seconds: 125 wake-ups. Now a thread that hands something over
+calls `Wake::wake`, which emits `shell.wake` through
+`qmetaobject::queued_callback`, and the scene drains everything with one
+`poll`: 2 wake-ups in the same ten seconds. A twenty-second timer remains, for
+what nobody announces — whether the hourly update check is due, and a binary
+replaced on disk.
+
+Hand the news over *before* calling `wake`, and call `drained` at the *start*
+of `poll`: that order is what makes it impossible for something to arrive
+between a drain and the next wake-up.
+
+### The first signal of `Shell` must never fire
+
+qmetaobject 0.2.10, for Qt 6, writes index 0 as the notify signal of every
+property that has no `NOTIFY`, where moc writes "none". So QML hears the first
+signal declared on `Shell` as "every property changed" and re-runs every
+binding on one. When `wake` was the first signal, `url: shell.home_url` re-ran
+at each wake-up, set the view's address and reloaded the page — which posted a
+notification, which woke the scene: a load every few milliseconds. That is why
+`unchanging` is declared first and never emitted. Keep it first; a new signal
+goes after it.
 
 ## One arrival, one notification
 

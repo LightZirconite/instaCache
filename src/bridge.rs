@@ -6,9 +6,11 @@
 //! unit tested and where it does not have to be rewritten if the scene
 //! changes.
 //!
-//! Calls arrive on the UI thread and must not block it. The two things that
-//! would — a notification waiting to be clicked, and the update check —
-//! happen on their own threads and are collected by polling.
+//! Calls arrive on the UI thread and must not block it. What would — a
+//! notification waiting to be clicked, the update check, a second launch —
+//! happens on threads of its own, which hand it over and emit `wake`; the
+//! scene then collects everything with one `poll`. Nothing runs while nothing
+//! happens. See `wake.rs`.
 
 use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixListener;
@@ -21,6 +23,7 @@ use qmetaobject::*;
 
 use crate::config::{Config, WindowState};
 use crate::paths::Paths;
+use crate::wake::Wake;
 use crate::{alerts, autostart, badge, downloads, errorpage, instance, sites, updates, urls};
 use crate::{APP_NAME, ICON_NAME};
 
@@ -61,6 +64,16 @@ const PAGE_NOTIFICATION_ECHO: Duration = Duration::from_secs(20);
 #[derive(QObject, Default)]
 pub struct Shell {
     base: qt_base_class!(trait QObject),
+
+    /// Never emitted, and it has to stay the first signal declared.
+    ///
+    /// For Qt 6, qmetaobject 0.2.10 gives every property without a `NOTIFY`
+    /// the notify signal at index 0, where moc would write "none". Whatever
+    /// signal comes first is therefore heard by QML as "every property of
+    /// `shell` changed", and every binding on one re-runs: with `wake` first,
+    /// `url: shell.home_url` re-ran at each wake-up and reloaded the page in
+    /// a loop. A signal nobody emits is what "none" meant.
+    unchanging: qt_signal!(),
 
     // --- Read once by the scene at startup -------------------------------
     home_url: qt_property!(QString; READ home_url),
@@ -182,9 +195,29 @@ pub struct Shell {
     ),
     /// A notification a page posted: a message, or an incoming call, which
     /// rings. Only whether it was a call is logged, never what it said.
+    ///
+    /// `key` is the scene's name for the notification, which comes back in
+    /// `poll` when it is clicked or closed on the desktop. Returns whether it
+    /// was shown; the scene keeps the notification only then.
     notify_page: qt_method!(
-        fn notify_page(&self, title: String, body: String, tag: String, window_active: bool) {
-            self.page_notification(title, body, tag, window_active);
+        fn notify_page(
+            &self,
+            title: String,
+            body: String,
+            tag: String,
+            key: u32,
+            window_active: bool,
+        ) -> bool {
+            self.page_notification(title, body, tag, key, window_active)
+        }
+    ),
+    /// The page closed its notification itself. It leaves the desktop, and
+    /// a call stops ringing.
+    page_notification_closed: qt_method!(
+        fn page_notification_closed(&self, key: u32) {
+            if let Some(alerts) = self.alerts.as_ref() {
+                alerts.withdraw(key);
+            }
         }
     ),
     /// A switchable setting, by name. The tray menu shows what these say, so
@@ -228,11 +261,15 @@ pub struct Shell {
             }
         }
     ),
+    /// Emitted when something happened off the UI thread. The scene answers
+    /// with `poll`. A burst of news is one signal.
+    wake: qt_signal!(),
     /// Drains everything that happened off the UI thread, as JSON:
-    /// `{"present": bool, "urls": [...], "quit": bool}`.
+    /// `{"present": bool, "urls": [...], "quit": bool, "clicked": [...],
+    /// "closed": [...], "forgotten": [...], "update": ..., "update_version": ...}`.
     ///
-    /// One call rather than three because the scene polls it on a timer, and a
-    /// timer that wakes for three separate questions wakes three times.
+    /// One call rather than several because each is a crossing into Rust and
+    /// back, and the scene makes it on `wake` and on a slow timer.
     poll: qt_method!(
         fn poll(&self) -> QString {
             self.poll_json().into()
@@ -298,7 +335,10 @@ pub struct Shell {
     /// borrow is never held across anything that could re-enter.
     config: Option<Rc<RefCell<Config>>>,
     paths: Option<Rc<Paths>>,
-    listener: Option<UnixListener>,
+    /// Later launches of this profile, from `instance::listen`.
+    launches: Option<Receiver<Option<String>>>,
+    /// What threads use to say they handed something over.
+    waker: Wake,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
     update_asked: Cell<Option<Instant>>,
     replaced_checked: Cell<Option<Instant>>,
@@ -317,7 +357,8 @@ pub struct Shell {
     /// Whether the page has *ever* posted one. Once it has, push is working
     /// and the count is only ever a second telling of the same thing.
     page_notified_ever: Cell<bool>,
-    activations: Option<Receiver<()>>,
+    /// What happened to the notifications on the desktop.
+    outcomes: Option<Receiver<alerts::Outcome>>,
     crash_attempts: Cell<u32>,
     crash_window_started: RefCell<Option<Instant>>,
     pending_url: RefCell<Option<String>>,
@@ -331,16 +372,38 @@ impl Shell {
         start_url: Option<String>,
         start_hidden: bool,
     ) -> Self {
-        let update_check = updates::check_in_background(&config, &paths);
-        let (alerts, activations) = alerts::spawn(alerts::Identity {
-            app_name: if paths.is_default_profile() {
-                APP_NAME.to_string()
-            } else {
-                paths.profile.clone()
-            },
-            icon: profile_icon_name(&paths.profile),
-            desktop_entry: sites::window_class(&paths.profile),
+        let waker = Wake::default();
+        let update_check = updates::check_in_background(&config, &paths, woken(&waker));
+
+        let launches = listener.map(|listener| {
+            let (sender, launches) = std::sync::mpsc::channel();
+            let wake = waker.clone();
+            instance::listen(listener, move |launch| {
+                if sender.send(launch).is_ok() {
+                    wake.wake();
+                }
+            });
+            launches
         });
+
+        let (outcome_tx, outcomes) = std::sync::mpsc::channel();
+        let wake = waker.clone();
+        let alerts = alerts::spawn(
+            alerts::Identity {
+                app_name: if paths.is_default_profile() {
+                    APP_NAME.to_string()
+                } else {
+                    paths.profile.clone()
+                },
+                icon: profile_icon_name(&paths.profile),
+                desktop_entry: sites::window_class(&paths.profile),
+            },
+            move |outcome| {
+                if outcome_tx.send(outcome).is_ok() {
+                    wake.wake();
+                }
+            },
+        );
         let badge = config
             .unread_badge
             .then(|| badge::spawn(sites::window_class(&paths.profile)));
@@ -348,12 +411,13 @@ impl Shell {
         Self {
             config: Some(Rc::new(RefCell::new(config))),
             paths: Some(paths),
-            listener,
+            launches,
+            waker,
             updates: RefCell::new(update_check),
             update_asked: Cell::new(Some(Instant::now())),
             alerts: Some(alerts),
             badge,
-            activations: Some(activations),
+            outcomes: Some(outcomes),
             // Nothing Instagram announces in its first seconds is news; the
             // scene renews this on every load of the main page.
             unread_settles_at: Cell::new(Some(Instant::now() + UNREAD_SETTLE)),
@@ -361,6 +425,25 @@ impl Shell {
             hidden_at_start: start_hidden,
             ..Default::default()
         }
+    }
+
+    /// Connects `wake` to the scene. Must run on the Qt thread, once the
+    /// object is exposed to QML, which is what gives it the C++ side a
+    /// `QPointer` needs.
+    pub fn attach_wake(&self) {
+        let this = QPointer::from(self);
+        let emit = qmetaobject::queued_callback(move |()| {
+            if let Some(shell) = this.as_pinned() {
+                shell.borrow().wake();
+            }
+        });
+        self.waker.attach(move || emit(()));
+    }
+
+    /// A handle for a thread that will have news for the scene. Termination
+    /// signals use it, from `main`.
+    pub fn waker(&self) -> Wake {
+        self.waker.clone()
     }
 
     /// What `main` should start once the scene has quit, if anything.
@@ -501,7 +584,10 @@ impl Shell {
             _ => return,
         };
         *self.update.borrow_mut() = UpdateState::Installing(version.clone());
-        *self.updates.borrow_mut() = Some(updates::install_elevated_in_background(version));
+        *self.updates.borrow_mut() = Some(updates::install_elevated_in_background(
+            version,
+            woken(&self.waker),
+        ));
     }
 
     fn tray_icon(&self) -> bool {
@@ -569,7 +655,7 @@ impl Shell {
     /// An instance that stays in the background may run for weeks, and the
     /// startup check alone would then never run again.
     fn recheck_updates(&self) {
-        // Runs four times a second, so nothing is cloned until a check is due.
+        // Runs at every poll, so nothing is cloned until a check is due.
         let interval = self
             .config
             .as_deref()
@@ -586,7 +672,8 @@ impl Shell {
         }
         self.update_asked.set(Some(now));
         if let Some(paths) = self.paths.as_ref() {
-            *self.updates.borrow_mut() = updates::check_in_background(&self.config(), paths);
+            *self.updates.borrow_mut() =
+                updates::check_in_background(&self.config(), paths, woken(&self.waker));
         }
     }
 
@@ -676,6 +763,7 @@ impl Shell {
             clickable: true,
             kind: alerts::Kind::Message,
             sound: config.notification_sounds,
+            key: 0,
         });
     }
 
@@ -784,15 +872,26 @@ impl Shell {
                 kind: alerts::Kind::Plain,
                 sound: false,
                 tag: String::new(),
+                key: 0,
             });
         }
     }
 
-    fn page_notification(&self, title: String, body: String, tag: String, window_active: bool) {
+    fn page_notification(
+        &self,
+        title: String,
+        body: String,
+        tag: String,
+        key: u32,
+        window_active: bool,
+    ) -> bool {
         let config = self.config();
         if !config.notifications {
-            return;
+            return false;
         }
+        let Some(alerts) = self.alerts.as_ref() else {
+            return false;
+        };
         // Whatever the page said, it said it first and said it better; the
         // unread count moving after this is the same arrival counted twice.
         self.page_notified_at.set(Some(Instant::now()));
@@ -822,24 +921,31 @@ impl Shell {
                 }
             );
         }
-        if let Some(alerts) = self.alerts.as_ref() {
-            alerts.show(alerts::Toast {
-                title,
-                body,
-                clickable: true,
-                kind,
-                sound,
-                tag,
-            });
-        }
+        alerts.show(alerts::Toast {
+            title,
+            body,
+            clickable: true,
+            kind,
+            sound,
+            tag,
+            key,
+        });
+        true
     }
 
     fn poll_json(&self) -> String {
+        // First: whatever is handed over from here on wakes the scene again,
+        // so nothing can arrive between this drain and the next.
+        self.waker.drained();
+
         let mut present = false;
         let mut urls: Vec<String> = Vec::new();
+        let mut clicked: Vec<u32> = Vec::new();
+        let mut closed: Vec<u32> = Vec::new();
+        let mut forgotten: Vec<u32> = Vec::new();
 
-        if let Some(listener) = self.listener.as_ref() {
-            for launch in instance::drain(listener) {
+        if let Some(launches) = self.launches.as_ref() {
+            for launch in launches.try_iter() {
                 present = true;
                 if let Some(url) = launch {
                     urls.push(url);
@@ -847,9 +953,18 @@ impl Shell {
             }
         }
 
-        if let Some(activations) = self.activations.as_ref() {
-            while activations.try_recv().is_ok() {
-                present = true;
+        if let Some(outcomes) = self.outcomes.as_ref() {
+            for outcome in outcomes.try_iter() {
+                match outcome {
+                    alerts::Outcome::Clicked(key) => {
+                        present = true;
+                        if key != 0 {
+                            clicked.push(key);
+                        }
+                    }
+                    alerts::Outcome::Closed(key) => closed.push(key),
+                    alerts::Outcome::Forgotten(key) => forgotten.push(key),
+                }
             }
         }
         if present {
@@ -894,11 +1009,20 @@ impl Shell {
             "present": present,
             "urls": urls,
             "quit": SHUTDOWN.load(Ordering::SeqCst),
+            "clicked": clicked,
+            "closed": closed,
+            "forgotten": forgotten,
             "update": update,
             "update_version": version,
         })
         .to_string()
     }
+}
+
+/// What a thread calls once its news is handed over.
+fn woken(waker: &Wake) -> impl FnOnce() + Send + 'static {
+    let waker = waker.clone();
+    move || waker.wake()
 }
 
 /// Whether a saved position is worth anything.

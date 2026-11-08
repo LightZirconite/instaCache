@@ -1,0 +1,15 @@
+<!doctype html><title>notify</title><script>
+// Posts two notifications under different tags and reports, in its title,
+// which one the scene clicked or closed.
+function post(tag) {
+  var n = new Notification('from ' + tag, {body: 'hello', tag: tag});
+  n.onclick = function () { document.title = 'clicked-' + tag; };
+  n.onclose = function () { document.title = 'closed-' + tag; };
+  return n;
+}
+Notification.requestPermission().then(function (answer) {
+  if (answer !== 'granted') { document.title = 'refused'; return; }
+  window.first = post('a');
+  setTimeout(function () { window.second = post('b'); document.title = 'posted'; }, 300);
+});
+</script>

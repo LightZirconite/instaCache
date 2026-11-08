@@ -7,9 +7,9 @@
 //! name the window announces — `sites::window_class` — or the count lands on
 //! nobody's icon.
 //!
-//! The D-Bus connection lives on a thread of its own and stays open for as
-//! long as the app runs: some task bars drop an application's badge when the
-//! connection that set it goes away.
+//! It is sent over the shared session connection in `bus.rs`, which stays
+//! open for as long as the app runs: some task bars drop an application's
+//! badge when the connection that set it goes away.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender};
@@ -23,13 +23,6 @@ const INTERFACE: &str = "com.canonical.Unity.LauncherEntry";
 pub fn spawn(desktop_id: String) -> Sender<u32> {
     let (sender, counts) = channel::<u32>();
     std::thread::spawn(move || {
-        let connection = match zbus::blocking::Connection::session() {
-            Ok(connection) => connection,
-            Err(error) => {
-                eprintln!("instacache: no session bus for the unread badge: {error}");
-                return;
-            }
-        };
         let uri = format!("application://{desktop_id}.desktop");
         let path = object_path(&desktop_id);
         while let Ok(mut count) = counts.recv() {
@@ -37,6 +30,11 @@ pub fn spawn(desktop_id: String) -> Sender<u32> {
             while let Ok(newer) = counts.try_recv() {
                 count = newer;
             }
+            // Asked for at the first count, not at startup, and again after
+            // the bus went away.
+            let Some(connection) = crate::bus::session() else {
+                continue;
+            };
             let mut properties: HashMap<&str, Value> = HashMap::new();
             properties.insert("count", Value::from(i64::from(count)));
             properties.insert("count-visible", Value::from(count > 0));

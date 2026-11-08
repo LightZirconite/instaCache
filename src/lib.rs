@@ -28,6 +28,7 @@ pub mod alerts;
 pub mod autostart;
 pub mod badge;
 pub mod bridge;
+pub mod bus;
 pub mod chromium;
 pub mod config;
 pub mod downloads;
@@ -38,6 +39,7 @@ pub mod paths;
 pub mod sites;
 pub mod updates;
 pub mod urls;
+pub mod wake;
 
 pub const APP_NAME: &str = "instaCache";
 pub const APP_ID: &str = "io.github.lightzirconite.instaCache";

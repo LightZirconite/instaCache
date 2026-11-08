@@ -26,7 +26,7 @@ pub fn socket_path(profile: &str) -> PathBuf {
 }
 
 pub enum Claim {
-    /// This process owns the profile. Poll the listener for later launches.
+    /// This process owns the profile. [`listen`] hears later launches.
     Owner(UnixListener),
     /// Another process owns it and has been told about `url`.
     Handed,
@@ -52,33 +52,40 @@ pub fn claim(profile: &str, url: Option<&str>) -> std::io::Result<Claim> {
         std::fs::remove_file(&path)?;
     }
     let listener = UnixListener::bind(&path)?;
-    listener.set_nonblocking(true)?;
     Ok(Claim::Owner(listener))
 }
 
-/// Accepts every launch that has queued up since the last call.
+/// Hears every later launch on a thread of its own, and hands each one to
+/// `launched`: `Some(url)` when it named one, `None` when it only meant
+/// "focus the window".
 ///
-/// Returns one entry per launch: `Some(url)` when it named one, `None` when it
-/// only meant "focus the window". Never blocks, so it is safe to call from a
-/// UI timer.
-pub fn drain(listener: &UnixListener) -> Vec<Option<String>> {
-    let mut launches = Vec::new();
-    loop {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                // A peer that connects and then stalls must not freeze the UI.
-                let _ = stream.set_nonblocking(false);
-                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
-                let mut line = String::new();
-                let _ = BufReader::new(stream).read_line(&mut line);
-                let line = line.trim();
-                launches.push((!line.is_empty()).then(|| line.to_string()));
+/// This used to be drained from the scene's timer, which therefore had to run
+/// twelve times a second while the window was hidden just so a launch from
+/// the menu would not wait. Blocking on the socket here costs nothing at all
+/// until somebody launches.
+pub fn listen(listener: UnixListener, launched: impl Fn(Option<String>) + Send + 'static) {
+    let _ = listener.set_nonblocking(false);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => launched(read_launch(stream)),
+                // A failed accept is about that one peer; the socket itself
+                // is still listening. The pause keeps a socket that fails
+                // every time from spinning a core.
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
             }
-            Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-            Err(_) => break,
         }
-    }
-    launches
+    });
+}
+
+/// What one launch asked for. A peer that connects and then stalls gives up
+/// after a moment rather than holding the next launch back.
+fn read_launch(stream: UnixStream) -> Option<String> {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    let mut line = String::new();
+    let _ = BufReader::new(stream).read_line(&mut line);
+    let line = line.trim();
+    (!line.is_empty()).then(|| line.to_string())
 }
 
 /// Removes the socket. Called on the way out so the next launch does not have
@@ -112,11 +119,16 @@ mod tests {
         ));
         assert!(matches!(claim(&profile, None), Ok(Claim::Handed)));
 
-        let launches = drain(&listener);
+        let (sender, launches) = std::sync::mpsc::channel();
+        listen(listener, move |launch| {
+            let _ = sender.send(launch);
+        });
+        let timeout = std::time::Duration::from_secs(5);
         assert_eq!(
-            launches,
-            vec![Some("https://example.invalid/x".to_string()), None]
+            launches.recv_timeout(timeout).ok(),
+            Some(Some("https://example.invalid/x".to_string()))
         );
+        assert_eq!(launches.recv_timeout(timeout).ok(), Some(None));
 
         release(&profile);
     }

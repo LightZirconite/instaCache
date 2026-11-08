@@ -22,12 +22,10 @@ qttypes = "0.2"
 qmetaobject = { version = "0.2.10", features = ["webengine"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Desktop notifications. The `z` backend speaks the freedesktop protocol over
-# pure-Rust D-Bus, so packaging gains no system development package; the
-# default `d` backend would require libdbus headers at build time.
-notify-rust = { version = "4.17", default-features = false, features = ["z"] }
-# The unread badge. Already a dependency of `notify-rust` above, with the same
-# features, so naming it here builds no new crate.
+# D-Bus, in pure Rust, so packaging gains no system development package:
+# notifications, Do Not Disturb and the unread badge, all over one connection.
+# See `bus.rs`. It replaced `notify-rust`, which opened a connection and held
+# a thread for every notification, and unwrapped D-Bus errors.
 zbus = "5"
 
 [build-dependencies]

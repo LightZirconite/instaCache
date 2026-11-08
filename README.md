@@ -40,11 +40,14 @@ with `~/.local/share/instacache/uninstall.sh`.
 A new message plays a sound and posts a real desktop notification — through
 Web Push, so it reaches you with the window closed, minimised, or behind
 everything else. An incoming call rings until you answer it or thirty seconds
-pass. Clicking the notification opens the right conversation.
+pass. Clicking a notification opens that conversation,
+even if newer ones arrived since.
 
 **It is already running when you log in.**
 Starts with your session, in the background, behind a tray icon that says so.
-Closing the window does not quit it; `Ctrl+Q` does.
+Closing the window does not quit it; `Ctrl+Q` does. While it waits there it
+does nothing at all until something arrives — no timer ticking in the
+background.
 
 **It opens instantly.**
 Your session, cookies and cache are pinned to disk and reused. The window

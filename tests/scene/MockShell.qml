@@ -42,7 +42,8 @@ QtObject {
 
     function is_internal(u) { return /^https?:\/\/127\.0\.0\.1(:|\/)/.test(u); }
     function grants_permission(origin, feature) {
-        return is_internal(origin + "/") && feature.indexOf("Media") === 0;
+        return is_internal(origin + "/")
+            && (feature.indexOf("Media") === 0 || feature === "Notifications");
     }
     function is_engine_scheme(u) {
         return /^(about|blob|data|javascript|file):/.test(u) || !/^[a-z]+:/.test(u);
@@ -58,10 +59,22 @@ QtObject {
     function crash_page(u, m) { return "<title>crash</title>"; }
     function should_reload_after_crash() { return false; }
     function notify(title, body) {}
+    // The real bridge emits this when a thread hands something over; here a
+    // test changing what the next poll returns is that thread.
+    signal wake()
+    onPollResultChanged: if (pollResult !== "") wake()
+    onUpdateChanged: wake()
+    property int polls: 0
     function poll() {
-        var result = pollResult !== "" ? JSON.parse(pollResult)
-                                       : {present: false, urls: [], quit: false};
+        polls++;
+        var result = pollResult !== "" ? JSON.parse(pollResult) : {};
         pollResult = "";
+        var defaults = {present: false, urls: [], quit: false,
+                        clicked: [], closed: [], forgotten: []};
+        for (var name in defaults) {
+            if (result[name] === undefined)
+                result[name] = defaults[name];
+        }
         result.update = update;
         result.update_version = update === "none" ? "" : "9.9.9";
         return JSON.stringify(result);
@@ -78,12 +91,17 @@ QtObject {
     function log(message) { console.log("shell.log: " + message); }
     function window_hidden(tray) { hidden++; }
     property var notifications: []
+    property var notificationKeys: []
+    property var withdrawn: []
     property int ringStops: 0
     property var ringing: []
-    function notify_page(title, body, tag, windowActive) {
+    function notify_page(title, body, tag, key, windowActive) {
         notifications = notifications.concat([title]);
+        notificationKeys = notificationKeys.concat([key]);
         ringing = ringing.concat([windowActive]);
+        return true;
     }
+    function page_notification_closed(key) { withdrawn = withdrawn.concat([key]); }
     function stop_ringing() { ringStops++; }
     function title_changed(title, windowActive) {
         titles = titles.concat([title]);

@@ -200,6 +200,49 @@ Item {
             waitFor(function () { return win.activeView().visible && !win.backgrounded; }, 2000, "the page is live again");
         }
 
+        // Each desktop notification reaches the page notification it came
+        // from: a click on the first opens the first, not whichever arrived
+        // last, and the page withdrawing one takes it off the desktop.
+        function test_13_a_click_reaches_the_notification_that_was_clicked() {
+            win.bringToFront();
+            win.shell.notifications_enabled = true;
+            var main = win.activeView();
+            main.url = "http://127.0.0.1:8791/notify.html";
+            waitFor(function () { return win.shell.notificationKeys.length >= 2; }, 8000,
+                    "both notifications reached shell: " + main.title);
+            var keys = win.shell.notificationKeys;
+            verify(keys[0] !== keys[1], "each has its own key");
+
+            win.shell.pollResult = JSON.stringify({clicked: [keys[0]]});
+            waitFor(function () { return main.title === "clicked-a"; }, 3000,
+                    "the first was clicked, not the latest: " + main.title);
+
+            main.runJavaScript("window.second.close()");
+            waitFor(function () { return win.shell.withdrawn.indexOf(keys[1]) >= 0; }, 3000,
+                    "the page closing it withdraws it from the desktop");
+            verify(win.pageNotifications[keys[1]] === undefined, "and lets go of it");
+
+            win.shell.pollResult = JSON.stringify({closed: [keys[0]]});
+            waitFor(function () { return main.title === "closed-a"; }, 3000,
+                    "dismissed on the desktop, the page hears it closed: " + main.title);
+            verify(win.pageNotifications[keys[0]] === undefined, "and it is let go of");
+            compare(win.shell.withdrawn.indexOf(keys[0]), -1,
+                    "a close the desktop made is not sent back to it");
+            win.shell.notifications_enabled = false;
+        }
+
+        // Nothing runs while nothing happens: the scene drains on `wake`,
+        // not on a timer that fires whether or not there is news.
+        function test_14_an_idle_window_does_not_poll() {
+            win.close();
+            wait(300);
+            var before = win.shell.polls;
+            wait(2000);
+            compare(win.shell.polls, before, "no poll without a wake, even hidden");
+            win.shell.pollResult = '{"present":true}';
+            waitFor(function () { return win.visible; }, 2000, "a wake is answered at once");
+        }
+
         function test_12_a_closed_window_takes_an_update_quietly() {
             win.shell.restarts = [];
             win.shell.update = "ready";
