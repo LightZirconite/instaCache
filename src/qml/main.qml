@@ -1125,36 +1125,55 @@ Window {
                     c.arcTo(x, y, x + w, y, r);
                     c.closePath();
                 }
-                var brand = c.createRadialGradient(72, 261, 0, 72, 261, 320);
-                brand.addColorStop(0.00, "#FFDD55");
-                brand.addColorStop(0.18, "#FFB13D");
-                brand.addColorStop(0.42, "#F5563C");
-                brand.addColorStop(0.62, "#E1306C");
-                brand.addColorStop(0.82, "#A32EA8");
-                brand.addColorStop(1.00, "#5B4BE0");
-                rounded(8, 8, 240, 240, 66);
+                function bolt() {
+                    c.beginPath();
+                    c.moveTo(150, 44);
+                    c.lineTo(86, 140);
+                    c.lineTo(124, 140);
+                    c.lineTo(106, 212);
+                    c.lineTo(174, 110);
+                    c.lineTo(134, 110);
+                    c.closePath();
+                }
+                var brand = c.createRadialGradient(61, 258, 0, 61, 258, 312);
+                brand.addColorStop(0.00, "#FFD25A");
+                brand.addColorStop(0.20, "#FF9A3C");
+                brand.addColorStop(0.42, "#F4503E");
+                brand.addColorStop(0.62, "#DD2A7B");
+                brand.addColorStop(0.82, "#9B30B8");
+                brand.addColorStop(1.00, "#5145D8");
+                body();
                 c.fillStyle = brand;
                 c.fill();
 
+                // The lens, then the bolt's outline in the body's own
+                // gradient over it: that is the cut in the ring.
+                c.lineJoin = "round";
                 c.strokeStyle = "#ffffff";
-                c.fillStyle = "#ffffff";
-                c.lineWidth = 14;
-                rounded(56, 56, 144, 144, 42);
-                c.stroke();
+                c.lineWidth = 20;
                 c.beginPath();
-                c.arc(128, 128, 40, 0, 2 * Math.PI);
+                c.arc(128, 130, 62, 0, 2 * Math.PI);
                 c.stroke();
-                c.beginPath();
-                c.arc(171.5, 84.5, 9.5, 0, 2 * Math.PI);
+                bolt();
+                c.fillStyle = brand;
+                c.strokeStyle = brand;
+                c.lineWidth = 26;
                 c.fill();
-                c.beginPath();
-                c.moveTo(136, 102);
-                c.lineTo(108, 133);
-                c.lineTo(124, 133);
-                c.lineTo(118, 154);
-                c.lineTo(148, 121);
-                c.lineTo(131, 121);
-                c.closePath();
+                c.stroke();
+
+                bolt();
+                c.fillStyle = "#ffffff";
+                c.strokeStyle = "#ffffff";
+                c.lineWidth = 6;
+                c.fill();
+                c.stroke();
+
+                var sheen = c.createLinearGradient(0, 8, 0, 248);
+                sheen.addColorStop(0.00, "rgba(255, 255, 255, 0.22)");
+                sheen.addColorStop(0.48, "rgba(255, 255, 255, 0)");
+                sheen.addColorStop(1.00, "rgba(0, 0, 0, 0.12)");
+                body();
+                c.fillStyle = sheen;
                 c.fill();
             }
 

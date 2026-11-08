@@ -92,7 +92,12 @@ loading bar, the back button shown over a page, the pills for a call and an
 update, and the tray icon, and each of those is there because the window has
 no other way to offer it. The splash is drawn with `Canvas` from the same
 shapes as `assets/instacache.svg`, because an SVG image needs a Qt module a
-distribution may not install, and a missing one costs the whole scene.
+distribution may not install, and a missing one costs the whole scene. Change
+one and change the other.
+
+The mark is instaCache's own: a lens cut by a lightning bolt, on Instagram's
+gradient. Until 2.8 it was Instagram's camera glyph with a bolt added, which
+is Meta's trademark with a sticker on it; do not drift back towards it.
 
 Where it is going: what Vencord is to Discord, for Instagram — the page itself
 changed by built-in mods (sound on by default, styles, small features), not a
