@@ -547,7 +547,10 @@ can change how the page starts instead of repairing it afterwards.
   console on the page: every `svg[aria-label]` with the role of its
   clickable ancestor, and every element that overflows sideways. Logged-out
   post pages (`/p/<id>/`) show the post's controls; stories and the side bar
-  need an account, so the owner runs it. That is how the French "Also from
+  need an account, so the owner runs it. A feed post logged in, in French,
+  carries `Plus d’options`, `Le son est coupé`, `J’aime`, `Commenter`,
+  `Republier`, `Partager` and `Enregistrer`, each a `div[role=button]`, and
+  the side bar's links include `Paramètres`. That is how the French "Also from
   Meta" turned out to be "Autres applications Meta", which the mod had been
   missing, and how the stories row turned out to be a plain sideways scroll
   container — so the wheel moves it, where Instagram's arrow misses every
@@ -621,13 +624,14 @@ can change how the page starts instead of repairing it afterwards.
   `--ig-primary-background` to know the page is dark, marks `<html>` with a
   class of its own, and overrides the `--ig-*` variables — as `R, G, B`,
   which is how Instagram writes them — under that class.
-- **Hide every copy, at every change.** Instagram can hold one side bar per
-  layout, and the first match in the document need not be the one on
-  screen: hiding only the first and then watching it is the likeliest
-  reason "Autres applications Meta" stayed visible for the owner, though
-  their window has not confirmed it yet. `hide_meta.js` hides
-  all of them, and an `a:has(…)` rule does it before React draws on Qt 6.5
-  and later.
+- **"Also from Meta" stayed visible for the owner, cause unknown.** Their
+  logged-in French page, captured in the browser console, holds one copy:
+  `a[role=link]` around `svg[aria-label="Autres applications Meta"]`,
+  exactly what the script looks for. So the script is not trusted alone:
+  `hide_meta.js` hides every copy at every change, and an `a:has(…)` rule
+  hides it on Qt 6.5 and later before React draws, whatever happens to the
+  element afterwards. If it still shows, capture from inside instaCache
+  (`developer_tools: true`, `F12`), not from a browser.
 - **Restyling the page is the expensive thing.** `--ig-*` live on `<html>`, so
   changing one restyles every element — measured at 55 to 90 ms for ten
   thousand elements in a container with no GPU. `instagram_colors` writes them from one

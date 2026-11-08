@@ -4,14 +4,13 @@
 // Instagram's own code finds the element where it left it.
 //
 // Every copy is hidden, at every change of the page, not just the first one
-// found: Instagram can hold more than one side bar in the document — one
-// per layout — and the first in the document need not be the one on screen.
-// Hiding the first and then watching only it is the likeliest way the
-// French item stayed in sight while the mod believed it was done.
+// found. The owner's logged-in page, captured in French, held one: a link
+// (`a[role=link]`) around the labelled icon, which the script finds — yet it
+// stayed in sight in instaCache, for a reason not established yet.
 //
 // Where the engine knows `:has()` (Chromium 105, Qt 6.5 and later), a rule
 // hides it as well, before it is ever drawn and whatever React does to the
-// element afterwards. Qt 6.4 drops the rule as one it cannot parse, and the
+// element afterwards — which does not depend on the script at all. Qt 6.4 drops the rule as one it cannot parse, and the
 // script alone does the work. Only for a link, which cannot hold another:
 // a `[role=button]` ancestor could be a whole menu.
 var labels = LABELS.alsoFromMeta.map(function (label) {
