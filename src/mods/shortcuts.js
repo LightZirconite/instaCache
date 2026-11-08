@@ -2,8 +2,8 @@
 //
 //   double-click a picture or a video   like it, as a double tap does
 //   Shift + double-click                repost it
-//   Space, Space                        like the reel being watched; one
-//                                       Space still goes to the next reel
+//   Space, Space                        on Reels, like the reel and stay on
+//                                       it; one Space still goes to the next
 //   Enter, Enter                        like what is in view
 //   L   like      R   repost      M   sound on or off
 //   C   comments  S   save
@@ -47,6 +47,19 @@ function heart(x, y) {
     setTimeout(function () { svg.remove(); }, 900);
 }
 
+// What reaches Instagram's servers — a like, a repost, a save — happens at
+// most once every `PACE_MS`, whatever the keyboard does: one action for one
+// gesture, at a person's pace, never a burst.
+var PACE_MS = 800;
+var lastAction = 0;
+function paced() {
+    var now = Date.now();
+    if (now - lastAction < PACE_MS)
+        return false;
+    lastAction = now;
+    return true;
+}
+
 function press(media, labels) {
     var button = control(postOf(media), labels);
     if (button)
@@ -55,6 +68,8 @@ function press(media, labels) {
 }
 
 function like(media, x, y) {
+    if (!paced())
+        return;
     heart(x, y);
     // After Instagram has had its own say on the same gesture: if it liked
     // the post itself, "Like" is gone and nothing is pressed twice.
@@ -66,14 +81,43 @@ function likeInView(media) {
     like(media, r.left + r.width / 2, r.top + r.height / 2);
 }
 
+// A double-click is two clicks first, and Instagram pauses a reel on a
+// click: the like came with a pause. So the state the video was in when the
+// first click went down is kept, and put back once the like is done.
+var beforeClicks = null;
+document.addEventListener("pointerdown", function (event) {
+    var media = mediaAt(event.clientX, event.clientY);
+    if (!(media instanceof HTMLVideoElement))
+        return;
+    var now = Date.now();
+    if (!beforeClicks || beforeClicks.media !== media || now - beforeClicks.at > 600)
+        beforeClicks = { media: media, paused: media.paused, at: now };
+}, true);
+
+function keepPlaying(media) {
+    var before = beforeClicks;
+    if (!before || before.media !== media)
+        return;
+    setTimeout(function () {
+        if (media.paused === before.paused)
+            return;
+        if (before.paused)
+            media.pause();
+        else
+            media.play();
+    }, 250);
+}
+
 document.addEventListener("dblclick", function (event) {
     var media = mediaAt(event.clientX, event.clientY);
     if (!media || !postOf(media))
         return;
-    if (event.shiftKey)
-        press(media, LABELS.repost);
-    else
+    if (event.shiftKey) {
+        if (paced())
+            press(media, LABELS.repost);
+    } else
         like(media, event.clientX, event.clientY);
+    keepPlaying(media);
 });
 
 // A click on a story pauses it, or plays it again: Instagram only does that
@@ -92,11 +136,7 @@ document.addEventListener("click", function (event) {
         toggle.click();
 });
 
-// The first key of a pair, and what was in view when it went down: a reel
-// liked with Space, Space is the one being watched at the first Space, which
-// Instagram has already scrolled away from by the second. That second Space
-// is kept from Instagram, or it would skip a reel as well: the pair means
-// "like this one and go on", and the first Space already went on.
+// The first key of a pair, and what was in view when it went down.
 var DOUBLE_MS = 350;
 var first = { key: null, at: 0, media: null };
 
@@ -105,6 +145,32 @@ function second(key, media) {
     var pair = first.key === key && now - first.at < DOUBLE_MS ? first.media : null;
     first = pair ? { key: null, at: 0, media: null } : { key: key, at: now, media: media };
     return pair;
+}
+
+// On Reels, one Space goes to the next reel and two like the one on screen,
+// staying on it — as a double tap does. Telling them apart means holding the
+// first Space for `SPACE_MS`: the reels scroll on their own when no second
+// one comes. Letting the first Space through and liking on the second, as
+// 2.10 did, liked the reel and skipped it as well.
+var SPACE_MS = 250;
+var pendingNext = null;
+
+function onReels() {
+    return /^\/reels?\//.test(location.pathname);
+}
+
+// What scrolls the reels: the nearest ancestor of the video that scrolls
+// vertically, or the page itself.
+function scrollerOf(media) {
+    for (var e = media.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+        if (e.scrollHeight > e.clientHeight + 1) {
+            var overflow = getComputedStyle(e).overflowY;
+            if (overflow === "auto" || overflow === "scroll")
+                return e;
+        }
+    }
+    var page = document.scrollingElement;
+    return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
 function focusIsFree() {
@@ -124,12 +190,23 @@ window.addEventListener("keydown", function (event) {
     var target = null;
     switch (event.key) {
     case " ":
-        target = second(" ", media);
-        if (target) {
-            // The reel liked has scrolled away: the heart goes mid-window.
-            like(target, innerWidth / 2, innerHeight / 2);
-            handled = true;
+        if (!onReels() || event.shiftKey)
+            break;
+        var scroller = scrollerOf(media);
+        // Nothing found to scroll: Space stays Instagram's.
+        if (!scroller)
+            break;
+        if (pendingNext !== null) {
+            clearTimeout(pendingNext);
+            pendingNext = null;
+            likeInView(media);
+        } else {
+            pendingNext = setTimeout(function () {
+                pendingNext = null;
+                scroller.scrollBy({ top: scroller.clientHeight, behavior: "smooth" });
+            }, SPACE_MS);
         }
+        handled = true;
         break;
     case "Enter":
         if (!focusIsFree())
@@ -147,15 +224,16 @@ window.addEventListener("keydown", function (event) {
         break;
     case "r":
     case "R":
-        handled = press(media, LABELS.repost);
+        handled = paced() && press(media, LABELS.repost);
         break;
     case "m":
     case "M":
-        handled = press(media, LABELS.audioMuted.concat(LABELS.audioPlaying));
-        if (!handled && media instanceof HTMLVideoElement) {
+        var speaker = speakerOf(media);
+        if (speaker)
+            speaker.click();
+        else if (media instanceof HTMLVideoElement)
             media.muted = !media.muted;
-            handled = true;
-        }
+        handled = !!speaker || media instanceof HTMLVideoElement;
         break;
     case "c":
     case "C":
@@ -164,7 +242,7 @@ window.addEventListener("keydown", function (event) {
     case "s":
     case "S":
         // Saves, or takes it back out, as the phone's button does.
-        handled = press(media, LABELS.save.concat(LABELS.saved));
+        handled = paced() && press(media, LABELS.save.concat(LABELS.saved));
         break;
     }
     if (handled) {

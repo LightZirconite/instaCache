@@ -44,6 +44,25 @@ function postOf(media) {
     return null;
 }
 
+// Instagram's speaker button for a video: the nearest one going up from the
+// video itself. Not through `postOf` — on a logged-in Reels page the video,
+// its speaker and its Like button need not share a block close enough.
+var SPEAKER = LABELS.audioMuted.concat(LABELS.audioPlaying);
+function speakerOf(media) {
+    for (var e = media.parentElement, depth = 0; e && depth < 20; e = e.parentElement, depth++) {
+        var found = control(e, SPEAKER);
+        if (found)
+            return found;
+    }
+    return null;
+}
+
+// Whether a speaker button says the sound is off.
+function saysMuted(speaker) {
+    var icon = speaker && speaker.querySelector("svg[aria-label]");
+    return !!icon && LABELS.audioMuted.indexOf(icon.getAttribute("aria-label")) >= 0;
+}
+
 function onStory() {
     return location.pathname.indexOf("/stories/") === 0;
 }

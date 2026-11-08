@@ -10,8 +10,13 @@
 //
 // The volume is set once per video, to `options.volume`; Instagram has no
 // control for it. The mod steps aside for the rest of the page's life as
-// soon as the user mutes a video with their own hand.
+// soon as the user mutes a video with their own hand — a video that had its
+// sound. Instagram creating the next video muted, a moment after a click on
+// "Reels", is not the user muting anything; reading it as such switched the
+// mod off for the whole session, and the owner's videos arrived silent.
 var userMuted = false;
+// Videos that have been heard: only muting one of these is the user's doing.
+var heard = new WeakSet();
 // How many times a video has been unmuted for the user. A page that mutes it
 // straight back would otherwise be fought for ever, one event at a time.
 var forced = new WeakMap();
@@ -33,8 +38,8 @@ function unmute(media) {
     if (count >= MAX_FORCED)
         return;
     forced.set(media, count + 1);
-    var speaker = control(postOf(media), LABELS.audioMuted);
-    if (speaker)
+    var speaker = speakerOf(media);
+    if (saysMuted(speaker))
         speaker.click();
     if (media.muted)
         media.muted = false;
@@ -57,12 +62,14 @@ document.addEventListener("volumechange", function (event) {
     var media = event.target;
     if (!(media instanceof HTMLMediaElement) || isCall(media))
         return;
-    if (media.muted) {
+    if (!media.muted) {
+        heard.add(media);
         if (byUser())
-            userMuted = true;
-        else
-            unmute(media);
-    } else if (byUser()) {
-        userMuted = false;
+            userMuted = false;
+        return;
     }
+    if (byUser() && heard.has(media))
+        userMuted = true;
+    else if (!media.paused)
+        unmute(media);
 }, true);

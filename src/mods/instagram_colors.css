@@ -21,6 +21,31 @@ html.instacache-dark {
   --messenger-card-background: #1f1927 !important;
 }
 
+/* The login page: the splash's glow behind it, and the sign-in card as
+   frosted glass over the glow. Colours only — the form, its fields and its
+   button are Instagram's and are not touched. The page's own background is
+   let through here, and only here: the login page is two flat panels, not
+   the stacked layers that made transparency vanish on the feed. */
+html.instacache-dark[data-instacache-page="login"] {
+  --ig-primary-background: 0, 0, 0, 0 !important;
+  background:
+    radial-gradient(70vw 60vh at 100% 0%, rgba(150, 47, 191, 0.38), transparent 70%),
+    radial-gradient(60vw 55vh at 0% 100%, rgba(250, 126, 30, 0.22), transparent 70%),
+    radial-gradient(50vw 50vh at 85% 100%, rgba(214, 41, 118, 0.24), transparent 70%),
+    rgb(14, 9, 20) !important;
+  min-height: 100%;
+}
+html.instacache-dark[data-instacache-page="login"] body {
+  background: transparent !important;
+}
+html.instacache-dark[data-instacache-page="login"] [role="main"] {
+  /* Instagram defines the card's colour again on a block inside the page,
+     which a variable set on <html> cannot reach. */
+  background-color: rgba(34, 22, 46, 0.55) !important;
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
 /* Thin scroll bars that show only what they need to — the one in a chat
    included — in either theme. */
 ::-webkit-scrollbar {

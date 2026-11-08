@@ -21,7 +21,8 @@ var PAGES = {
     reels: [16, 8, 22],
     direct: [12, 12, 30],
     explore: [24, 10, 24],
-    profile: [20, 13, 28]
+    profile: [20, 13, 28],
+    login: [18, 12, 26]
 };
 var theirs = null;
 var palette = null;
@@ -30,6 +31,9 @@ var easing = null;
 
 function kind() {
     var path = location.pathname;
+    // Signed out, the home page is the login page too.
+    if (path.indexOf("/accounts/login") === 0 || document.getElementById("login_form"))
+        return "login";
     if (path === "/")
         return "home";
     if (/^\/reels?\//.test(path))
@@ -141,7 +145,10 @@ function refresh() {
     if (!html || !html.classList.contains(MARK))
         return;
     var page = kind();
-    var media = options.ambient ? mediaInView() : null;
+    // What the stylesheet keys the login page's look on.
+    if (html.getAttribute("data-instacache-page") !== page)
+        html.setAttribute("data-instacache-page", page);
+    var media = options.ambient && page !== "login" ? mediaInView() : null;
     if (page === lastKind && media === lastMedia)
         return;
     var colour = media && colourOf(media);
