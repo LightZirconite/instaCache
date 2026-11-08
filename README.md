@@ -92,7 +92,7 @@ page.
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
 | `video_volume` | `40` | The volume, from 0 to 100, that `videos_with_sound` starts a video at. |
 | `instagram_colors` | `true`¹ | Tint Instagram's dark theme in its own colours instead of black. |
-| `page_animations` | `true`¹ | Dialogs and pictures fade in, buttons give under a click. Off wherever the desktop asks for reduced motion. |
+| `page_animations` | `true`¹ | Dialogs and pictures fade in. Off wherever the desktop asks for reduced motion. |
 | `context_menu` | `false` | The engine's right-click menu, with "Save image as" and "Copy link address". |
 | `developer_tools` | `false` | The Web Inspector (`F12`). |
 | `notifications` | `true` | Forward notifications to your desktop. |

@@ -1,7 +1,12 @@
-/* Small, quick motion in the page: dialogs and pictures fade in, buttons give
-   under the finger. Opacity and transform only, which the compositor runs
-   without laying anything out again. Nothing moves for somebody who asked
-   their desktop for less motion. */
+/* Small, quick motion in the page: dialogs and pictures fade in. Opacity and
+   transform only, which the compositor runs without laying anything out
+   again. Nothing moves for somebody who asked their desktop for less motion.
+
+   Nothing reacts to a press. A button that shrank under the pointer broke
+   Reels: Instagram makes the whole video a `role="button"`, so a click
+   shrank the reel and showed its edge as a white outline, and the speaker
+   button shrank away from the pointer, so the release landed on the video
+   and paused it instead of muting. */
 @media (prefers-reduced-motion: no-preference) {
   @keyframes instacache-fade-in {
     from { opacity: 0; }
@@ -16,11 +21,5 @@
   }
   img {
     animation: instacache-fade-in 260ms ease-out;
-  }
-  [role="button"], button, a[role="link"] {
-    transition: transform 120ms ease-out, opacity 120ms ease-out;
-  }
-  [role="button"]:active, button:active {
-    transform: scale(0.96);
   }
 }

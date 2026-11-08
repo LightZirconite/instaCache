@@ -100,8 +100,7 @@ pub struct Config {
     /// On for Instagram and off for another site by default.
     pub instagram_colors: bool,
     /// The mod that adds small motion to the page: dialogs and pictures fade
-    /// in, buttons give under a click. Off by itself wherever the desktop asks
-    /// for reduced motion.
+    /// in. Off by itself wherever the desktop asks for reduced motion.
     ///
     /// On for Instagram and off for another site by default.
     pub page_animations: bool,

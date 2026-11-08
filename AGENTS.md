@@ -501,7 +501,10 @@ can change how the page starts instead of repairing it afterwards.
   the splash — and the window's own colour matches the mod's background.
 - **Animations are opacity and transform only**, which the compositor runs
   without laying the page out again, and nothing moves under
-  `prefers-reduced-motion`. The engine is Chromium 102 on Qt 6.4: nothing
+  `prefers-reduced-motion`. **Nothing reacts to a press**: a `:active`
+  shrink broke Reels, whose whole video is a `role="button"` — the reel
+  shrank and showed a white edge, and the speaker button shrank away from
+  the pointer, so the click landed on the video and paused it. The engine is Chromium 102 on Qt 6.4: nothing
   newer than that, such as `@starting-style`.
 - Mods are on for Instagram and off for another site by default, like the
   messenger settings below: they are written for Instagram's page.
