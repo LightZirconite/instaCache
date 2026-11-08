@@ -563,6 +563,8 @@ Window {
     // target="_blank", window.open and calls, from Instagram or from a page.
     function openRequest(request) {
         var target = request.requestedUrl.toString();
+        if (root.leaveThroughShim(target))
+            return;
         var blank = target === "" || target === "about:blank";
         if (!blank && shell.external_links_in_browser && !shell.is_internal(target)) {
             shell.open_externally(target);
@@ -646,11 +648,29 @@ Window {
         return granted ? name : "";
     }
 
+    // A link through Meta's link shim (`l.instagram.com/?u=…`) goes straight
+    // to its destination in the browser: no detour through the shim in the
+    // window, no click recorded, no empty page left to go back from.
+    // Returns whether it was sent.
+    function leaveThroughShim(target) {
+        if (!shell.external_links_in_browser)
+            return false;
+        var destination = shell.unwrap_link(target);
+        if (destination === "" || shell.is_internal(destination))
+            return false;
+        shell.open_externally(destination);
+        return true;
+    }
+
     // Keeps a logged-in Instagram session away from arbitrary sites: anything
     // that is not Meta's goes to the system browser instead. Returns whether
     // the navigation was sent away.
     function routeNavigation(request) {
         var target = request.url.toString();
+        if (root.leaveThroughShim(target)) {
+            request.action = WebEngineNavigationRequest.IgnoreRequest;
+            return true;
+        }
         if (!shell.external_links_in_browser
             || shell.is_engine_scheme(target)
             || shell.is_internal(target))

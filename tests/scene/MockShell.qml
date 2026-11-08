@@ -55,6 +55,10 @@ QtObject {
     property var restarts: []
     property int installs: 0
 
+    function unwrap_link(u) {
+        var m = /^https:\/\/l\.instagram\.com\/\?u=([^&#]*)/.exec(u);
+        return m ? decodeURIComponent(m[1]) : "";
+    }
     function is_internal(u) { return /^https?:\/\/127\.0\.0\.1(:|\/)/.test(u); }
     function grants_permission(origin, feature) {
         return is_internal(origin + "/")

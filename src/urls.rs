@@ -110,6 +110,89 @@ pub fn is_internal_in<S: AsRef<str>>(domains: &[S], uri: &str) -> bool {
     })
 }
 
+/// Meta's link shims. Every outside link in Instagram points at one of them
+/// rather than at its destination: `l.instagram.com/?u=<destination>&e=<id>`
+/// records who followed the link, then redirects. Inside instaCache that also
+/// meant a detour — the shim opened in the window, the destination in the
+/// browser, and an empty page was left behind to go back from.
+const LINK_SHIMS: &[&str] = &[
+    "l.instagram.com",
+    "l.facebook.com",
+    "lm.facebook.com",
+    "l.messenger.com",
+];
+
+/// Query parameters Meta adds to an outgoing link so the click can be
+/// recognised at the other end. They mean nothing to the destination.
+const CLICK_MARKERS: &[&str] = &["fbclid", "igshid", "igsh"];
+
+/// The destination behind a link shim, without Meta's markers, or `None` when
+/// `uri` is not a shim or points at something other than a web page.
+pub fn unwrap_link_shim(uri: &str) -> Option<String> {
+    if !is_http(uri) {
+        return None;
+    }
+    let host = host_of(uri)?;
+    if !LINK_SHIMS.contains(&host.as_str()) {
+        return None;
+    }
+    let query = uri.split_once('?')?.1.split('#').next()?;
+    let encoded = query.split('&').find_map(|pair| pair.strip_prefix("u="))?;
+    let destination = percent_decode(encoded)?;
+    // A shim is no excuse to open anything but a web page.
+    if !is_http(&destination) {
+        return None;
+    }
+    Some(without_click_markers(&destination))
+}
+
+/// `%XX` escapes decoded; `None` for a malformed escape or text that is not
+/// UTF-8. A `+` stays a `+`: in an address it is more often meant than a
+/// space is.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn without_click_markers(uri: &str) -> String {
+    let (rest, fragment) = match uri.split_once('#') {
+        Some((rest, fragment)) => (rest, Some(fragment)),
+        None => (uri, None),
+    };
+    let Some((base, query)) = rest.split_once('?') else {
+        return uri.to_string();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            let name = pair.split('=').next().unwrap_or_default();
+            !pair.is_empty() && !CLICK_MARKERS.contains(&name)
+        })
+        .collect();
+    let mut out = base.to_string();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +277,56 @@ mod tests {
         assert!(!is_engine_scheme("mailto:hi@example.com"));
         assert_eq!(scheme_of("https://x"), Some("https"));
         assert_eq!(scheme_of("1abc:x"), None);
+    }
+
+    #[test]
+    fn a_link_shim_gives_its_destination_without_the_markers() {
+        assert_eq!(
+            unwrap_link_shim(
+                "https://l.instagram.com/?u=https%3A%2F%2Fexample.com%2Fa%3Fx%3D1%26fbclid%3DPAZ&e=AT0abc"
+            )
+            .as_deref(),
+            Some("https://example.com/a?x=1")
+        );
+        assert_eq!(
+            unwrap_link_shim("https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2F%3Figsh%3Dq%23top&h=AT1")
+                .as_deref(),
+            Some("https://example.com/#top")
+        );
+        // Accented text survives the decoding.
+        assert_eq!(
+            unwrap_link_shim("https://l.instagram.com/?u=https%3A%2F%2Fexample.com%2Fcaf%C3%A9")
+                .as_deref(),
+            Some("https://example.com/café")
+        );
+    }
+
+    #[test]
+    fn only_a_real_shim_pointing_at_a_web_page_is_unwrapped() {
+        // Not a shim: the host has to be exactly one of them.
+        assert_eq!(
+            unwrap_link_shim("https://www.instagram.com/?u=https%3A%2F%2Fa.b"),
+            None
+        );
+        assert_eq!(
+            unwrap_link_shim("https://l.instagram.com.evil.example/?u=https%3A%2F%2Fa.b"),
+            None
+        );
+        // A shim to something that is not a web page is left alone.
+        assert_eq!(
+            unwrap_link_shim("https://l.instagram.com/?u=javascript%3Aalert(1)"),
+            None
+        );
+        assert_eq!(
+            unwrap_link_shim("https://l.instagram.com/?u=file%3A%2F%2F%2Fetc"),
+            None
+        );
+        // Malformed escapes, and a shim with nothing behind it.
+        assert_eq!(
+            unwrap_link_shim("https://l.instagram.com/?u=https%3A%2F%2Fa%ZZ"),
+            None
+        );
+        assert_eq!(unwrap_link_shim("https://l.instagram.com/?e=AT0"), None);
+        assert_eq!(unwrap_link_shim("https://l.instagram.com/"), None);
     }
 }

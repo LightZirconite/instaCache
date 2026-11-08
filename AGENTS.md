@@ -1105,6 +1105,15 @@ as the default and as what `is_internal()` uses when there is no configuration
 to hand. Widening the list is the user's decision; widening what *counts* as a
 match is not, and is the thing to be careful about here.
 
+Meta's link shim (`l.instagram.com/?u=…`) is the exception that is handled
+before the allow-list: every outside link in Instagram points at it, and as an
+Instagram host it used to open in the window, record the click, redirect, and
+leave an empty page behind once the browser took the destination.
+`unwrap_link_shim` reads the destination out of it — exact shim hosts only,
+`http`/`https` destinations only, Meta's `fbclid`/`igshid`/`igsh` removed —
+and the scene sends that straight to the browser, from a navigation and from a
+new window alike. A destination that is itself internal is left to the shim.
+
 `facebook.com` and `meta.com` are in the default on purpose: Instagram's login,
 two-factor and Accounts Center flows redirect through them. Removing them
 breaks signing in. `threads.com` and `threads.net` are there by choice, not by

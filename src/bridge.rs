@@ -130,6 +130,13 @@ pub struct Shell {
             urls::is_internal_in(&self.config().internal_domains, &url)
         }
     ),
+    /// Where a link through Meta's link shim really goes, or an empty string
+    /// for any other URL. See `urls::unwrap_link_shim`.
+    unwrap_link: qt_method!(
+        fn unwrap_link(&self, url: String) -> QString {
+            urls::unwrap_link_shim(&url).unwrap_or_default().into()
+        }
+    ),
     /// Whether the page at `origin` may use `feature`, named after the
     /// enumerator in `WebEngineView.Feature`.
     grants_permission: qt_method!(
