@@ -178,6 +178,18 @@ jobs:
           }
           Write-Host 'Installed and uninstalled cleanly.'
 
+      # The way a user installs: `irm | iex` under Windows' default execution
+      # policy, which refuses every script file. It installs the latest
+      # published release with this commit's get.ps1. A shell that already
+      # bypassed the policy is how the first release missed that get.ps1
+      # ran install.ps1 as a file.
+      - name: Install the way a user does
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Restricted -Command "Get-Content -Raw get.ps1 | Invoke-Expression; if (-not (Test-Path \"$env:LOCALAPPDATA\Programs\instaCache\instacache.exe\")) { exit 1 }"
+          if errorlevel 1 exit /b 1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\instaCache\uninstall.ps1" -Yes -Purge
+
       - name: Upload the archive
         uses: actions/upload-artifact@v4
         with:

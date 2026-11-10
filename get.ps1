@@ -73,11 +73,18 @@ try {
     Expand-Archive -LiteralPath $archive -DestinationPath $work -Force
     Ok 'done'
 
+    # In a PowerShell of its own, allowed to run this one script: Windows'
+    # default execution policy refuses every script file, install.ps1
+    # included, even though it lets `irm | iex` run this text. That is the
+    # failure this replaced.
     $installer = Join-Path (Join-Path $work $name) 'install.ps1'
-    $options = @{}
-    if ($Prefix) { $options['Prefix'] = $Prefix }
-    if ($Yes) { $options['Yes'] = $true }
-    & $installer @options
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installer)
+    if ($Prefix) { $arguments += @('-Prefix', $Prefix) }
+    if ($Yes) { $arguments += '-Yes' }
+    & powershell.exe @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "install.ps1 failed with exit code $LASTEXITCODE."
+    }
 } finally {
     Set-Location -LiteralPath ([IO.Path]::GetTempPath())
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
