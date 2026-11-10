@@ -50,7 +50,9 @@ command -v tar >/dev/null 2>&1 || die "this needs tar, and it is not installed"
 
 case "$(uname -s)" in
     Linux) ;;
-    *) die "$APP_NAME is a Linux application; this is $(uname -s)" ;;
+    MINGW*|MSYS*|CYGWIN*)
+        die "on Windows, install from PowerShell instead: irm https://raw.githubusercontent.com/$REPO/main/get.ps1 | iex" ;;
+    *) die "$APP_NAME runs on Linux and Windows; this is $(uname -s)" ;;
 esac
 
 case "$(uname -m)" in

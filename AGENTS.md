@@ -100,7 +100,8 @@ change that makes one of them wrong fixes it in the same commit.
 ## What this project is
 
 One Qt Quick window hosting one Qt WebEngine view that displays Instagram,
-with the cache and session pinned to persistent XDG directories. The value is
+with the cache and session pinned to persistent XDG directories, on Linux
+and, since 2.14, on Windows (see "Windows"). The value is
 in the persistence and the desktop integration, not in any UI of our own.
 Resist adding chrome: what exists is the splash over a cold start, the
 loading bar, the back button shown over a page, the pills for a call and an
@@ -141,7 +142,15 @@ arbitrary sites, and work goes into Instagram before it goes anywhere else.
   `qt6-webengine`, shared with every other Qt application on the machine.
 - **The release binary must stay dynamically linked** against the
   distribution's Qt. Never vendor it.
-- **Qt 6.4 is the baseline**, because it is what Debian 12 ships. Newer API is
+- **Windows is the one exception to both, by the owner's decision** (2.14):
+  Windows has no system Qt to share, so its archive carries Qt and Qt
+  WebEngine as DLLs beside `instacache.exe`, gathered by `windeployqt` —
+  still linked dynamically, never static, never a second engine. That
+  exception is Windows only; the Linux archive and the AUR package still
+  carry nothing but the binary.
+- **Qt 6.4 is the baseline**, because it is what Debian 12 ships. The
+  Windows archive ships Qt 6.8, which changes nothing here: the same scene
+  and the same Rust run on both, so 6.4 still decides what may be used. Newer API is
   tempting and mostly off limits: `permissionRequested` and
   `persistentPermissionsPolicy` are 6.8, and using them would lock out the
   distributions this is meant to run on. This is the same reasoning that once
@@ -150,7 +159,11 @@ arbitrary sites, and work goes into Instagram before it goes anywhere else.
   where a download goes, whether a dead renderer is reloaded again — all of it
   is decided in `bridge.rs`, where it is unit tested. QML that decides
   something cannot be tested at all.
-- **Nothing may write outside the XDG directories** resolved in `paths.rs`.
+- **Nothing may write outside the XDG directories** resolved in `paths.rs` —
+  on Windows, `%APPDATA%\instacache` and `%LOCALAPPDATA%\instacache`, plus
+  what an installed application is expected to touch: its install
+  directory, the user's Start menu and the `HKCU` keys listed under
+  "Windows".
 
 ## The account comes first
 
@@ -229,6 +242,9 @@ that named GStreamer concepts now mean Chromium ones.
 | `src/urls.rs` | Which hosts stay inside the app. Security-relevant. |
 | `src/errorpage.rs` | The offline page. Escapes everything it embeds. |
 | `src/updates.rs` | Checking for and installing a newer release. |
+| `src/windows.rs` | Every Win32 call instaCache makes, declared by hand. |
+| `install.ps1`, `install.cmd`, `uninstall.ps1`, `get.ps1` | The Windows installer, its double-click wrapper, the uninstaller, the one-command installer and updater. |
+| `scripts/package-windows.ps1`, `scripts/smoke-windows.ps1` | Building the Windows archive, and starting it with no Qt on PATH. |
 | `examples/snapshot.rs` | Renders a page to PNG, for verification. |
 | `examples/stress.rs` | Drives a page from inside, for reproducing crashes. |
 | `tests/scene/` | The QML scene under qmltestrunner, with a mock `shell`. |
@@ -303,7 +319,21 @@ cargo test --locked
 ```
 
 CI runs exactly these, plus `desktop-file-validate`, `shellcheck` on the three
-shell scripts, and an XML well-formedness check on the SVG.
+shell scripts, and an XML well-formedness check on the SVG. A Windows job
+runs clippy and the tests again on Windows with MSVC, parses every `.ps1`
+with Windows PowerShell 5.1, packages the archive, starts it with no Qt on
+PATH, installs and uninstalls it.
+
+A change to anything behind `#[cfg(windows)]` can be type-checked without a
+Windows machine: install `mingw-w64` and the `x86_64-pc-windows-gnu` target,
+fetch Qt's Windows headers with `aqt install-qt windows desktop 6.8.3
+win64_msvc2022_64 -m qtwebengine qtpositioning qtwebchannel`, and run
+`cargo clippy --target x86_64-pc-windows-gnu` with `QT_INCLUDE_PATH` and
+`QT_LIBRARY_PATH` pointing into it and `QMAKE` pointing at a script that
+answers `-query QMAKE_SPEC` with `win32-g++`. qmetaobject has no
+`webengine` module for MinGW, so stub out the one
+`qmetaobject::webengine::initialize()` call in a scratch copy. The C++ in
+`badge.rs` compiles that way too. Linking is MSVC's, and only CI does it.
 
 The runners carry an older `desktop-file-utils` than a current desktop does, and
 it emits warnings for valid keys. The CI step therefore fails on `error:` lines
@@ -1381,7 +1411,8 @@ necessity.
 `instacache --update` downloads the newest archive and runs the `install.sh`
 *inside it*, which is a script this version has never seen. `--prefix`, `--yes`
 and `--no-deps` are therefore a stable interface: rename or remove one and
-every existing install fails to update. `updates.rs` retries once with no
+every existing install fails to update. On Windows the same holds for
+`install.ps1`'s `-Yes` and `-Prefix`. `updates.rs` retries once with no
 options at all as a safety net, but do not spend it.
 
 Test an update by lowering the version in `Cargo.toml`, building, installing to
@@ -1397,11 +1428,110 @@ binary with `QT_QPA_PLATFORM=offscreen` and `--background`. The log should show
 the install, `takes over at the next restart`, and `restarted into the updated
 version`, and the first process should exit on its own.
 
+## Windows
+
+Ported in 2.14 at the owner's request. Built with MSVC against Qt 6.8.3
+from Qt's own repository (`aqtinstall` in CI); MinGW is not an option,
+because Qt WebEngine exists for MSVC only. Everything Windows-only is behind
+`#[cfg(windows)]`, and its Win32 calls are in `windows.rs`, declared by hand
+like the libc calls in `main.rs` — no `windows` crate.
+
+What stands in for what, and why each is that way:
+
+- **The window and the console.** `instacache.exe` is a windowed program
+  (`windows_subsystem`), so a Start menu launch opens no console.
+  `attach_console` gives a terminal launch its output back, and only when
+  standard output goes nowhere: output redirected to a file, as the smoke
+  test and the installer do, stays there. A windowed program launched from
+  PowerShell is not waited for; use `Start-Process -Wait`.
+- **Every console program run from the window** — curl, `reg`, PowerShell
+  — gets `windows::no_console`, or each one flashes a black console.
+- **The icon** is `assets/instacache.ico`, embedded as `IDI_ICON1`, the name
+  Qt loads as the default window icon (`assets/instacache.rc`,
+  `embed-resource` in `build.rs`). It is rendered from the SVG; regenerate it
+  when the SVG changes: `rsvg-convert -w N -h N` at 16, 24, 32, 48, 64, 128
+  and 256, then ImageMagick's `convert` of the seven PNGs into one `.ico`.
+  It also ships beside the executable for the tray icon, which has no icon
+  theme to look a name up in (`shell.icon_source`).
+- **Task bar identity.** Windows groups buttons by AppUserModelID, not by
+  any name Qt sets. A site gets its own (`windows::set_app_id`) and its own
+  window icon (`sites::set_window_icon`); instaCache itself keeps the
+  default, which is what ties its window to the Start menu shortcut it was
+  pinned from.
+- **One window per profile** is a loopback TCP port plus a secret, written
+  to `%TEMP%\instacache-<profile>.sock`: any process can reach a loopback
+  port, only this user can read the file, and the owner answers a launch
+  only after the secret, so a reused port is never taken for a running copy.
+- **Notifications** go to the scene (`alerts::Outcome::Show`, `show` in
+  `poll`), which shows them from the tray icon with `showMessage`; Qt makes
+  a Windows notification of it, and Windows plays the sound and respects
+  Focus assist. One is on screen at a time (`ONE_AT_A_TIME`), its click
+  comes back through `shell.notification_clicked(id)`. Without a tray icon
+  there are no notifications at all. Windows takes a notification with an
+  empty text for "hide the current one", so a title alone is sent as text.
+- **Sounds** are events of the user's sound scheme, played with
+  `PlaySoundW`: `Notification.IM` for a message, `Notification.Looping.Call`,
+  looped, for a call. Do Not Disturb is `SHQueryUserNotificationState`.
+- **The unread badge** is an overlay on the task bar button through
+  `ITaskbarList3`, drawn with `QPainter`, on the GUI thread. Windows drops an
+  overlay whenever it remakes the button — every time a window comes back
+  from the tray — and says so with `TaskbarButtonCreated`, which a native
+  event filter hears to put the count back. The C++ is guarded with
+  `#ifdef _WIN32`, because `cpp_build` compiles every `cpp!` block whatever
+  Rust's `cfg` says.
+- **Start at login** is a value under `HKCU\…\CurrentVersion\Run`.
+  Task Manager's Startup tab switches it off by writing an odd first byte
+  into the same name under `Explorer\StartupApproved\Run`, and that is read
+  and believed, by the same rule as the XDG entry.
+- **Sites** are Start menu shortcuts named as the site was, written through
+  `WScript.Shell` with every value passed in the environment, never in the
+  script text. The profile keeps the shortcut's path in `start-menu-entry`,
+  because the name is the site's, not the profile's. A shortcut's icon must
+  be an `.ico`; a PNG is wrapped in a one-image `.ico` (`ico_from_png`).
+- **Data** is split: settings in `%APPDATA%` (which may roam), session and
+  cache in `%LOCALAPPDATA%` (which must not).
+- **Chromium flags**: none for `video_decoding: "gpu"`. Chromium decodes
+  through D3D11 by itself, and `--ignore-gpu-blocklist` is not worth a
+  crash on a bad Windows driver.
+- **No termination signals.** Nothing sends a windowed program one; the
+  session ending closes its windows.
+
+Installing and updating:
+
+- `install.ps1` installs per user into `%LOCALAPPDATA%\Programs\instaCache`,
+  adds `instaCache.lnk` to the Start menu, `HKCU\Software\Classes\instacache`
+  for `instacache:` links, and the entry in Settings › Apps (`HKCU\…\Uninstall\
+  instaCache`). It copies `get.ps1` in as `update.ps1`, which is what an
+  update runs: `-Yes -Prefix` are the Windows half of the option contract.
+- **A running copy's files are renamed aside, not overwritten.** Windows
+  refuses to overwrite a running executable or a loaded DLL and lets either
+  be renamed, so `install.ps1` renames to `*.instacache-old` and copies the
+  new file in; the next install deletes what is free. That is what lets an
+  update install long before the restart, as on Linux. There is no
+  `/proc/self/exe` to notice a replaced binary, so `notice_replaced_binary`
+  does nothing on Windows.
+- **Every `.ps1` is ASCII.** Windows PowerShell 5.1, which is what a user
+  has, reads a file without a byte order mark in the legacy code page; a
+  dash or an accent arrives mangled and can break the parse. CI checks it.
+  `.gitattributes` checks them out with CRLF, which `cmd.exe` needs.
+- The archive carries the Visual C++ runtime DLLs beside the executable,
+  which Microsoft allows, so a machine without the redistributable starts.
+  The build is not signed, so SmartScreen warns at the first start;
+  `install.ps1` removes the mark of the web from what it installed.
+- `scripts/smoke-windows.ps1` is the test that matters: it starts the
+  packaged folder with nothing but `System32` on PATH, on a local page, and
+  fails if the engine never writes its cache or a second launch is not
+  handed to the first. A DLL `windeployqt` missed fails there. The tray
+  icon's `Qt.labs.platform` is imported from a string, which `windeployqt`
+  cannot see, so `package-windows.ps1` names it in a file of its own.
+
 ## Releasing
 
 `scripts/release.sh <patch|minor|major>` does everything: runs the checks, bumps
 `Cargo.toml` and `Cargo.lock`, writes the changelog,
-commits, tags and pushes. Pushing the tag is what triggers the release workflow.
+commits, tags and pushes. Pushing the tag is what triggers the release workflow,
+which builds Linux on x86_64 and aarch64 and Windows on x86_64, and publishes
+all three archives in one release.
 Never tag by hand — the workflow refuses a tag that disagrees with `Cargo.toml`.
 
 A cloud session's git proxy pushes branches and refuses tags (`HTTP 403` on

@@ -60,6 +60,134 @@ jobs:
       - name: Verify the binary runs
         run: ./target/release/instacache --version
 
+  # Windows has no system Qt, so the job installs the one the release ships
+  # (scripts/package-windows.ps1 copies it into the archive) and checks the
+  # whole route a Windows user takes: build, package, start the packaged
+  # copy with no Qt on PATH, install it, uninstall it.
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    env:
+      QT_VERSION: 6.8.3
+      QMAKE: C:\Qt\6.8.3\msvc2022_64\bin\qmake.exe
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Qt
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\Qt
+          key: qt-${{ env.QT_VERSION }}-win64_msvc2022_64-webengine
+
+      # aqtinstall reads Qt's own online repository, the same packages the
+      # Qt installer downloads, without an account.
+      - name: Install Qt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall
+          python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_64 `
+            -m qtwebengine qtpositioning qtwebchannel -O C:\Qt
+
+      - name: Put Qt on PATH
+        run: Add-Content -LiteralPath $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build in release mode
+        run: cargo build --release --locked
+
+      # Parsed by Windows PowerShell 5.1, which is what a user double-clicking
+      # install.cmd gets, and kept ASCII, which is all 5.1 reads correctly
+      # from a file without a byte order mark.
+      - name: Check the PowerShell scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem -Path . -Recurse -File -Include *.ps1 | Where-Object { $_.FullName -notmatch '\\target\\' }) {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            foreach ($e in $errors) {
+              Write-Host "::error file=$($file.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"
+              $failed = $true
+            }
+            if ([IO.File]::ReadAllBytes($file.FullName) | Where-Object { $_ -gt 127 } | Select-Object -First 1) {
+              Write-Host "::error file=$($file.Name)::is not ASCII"
+              $failed = $true
+            }
+          }
+          if (Get-Module -ListAvailable -Name PSScriptAnalyzer) {
+            $found = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
+            foreach ($f in $found) {
+              Write-Host "::error file=$($f.ScriptName),line=$($f.Line)::$($f.RuleName): $($f.Message)"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host 'No errors.'
+
+      - name: Resolve the version
+        id: version
+        run: |
+          $version = (Select-String -LiteralPath Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version"
+
+      - name: Package
+        id: package
+        run: ./scripts/package-windows.ps1 -Version ${{ steps.version.outputs.version }}
+
+      - name: Start the packaged build
+        run: ./scripts/smoke-windows.ps1 -Folder dist/${{ steps.package.outputs.name }} -Version ${{ steps.version.outputs.version }}
+
+      - name: Install and uninstall it
+        shell: powershell
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP 'instaCache'
+          & "dist\$env:NAME\install.ps1" -Yes -Prefix $prefix
+          $programs = [Environment]::GetFolderPath('Programs')
+          foreach ($path in @("$prefix\instacache.exe", "$prefix\update.ps1", "$prefix\uninstall.ps1",
+                              "$programs\instaCache.lnk",
+                              'HKCU:\Software\Classes\instacache\shell\open\command',
+                              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\instaCache')) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "install.ps1 did not create $path" }
+          }
+          if (-not (Test-Path -LiteralPath "$programs\XCache.lnk")) {
+            Write-Host '::warning::XCache was not added to the Start menu'
+          }
+          & "$prefix\uninstall.ps1" -Yes -Purge
+          foreach ($path in @($prefix, "$programs\instaCache.lnk", "$programs\XCache.lnk",
+                              'HKCU:\Software\Classes\instacache',
+                              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\instaCache')) {
+            if (Test-Path -LiteralPath $path) { throw "uninstall.ps1 left $path behind" }
+          }
+          Write-Host 'Installed and uninstalled cleanly.'
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   packaging:
     name: Validate the packaging
     runs-on: ubuntu-24.04

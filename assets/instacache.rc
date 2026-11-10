@@ -1,0 +1,4 @@
+// The icon inside instacache.exe. IDI_ICON1 is the name Qt looks up for
+// its default window icon. The path is from the crate root, where Cargo
+// runs the build script and therefore the resource compiler.
+IDI_ICON1 ICON "assets/instacache.ico"

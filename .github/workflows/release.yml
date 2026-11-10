@@ -203,9 +203,88 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Windows has no distribution Qt, so its archive carries the Qt it was built
+  # against; scripts/package-windows.ps1 says how. CI runs the same script on
+  # every push, with the same smoke test.
+  build-windows:
+    name: Build Windows x86_64
+    needs: tag
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: windows-2022
+    env:
+      QT_VERSION: 6.8.3
+      QMAKE: C:\Qt\6.8.3\msvc2022_64\bin\qmake.exe
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Cache Qt
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\Qt
+          key: qt-${{ env.QT_VERSION }}-win64_msvc2022_64-webengine
+
+      - name: Install Qt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall
+          python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_64 `
+            -m qtwebengine qtpositioning qtwebchannel -O C:\Qt
+
+      - name: Put Qt on PATH
+        run: Add-Content -LiteralPath $env:GITHUB_PATH -Value "C:\Qt\$env:QT_VERSION\msvc2022_64\bin"
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64
+
+      - name: Resolve the version
+        id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $manifest = (Select-String -LiteralPath Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($version -ne $manifest) {
+            Write-Host "::error::Tag $env:TAG does not match the version in Cargo.toml ($manifest)."
+            exit 1
+          }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version"
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        id: package
+        run: ./scripts/package-windows.ps1 -Version ${{ steps.version.outputs.version }}
+
+      - name: Start the packaged build
+        run: ./scripts/smoke-windows.ps1 -Folder dist/${{ steps.package.outputs.name }} -Version ${{ steps.version.outputs.version }}
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish the GitHub Release
-    needs: build
+    needs: [build, build-windows]
     # Stated, because the default `success()` also looks at the tag job two
     # steps up, and that one is skipped whenever the tag was pushed.
     if: ${{ !failure() && !cancelled() }}
@@ -271,6 +350,19 @@ jobs:
             echo "Or unpack an archive yourself and run \`./install.sh\` inside it."
             echo "Uninstall with \`~/.local/share/instacache/uninstall.sh\`."
             echo
+            echo "### Install on Windows"
+            echo
+            echo "In PowerShell:"
+            echo
+            echo '```powershell'
+            echo "irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/get.ps1 | iex"
+            echo '```'
+            echo
+            echo "It downloads the \`.zip\` below, verifies it against the checksum and"
+            echo "installs instaCache for your user, without administrator rights, into the"
+            echo "Start menu. Or unpack the \`.zip\` yourself and double-click \`install.cmd\`."
+            echo "Uninstall from Settings > Apps. Windows 10 1803 or later, 64-bit."
+            echo
             echo "### Checksums"
             echo
             echo '```'
@@ -288,6 +380,7 @@ jobs:
           body_path: release-notes.md
           files: |
             artifacts/*.tar.gz
+            artifacts/*.zip
             artifacts/*.sha256
           draft: false
           prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}

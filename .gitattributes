@@ -1,0 +1,6 @@
+# Windows reads these with CRLF line endings; cmd.exe in particular
+# misreads a batch file without them.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+# Binary, whatever its extension suggests to git.
+*.ico binary

@@ -29,6 +29,7 @@ QtObject {
     property bool tray_icon: true
     property bool own_title_bar: true
     property string icon_name: "instacache"
+    property string icon_source: ""
     property string user_stylesheet: ""
     property string user_script: ""
     property string spell_check_languages: ""
@@ -93,7 +94,7 @@ QtObject {
         var result = pollResult !== "" ? JSON.parse(pollResult) : {};
         pollResult = "";
         var defaults = {present: false, urls: [], quit: false,
-                        clicked: [], closed: [], forgotten: []};
+                        clicked: [], closed: [], forgotten: [], show: []};
         for (var name in defaults) {
             if (result[name] === undefined)
                 result[name] = defaults[name];
@@ -125,6 +126,8 @@ QtObject {
         return true;
     }
     function page_notification_closed(key) { withdrawn = withdrawn.concat([key]); }
+    property var trayClicks: []
+    function notification_clicked(id) { trayClicks = trayClicks.concat([id]); }
     function stop_ringing() { ringStops++; }
     function title_changed(title, windowActive) {
         titles = titles.concat([title]);

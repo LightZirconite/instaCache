@@ -424,7 +424,28 @@ Window {
     property bool trayShown: tray !== null && tray.available
     property int unread: 0
     readonly property string trayIconName: shell.icon_name
+    // A file, for Windows, which has no icon theme to find the name in.
+    readonly property string trayIconSource: shell.icon_source
     readonly property string trayTitle: shell.window_title
+
+    // Windows shows a notification from the tray icon, one at a time: the
+    // latest, whose click goes back to Rust by the id it came with. No other
+    // system sends any. See `alerts.rs`.
+    property int trayMessage: 0
+    function showFromTray(message) {
+        if (root.tray === null)
+            return;
+        root.trayMessage = message.id;
+        // Windows takes a notification with no text for a request to hide
+        // the one on screen, so a title alone becomes the text.
+        var hasBody = message.body !== "";
+        root.tray.showMessage(hasBody ? message.title : root.trayTitle,
+                              hasBody ? message.body : message.title,
+                              1 /* SystemTrayIcon.Information */, 10000);
+    }
+    function trayMessageClicked() {
+        shell.notification_clicked(root.trayMessage);
+    }
 
     // Whether the user is really looking at the window: shown, not closed to
     // the background, and focused. What decides whether an alert is something
@@ -491,6 +512,8 @@ Window {
                 "SystemTrayIcon {\n" +
                 "    visible: available\n" +
                 "    icon.name: root.trayIconName\n" +
+                "    icon.source: root.trayIconSource\n" +
+                "    onMessageClicked: root.trayMessageClicked()\n" +
                 "    tooltip: root.trayTitle + ' — ' + root.trayState()\n" +
                 "    onActivated: function (reason) {\n" +
                 "        if (reason !== SystemTrayIcon.Context) root.toggleFromTray();\n" +
@@ -2002,6 +2025,8 @@ Window {
         }
         for (i = 0; i < events.forgotten.length; i++)
             root.takeNotification(events.forgotten[i]);
+        for (i = 0; i < events.show.length; i++)
+            root.showFromTray(events.show[i]);
         for (i = 0; i < events.urls.length; i++) {
             root.showInstagram();
             view.url = events.urls[i];

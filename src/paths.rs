@@ -1,5 +1,11 @@
 //! XDG-compliant location resolution, with optional named profiles.
 //!
+//! On Windows the same three roots live in the user's known folders: the
+//! settings in `%APPDATA%\instacache`, which may roam with the account, and
+//! the session and the cache in `%LOCALAPPDATA%\instacache\{data,cache}`,
+//! which must not — a roaming profile that carries a gigabyte of cache to
+//! every machine is worse than no cache.
+//!
 //! Everything instaCache persists lives under three roots:
 //!   * data  — cookies, localStorage, IndexedDB, service workers (the session)
 //!   * cache — the aggressive on-disk HTTP/resource cache (safe to delete)
@@ -24,9 +30,43 @@ impl Paths {
     pub fn for_profile(profile: &str) -> Self {
         let profile = sanitize_profile(profile);
 
-        let data = root("INSTACACHE_DATA_HOME", dirs::data_dir(), ".local/share");
-        let cache = root("INSTACACHE_CACHE_HOME", dirs::cache_dir(), ".cache");
-        let config = root("INSTACACHE_CONFIG_HOME", dirs::config_dir(), ".config");
+        #[cfg(not(windows))]
+        let (data, cache, config) = (
+            root(
+                "INSTACACHE_DATA_HOME",
+                dirs::data_dir(),
+                ".local/share",
+                None,
+            ),
+            root("INSTACACHE_CACHE_HOME", dirs::cache_dir(), ".cache", None),
+            root(
+                "INSTACACHE_CONFIG_HOME",
+                dirs::config_dir(),
+                ".config",
+                None,
+            ),
+        );
+        #[cfg(windows)]
+        let (data, cache, config) = (
+            root(
+                "INSTACACHE_DATA_HOME",
+                dirs::data_local_dir(),
+                "AppData/Local",
+                Some("data"),
+            ),
+            root(
+                "INSTACACHE_CACHE_HOME",
+                dirs::cache_dir(),
+                "AppData/Local",
+                Some("cache"),
+            ),
+            root(
+                "INSTACACHE_CONFIG_HOME",
+                dirs::config_dir(),
+                "AppData/Roaming",
+                None,
+            ),
+        );
 
         Self {
             data: scoped(data, &profile),
@@ -92,16 +132,23 @@ impl Paths {
     }
 }
 
-fn root(env_var: &str, xdg: Option<PathBuf>, home_fallback: &str) -> PathBuf {
+/// `<base>/instacache`, or `<base>/instacache/<below>` where two roots share
+/// one known folder, as the session and the cache do on Windows. An override
+/// from the environment is taken exactly as given.
+fn root(env_var: &str, base: Option<PathBuf>, home_fallback: &str, below: Option<&str>) -> PathBuf {
     if let Some(custom) = std::env::var_os(env_var).filter(|v| !v.is_empty()) {
         return PathBuf::from(custom);
     }
-    let base = xdg.unwrap_or_else(|| {
+    let base = base.unwrap_or_else(|| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(home_fallback)
     });
-    base.join("instacache")
+    let root = base.join("instacache");
+    match below {
+        Some(below) => root.join(below),
+        None => root,
+    }
 }
 
 fn scoped(base: PathBuf, profile: &str) -> PathBuf {
@@ -198,5 +245,14 @@ mod tests {
         let p = Paths::for_profile("default");
         assert!(p.is_default_profile());
         assert!(!p.data.to_string_lossy().contains("profiles"));
+    }
+
+    #[test]
+    fn the_three_roots_never_share_a_directory() {
+        let p = Paths::for_profile("work");
+        assert_ne!(p.data, p.cache);
+        assert_ne!(p.data, p.config);
+        assert_ne!(p.cache, p.config);
+        assert!(!p.cache.starts_with(&p.data) && !p.data.starts_with(&p.cache));
     }
 }

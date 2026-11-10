@@ -10,7 +10,8 @@
 //! This module asks GitHub whether a newer release exists and runs the same
 //! installer that put the app there in the first place: directly when this
 //! user can write to the install, through `pkexec` when the user asks for it
-//! on a system-wide one.
+//! on a system-wide one. On Windows the installer is `update.ps1`, beside
+//! `instacache.exe` in a per-user install that is always writable.
 //!
 //! The check runs at most once per [`Config::update_check_interval_hours`] and
 //! never blocks the interface: the network call happens on a plain thread and
@@ -30,8 +31,17 @@ use crate::VERSION;
 /// The repository releases are published from.
 pub const REPO: &str = "LightZirconite/instaCache";
 
-/// Give up rather than leave a request hanging for a whole session.
-const NETWORK_TIMEOUT_SECS: u32 = 10;
+/// The installer's options, which are a stable interface: an update runs the
+/// installer from the *newer* archive. See "The installer's option contract"
+/// in AGENTS.md.
+#[cfg(not(windows))]
+const QUIET: &[&str] = &["--yes", "--no-deps"];
+#[cfg(not(windows))]
+const PREFIX: &str = "--prefix";
+#[cfg(windows)]
+const QUIET: &[&str] = &["-Yes"];
+#[cfg(windows)]
+const PREFIX: &str = "-Prefix";
 
 /// What a finished check found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,31 +128,12 @@ fn run_check(paths: &Paths, auto_install: bool) -> Outcome {
     }
 }
 
-/// Reads the newest release tag from the GitHub API. Uses whichever downloader
-/// is installed rather than linking an HTTP stack into a 500 KB binary.
+/// Reads the newest release tag from the GitHub API, through `http.rs`.
 fn fetch_latest_version() -> Option<String> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let timeout = NETWORK_TIMEOUT_SECS.to_string();
-
-    let body = if which("curl").is_some() {
-        Command::new("curl")
-            .args(["-fsSL", "--max-time", &timeout, &url])
-            .output()
-            .ok()?
-    } else if which("wget").is_some() {
-        Command::new("wget")
-            .args(["-qO-", "--timeout", &timeout, &url])
-            .output()
-            .ok()?
-    } else {
-        return None;
-    };
-
-    if !body.status.success() {
-        return None;
-    }
-
-    let json: serde_json::Value = serde_json::from_slice(&body.stdout).ok()?;
+    let body = crate::http::get(&format!(
+        "https://api.github.com/repos/{REPO}/releases/latest"
+    ))?;
+    let json: serde_json::Value = serde_json::from_slice(&body).ok()?;
     let tag = json.get("tag_name")?.as_str()?;
     Some(tag.trim_start_matches('v').to_string())
 }
@@ -160,7 +151,7 @@ enum Privilege {
 /// Whether a system-wide install can be updated from inside the app, by
 /// asking for the administrator password.
 pub fn can_install_elevated() -> bool {
-    which("pkexec").is_some() && updater_path().is_some() && install_prefix().is_some()
+    crate::http::which("pkexec").is_some() && updater_path().is_some() && install_prefix().is_some()
 }
 
 /// Installs `version` as root on the user's request, on a thread, and hands
@@ -193,6 +184,9 @@ pub fn install_elevated_in_background(
 /// Replacing the binary under a running copy is safe on Linux: the running
 /// process keeps the file it was started from, and the next start gets the
 /// new one. That is what lets the install happen long before the restart.
+/// Windows refuses to overwrite a running executable or a loaded DLL but lets
+/// it be renamed, so `install.ps1` moves each one aside and puts the new one
+/// in its place, to the same effect.
 fn install_update(privilege: Privilege) -> Result<(), String> {
     let updater = updater_path().ok_or("the updater script is not installed")?;
     let prefix = install_prefix().ok_or("could not work out where this is installed")?;
@@ -208,12 +202,20 @@ fn install_update(privilege: Privilege) -> Result<(), String> {
     //
     // `--no-deps` because system packages were settled at install time and
     // there is no terminal here to authenticate a package manager with.
-    let attempts: [&[&str]; 2] = [&["--yes", "--no-deps"], &[]];
+    let attempts: [&[&str]; 2] = [QUIET, &[]];
     let mut last_error = String::new();
 
     for extra in attempts {
         let mut command = match privilege {
+            #[cfg(not(windows))]
             Privilege::User => Command::new("sh"),
+            #[cfg(windows)]
+            Privilege::User => {
+                let mut command = Command::new("powershell.exe");
+                command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+                crate::windows::no_console(&mut command);
+                command
+            }
             // pkexec wants an absolute program and gives it a clean
             // environment, which the installer does not depend on.
             Privilege::Elevated => {
@@ -222,11 +224,7 @@ fn install_update(privilege: Privilege) -> Result<(), String> {
                 command
             }
         };
-        command
-            .arg(&updater)
-            .args(extra)
-            .arg("--prefix")
-            .arg(&prefix);
+        command.arg(&updater).args(extra).arg(PREFIX).arg(&prefix);
 
         match command.status() {
             Ok(status) if status.success() => return Ok(()),
@@ -246,6 +244,7 @@ fn install_update(privilege: Privilege) -> Result<(), String> {
 }
 
 /// `<prefix>/bin/instacache` -> `<prefix>`
+#[cfg(not(windows))]
 pub fn install_prefix() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let bin = exe.parent()?;
@@ -253,6 +252,13 @@ pub fn install_prefix() -> Option<PathBuf> {
         return None;
     }
     Some(bin.parent()?.to_path_buf())
+}
+
+/// `<prefix>\instacache.exe` -> `<prefix>`: the DLLs Qt needs sit beside the
+/// executable, so the install is one directory.
+#[cfg(windows)]
+pub fn install_prefix() -> Option<PathBuf> {
+    Some(std::env::current_exe().ok()?.parent()?.to_path_buf())
 }
 
 /// Whether a package manager owns this copy rather than instaCache itself.
@@ -267,12 +273,15 @@ pub fn is_package_managed() -> bool {
     updater_path().is_none() && install_prefix().is_some_and(|prefix| !is_writable(&prefix))
 }
 
-/// `<prefix>/share/instacache/update.sh`
+/// `<prefix>/share/instacache/update.sh`, or `<prefix>\update.ps1`.
 pub fn updater_path() -> Option<PathBuf> {
+    #[cfg(not(windows))]
     let candidate = install_prefix()?
         .join("share")
         .join("instacache")
         .join("update.sh");
+    #[cfg(windows)]
+    let candidate = install_prefix()?.join("update.ps1");
     candidate.is_file().then_some(candidate)
 }
 
@@ -285,13 +294,6 @@ fn is_writable(path: &Path) -> bool {
         }
         Err(_) => false,
     }
-}
-
-fn which(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
 }
 
 // ------------------------------------------------------------ throttling ---

@@ -23,16 +23,29 @@
 //! Sounds are named from the freedesktop sound theme and played by whichever
 //! player the system has, the same way `http.rs` uses curl rather than a
 //! linked HTTP stack.
+//!
+//! Windows has no notification server to talk to. There a notification is
+//! handed to the scene, which shows it from the tray icon — Qt turns that
+//! into a Windows notification, and Windows plays its sound and keeps quiet
+//! during Focus assist. Only one is on screen at a time, the latest; a click
+//! on it comes back through `Alerts::clicked`. A call rings with the sound
+//! scheme's own looping call sound. Everything else here — the tags, the
+//! nudges, what a click or a read message does — is the same on both.
 
 use std::collections::{HashMap, VecDeque};
+#[cfg(not(windows))]
 use std::path::PathBuf;
+#[cfg(not(windows))]
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
+#[cfg(not(windows))]
 use zbus::blocking::{Connection, MessageIterator};
+#[cfg(not(windows))]
 use zbus::zvariant::Value;
 
+#[cfg(not(windows))]
 use crate::bus;
 
 /// What a notification is about, which decides how it sounds.
@@ -78,8 +91,16 @@ pub struct Toast {
 }
 
 /// What happened to a notification, for the scene.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
+    /// Windows: show this from the tray icon. `id` comes back through
+    /// [`Alerts::clicked`] when it is clicked.
+    #[cfg(windows)]
+    Show {
+        id: u32,
+        title: String,
+        body: String,
+    },
     /// Clicked. The window comes to the front, and the page behind it, if
     /// any, is told — which is what makes Instagram open the right thread.
     Clicked(u32),
@@ -91,8 +112,10 @@ pub enum Outcome {
     Forgotten(u32),
 }
 
-/// How the notifications of this profile identify themselves.
+/// How the notifications of this profile identify themselves. Windows files
+/// a notification under the tray icon that showed it, and reads none of this.
 #[derive(Debug, Clone)]
+#[cfg_attr(windows, allow(dead_code))]
 pub struct Identity {
     pub app_name: String,
     pub icon: String,
@@ -119,14 +142,22 @@ enum Request {
     /// What the notification server said.
     Server(Signal),
     /// The listener lost the bus.
+    #[cfg(not(windows))]
     BusLost,
 }
 
 /// A signal from the notification server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Signal {
-    ActionInvoked { id: u32, action: String },
-    Closed { id: u32 },
+    ActionInvoked {
+        id: u32,
+        action: String,
+    },
+    /// Nothing on Windows says a notification shown from the tray closed.
+    #[cfg(not(windows))]
+    Closed {
+        id: u32,
+    },
 }
 
 /// The channels to the notification threads.
@@ -157,6 +188,16 @@ impl Alerts {
     pub fn stop_ringing(&self) {
         let _ = self.ring.send(Ring::Stop);
     }
+
+    /// The notification shown as `id` was clicked. How Windows says so: the
+    /// scene hears it from the tray icon, where a notification server would
+    /// have said it over the bus.
+    pub fn clicked(&self, id: u32) {
+        let _ = self.commands.send(Request::Server(Signal::ActionInvoked {
+            id,
+            action: "default".to_string(),
+        }));
+    }
 }
 
 enum Ring {
@@ -165,12 +206,22 @@ enum Ring {
 }
 
 /// The freedesktop sound theme names used.
+#[cfg(not(windows))]
 const MESSAGE_SOUND: &str = "message-new-instant";
+#[cfg(not(windows))]
 const CALL_SOUND: &str = "phone-incoming-call";
+
+/// The same two, as events of the Windows sound scheme, which the user can
+/// change in the Sound control panel like any other.
+#[cfg(windows)]
+const MESSAGE_SOUND: &str = "Notification.IM";
+#[cfg(windows)]
+const CALL_SOUND: &str = "Notification.Looping.Call";
 
 /// How long a call rings before giving up, the way a phone stops.
 const RING_LIMIT: Duration = Duration::from_secs(30);
-/// The silence between two rings.
+/// The silence between two rings. Windows loops the sound by itself.
+#[cfg(not(windows))]
 const RING_PAUSE: Duration = Duration::from_millis(900);
 
 /// How long a nudge waits for the notification that says more, before it is
@@ -188,8 +239,16 @@ const NUDGE_TAG: &str = "instacache-nudge";
 /// can still be clicked, and then only raises the window.
 const TRACKED: usize = 64;
 
+/// Whether a notification takes the place of whatever was on screen, as one
+/// shown from a tray icon does on Windows. The ones it displaced are let go
+/// of: nothing will ever be said about them again.
+const ONE_AT_A_TIME: bool = cfg!(windows);
+
+#[cfg(not(windows))]
 const DESTINATION: &str = "org.freedesktop.Notifications";
+#[cfg(not(windows))]
 const PATH: &str = "/org/freedesktop/Notifications";
+#[cfg(not(windows))]
 const INTERFACE: &str = "org.freedesktop.Notifications";
 
 /// Starts the threads and returns the channels to them. `report` hears what
@@ -201,12 +260,17 @@ pub fn spawn(identity: Identity, report: impl Fn(Outcome) + Send + 'static) -> A
     std::thread::spawn(move || ring_loop(ring_rx));
 
     let ring = ring_tx.clone();
+    #[cfg(not(windows))]
     let commands = command_tx.clone();
+    #[cfg(windows)]
+    let _ = identity;
     std::thread::spawn(move || {
         Notifier {
+            #[cfg(not(windows))]
             identity,
             report: Box::new(report),
             ring,
+            #[cfg(not(windows))]
             commands,
             registry: Registry::default(),
             coalescer: Coalescer::default(),
@@ -222,6 +286,7 @@ pub fn spawn(identity: Identity, report: impl Fn(Outcome) + Send + 'static) -> A
 }
 
 /// What the server can do, asked once per connection.
+#[cfg(not(windows))]
 struct Server {
     connection: Connection,
     plays_sounds: bool,
@@ -231,11 +296,21 @@ struct Server {
     markup: bool,
 }
 
+/// Windows' side: the scene shows what is posted, and Windows plays the
+/// sound. Ids are this side's own, because nothing else hands one out.
+#[cfg(windows)]
+struct Server {
+    plays_sounds: bool,
+    last_id: u32,
+}
+
 struct Notifier {
+    #[cfg(not(windows))]
     identity: Identity,
     report: Box<dyn Fn(Outcome) + Send>,
     ring: Sender<Ring>,
     /// Handed to the listener, which feeds the server's signals back in.
+    #[cfg(not(windows))]
     commands: Sender<Request>,
     registry: Registry,
     coalescer: Coalescer,
@@ -284,6 +359,7 @@ impl Notifier {
                     }
                 }
                 Request::Server(signal) => self.server_said(signal),
+                #[cfg(not(windows))]
                 Request::BusLost => {
                     self.server = None;
                     bus::forget();
@@ -292,9 +368,18 @@ impl Notifier {
         }
     }
 
+    #[cfg(windows)]
+    fn server(&mut self) -> Option<&Server> {
+        Some(self.server.get_or_insert(Server {
+            plays_sounds: true,
+            last_id: 0,
+        }))
+    }
+
     /// The connection, with the listener already subscribed: it has to hear
     /// about a notification before that notification exists, or a quick
     /// click is lost.
+    #[cfg(not(windows))]
     fn server(&mut self) -> Option<&Server> {
         if self.server.is_none() {
             let connection = bus::session()?;
@@ -382,67 +467,36 @@ impl Notifier {
             self.failed(&toast);
             return None;
         }
-        let server = self.server.as_ref()?;
+        let plays_sounds = self.server.as_ref()?.plays_sounds;
 
-        let mut hints: HashMap<&str, Value> = HashMap::new();
-        hints.insert(
-            "desktop-entry",
-            Value::from(self.identity.desktop_entry.as_str()),
-        );
+        // Named in the notification, so the server plays it and honours Do
+        // Not Disturb; or played here, for a server that cannot.
+        let mut named_sound = false;
         match toast.kind {
             Kind::Plain | Kind::Unsent => {}
             Kind::Message | Kind::Nudge => {
-                hints.insert("category", Value::from("im.received"));
                 if toast.sound {
-                    if server.plays_sounds {
-                        hints.insert("sound-name", Value::from(MESSAGE_SOUND));
+                    if plays_sounds {
+                        named_sound = true;
                     } else if !notifications_inhibited() {
                         play_once(MESSAGE_SOUND);
                     }
                 }
             }
             Kind::Call => {
-                // Stays on screen until acted on, like a phone's call screen.
-                hints.insert("urgency", Value::from(2u8));
-                hints.insert("resident", Value::from(true));
-                hints.insert("category", Value::from("call.incoming"));
                 if toast.sound {
                     let _ = self.ring.send(Ring::Start);
                 }
             }
         }
-        let actions: &[&str] = if toast.clickable {
-            &["default", "Open"]
-        } else {
-            &[]
-        };
-        let body = if server.markup {
-            escape_markup(&toast.body)
-        } else {
-            toast.body.clone()
-        };
-
-        let sent = server
-            .connection
-            .call_method(
-                Some(DESTINATION),
-                PATH,
-                Some(INTERFACE),
-                "Notify",
-                &(
-                    self.identity.app_name.as_str(),
-                    replaces,
-                    self.identity.icon.as_str(),
-                    toast.title.as_str(),
-                    body.as_str(),
-                    actions,
-                    hints,
-                    -1i32,
-                ),
-            )
-            .and_then(|reply| reply.body().deserialize::<u32>());
+        let sent = self.send(&toast, replaces, named_sound);
         match sent {
             Ok(id) => {
+                if ONE_AT_A_TIME {
+                    for other in self.registry.others(id) {
+                        self.retract(other);
+                    }
+                }
                 for key in self.registry.record(
                     id,
                     Entry {
@@ -463,13 +517,86 @@ impl Notifier {
         }
     }
 
-    /// Takes one of our notifications off the desktop because a later one
-    /// made it pointless. The scene lets go of the page notification behind
-    /// it, which was neither clicked nor dismissed.
-    fn retract(&mut self, id: u32) {
-        let Some(entry) = self.registry.take(id) else {
-            return;
+    /// Posts over D-Bus, and returns the id the server gave it.
+    #[cfg(not(windows))]
+    fn send(&self, toast: &Toast, replaces: u32, named_sound: bool) -> Result<u32, String> {
+        let server = self.server.as_ref().ok_or("no notification server")?;
+        let mut hints: HashMap<&str, Value> = HashMap::new();
+        hints.insert(
+            "desktop-entry",
+            Value::from(self.identity.desktop_entry.as_str()),
+        );
+        match toast.kind {
+            Kind::Plain | Kind::Unsent => {}
+            Kind::Message | Kind::Nudge => {
+                hints.insert("category", Value::from("im.received"));
+                if named_sound {
+                    hints.insert("sound-name", Value::from(MESSAGE_SOUND));
+                }
+            }
+            Kind::Call => {
+                // Stays on screen until acted on, like a phone's call screen.
+                hints.insert("urgency", Value::from(2u8));
+                hints.insert("resident", Value::from(true));
+                hints.insert("category", Value::from("call.incoming"));
+            }
+        }
+        let actions: &[&str] = if toast.clickable {
+            &["default", "Open"]
+        } else {
+            &[]
         };
+        let body = if server.markup {
+            escape_markup(&toast.body)
+        } else {
+            toast.body.clone()
+        };
+
+        server
+            .connection
+            .call_method(
+                Some(DESTINATION),
+                PATH,
+                Some(INTERFACE),
+                "Notify",
+                &(
+                    self.identity.app_name.as_str(),
+                    replaces,
+                    self.identity.icon.as_str(),
+                    toast.title.as_str(),
+                    body.as_str(),
+                    actions,
+                    hints,
+                    -1i32,
+                ),
+            )
+            .and_then(|reply| reply.body().deserialize::<u32>())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Hands the notification to the scene, which shows it from the tray
+    /// icon. Windows plays its own sound with it, so `named_sound` needs
+    /// nothing more.
+    #[cfg(windows)]
+    fn send(&mut self, toast: &Toast, replaces: u32, _named_sound: bool) -> Result<u32, String> {
+        let server = self.server.as_mut().ok_or("no tray icon")?;
+        let id = if replaces != 0 {
+            replaces
+        } else {
+            server.last_id = server.last_id.wrapping_add(1).max(1);
+            server.last_id
+        };
+        (self.report)(Outcome::Show {
+            id,
+            title: toast.title.clone(),
+            body: toast.body.clone(),
+        });
+        Ok(id)
+    }
+
+    /// Takes a notification off the desktop.
+    #[cfg(not(windows))]
+    fn close(&self, id: u32) {
         if let Some(server) = self.server.as_ref() {
             let _ = server.connection.call_method(
                 Some(DESTINATION),
@@ -479,6 +606,22 @@ impl Notifier {
                 &(id),
             );
         }
+    }
+
+    /// Windows: a notification shown from the tray icon cannot be taken back,
+    /// only replaced by the next one, and the one it is about was already let
+    /// go of.
+    #[cfg(windows)]
+    fn close(&self, _id: u32) {}
+
+    /// Takes one of our notifications off the desktop because a later one
+    /// made it pointless. The scene lets go of the page notification behind
+    /// it, which was neither clicked nor dismissed.
+    fn retract(&mut self, id: u32) {
+        let Some(entry) = self.registry.take(id) else {
+            return;
+        };
+        self.close(id);
         self.forget(entry.key);
     }
 
@@ -508,15 +651,7 @@ impl Notifier {
         if entry.kind == Kind::Call {
             let _ = self.ring.send(Ring::Stop);
         }
-        if let Some(server) = self.server.as_ref() {
-            let _ = server.connection.call_method(
-                Some(DESTINATION),
-                PATH,
-                Some(INTERFACE),
-                "CloseNotification",
-                &(id),
-            );
-        }
+        self.close(id);
     }
 
     fn server_said(&mut self, signal: Signal) {
@@ -534,6 +669,7 @@ impl Notifier {
                     (self.report)(Outcome::Clicked(entry.key));
                 }
             }
+            #[cfg(not(windows))]
             Signal::Closed { id } => {
                 let Some(entry) = self.registry.take(id) else {
                     return;
@@ -550,6 +686,7 @@ impl Notifier {
 }
 
 /// Feeds the server's signals to the notification thread until the bus goes.
+#[cfg(not(windows))]
 fn listen(signals: MessageIterator, commands: Sender<Request>) {
     for message in signals {
         let Ok(message) = message else {
@@ -612,6 +749,15 @@ impl Registry {
 
     fn get(&self, id: u32) -> Option<&Entry> {
         self.by_id.get(&id)
+    }
+
+    /// Every id but `id`.
+    fn others(&self, id: u32) -> Vec<u32> {
+        self.by_id
+            .keys()
+            .copied()
+            .filter(|other| *other != id)
+            .collect()
     }
 
     /// The ids of the message notifications on the desktop: a page's
@@ -740,6 +886,7 @@ impl Coalescer {
 /// The body as markup that says exactly what the text said. The spec allows a
 /// handful of tags and entities; a server that reads them would take `<3`
 /// for the start of a tag.
+#[cfg(not(windows))]
 fn escape_markup(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -761,6 +908,7 @@ fn ring_loop(commands: Receiver<Ring>) {
     }
 }
 
+#[cfg(not(windows))]
 fn ring_until_stopped(commands: &Receiver<Ring>) {
     let deadline = Instant::now() + RING_LIMIT;
     while Instant::now() < deadline {
@@ -792,7 +940,35 @@ fn ring_until_stopped(commands: &Receiver<Ring>) {
     }
 }
 
+/// Rings with the sound scheme's looping call sound until stopped or out of
+/// time. Windows loops it by itself.
+#[cfg(windows)]
+fn ring_until_stopped(commands: &Receiver<Ring>) {
+    if notifications_inhibited() {
+        return;
+    }
+    crate::windows::play_sound(CALL_SOUND, true);
+    let deadline = Instant::now() + RING_LIMIT;
+    // A second Start while ringing changes nothing; Stop, the deadline or
+    // the end of the program ends it.
+    while let Ok(Ring::Start) =
+        commands.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+    {}
+    crate::windows::stop_sound();
+}
+
+#[cfg(windows)]
+fn play_once(sound: &str) {
+    crate::windows::play_sound(sound, false);
+}
+
+#[cfg(windows)]
+fn notifications_inhibited() -> bool {
+    crate::windows::notifications_inhibited()
+}
+
 /// Plays a sound and forgets about it, on a thread that reaps the player.
+#[cfg(not(windows))]
 fn play_once(sound: &str) {
     if let Some(mut player) = play(sound) {
         std::thread::spawn(move || {
@@ -801,8 +977,13 @@ fn play_once(sound: &str) {
     }
 }
 
+#[cfg(not(windows))]
 fn play(sound: &str) -> Option<Child> {
-    let (program, args) = player_command(sound, |program| which(program).is_some(), sound_file)?;
+    let (program, args) = player_command(
+        sound,
+        |program| crate::http::which(program).is_some(),
+        sound_file,
+    )?;
     Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -817,6 +998,7 @@ fn play(sound: &str) -> Option<Child> {
 /// `canberra-gtk-play` first, because it resolves the name through the user's
 /// sound theme. Otherwise the freedesktop theme's file, through PipeWire or
 /// PulseAudio.
+#[cfg(not(windows))]
 fn player_command(
     sound: &str,
     installed: impl Fn(&str) -> bool,
@@ -836,6 +1018,7 @@ fn player_command(
 }
 
 /// `sounds/freedesktop/stereo/<name>.oga` in the XDG data directories.
+#[cfg(not(windows))]
 fn sound_file(sound: &str) -> Option<PathBuf> {
     let dirs = std::env::var("XDG_DATA_DIRS")
         .ok()
@@ -848,6 +1031,7 @@ fn sound_file(sound: &str) -> Option<PathBuf> {
 
 /// Whether the desktop is in Do Not Disturb, through the notification
 /// server's `Inhibited` property. A server that does not have one is not.
+#[cfg(not(windows))]
 fn notifications_inhibited() -> bool {
     let Some(connection) = bus::session() else {
         return false;
@@ -869,13 +1053,6 @@ fn notifications_inhibited() -> bool {
         })
         .and_then(|value| bool::try_from(value).ok())
         .unwrap_or(false)
-}
-
-fn which(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
 }
 
 /// Phrases an incoming call's notification uses, lower-cased, in the
@@ -969,6 +1146,7 @@ mod tests {
         assert_eq!(classify("someone", "is calling you", false), Kind::Message);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn the_sound_theme_is_preferred_then_the_file() {
         let file = |_: &str| Some(PathBuf::from("/s/phone-incoming-call.oga"));
@@ -1128,6 +1306,7 @@ mod tests {
         assert_eq!(c.release(due).map(|t| t.key), Some(6));
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_heart_survives_a_server_that_reads_markup() {
         assert_eq!(escape_markup("<3 & more >"), "&lt;3 &amp; more &gt;");

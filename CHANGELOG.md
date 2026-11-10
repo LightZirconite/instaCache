@@ -4,6 +4,32 @@ All notable changes to instaCache are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] - 2026-11-10
+
+### Added
+- **instaCache runs on Windows** 10 (1803 or later) and 11, 64-bit. One
+  PowerShell command installs it for your user, without administrator
+  rights: `irm https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.ps1 | iex`.
+  Or unpack the `.zip` from the release and double-click `install.cmd`. It
+  lands in the Start menu and in Settings › Apps, and everything that makes
+  it a messenger on Linux works there too:
+  - notifications from the tray icon, the latest one at a time, opening the
+    conversation when clicked, with Windows' own sound and Focus assist;
+  - calls ringing with the sound scheme's call sound, which stops when the
+    call is answered or the window opened;
+  - the unread count as a red badge on the task bar button;
+  - start at login, in the background, which Task Manager's Startup tab can
+    switch off and instaCache believes;
+  - one window per profile, a second launch going to the first;
+  - `instacache:` links from the browser;
+  - updates that install by themselves and take over at the next restart,
+    even with the old files still in use;
+  - sites added with `--add-site` as Start menu shortcuts with their own
+    icon and their own task bar button, XCache included.
+
+  The Windows download carries its own Qt and Qt WebEngine, about 100 MB,
+  because Windows has no system Qt to share.
+
 ## [2.13.0] - 2026-11-08
 
 ### Added

@@ -3,7 +3,10 @@
 //! A named profile already gives a site its own session, cache and window;
 //! what it did not give it was a way in. This writes the two files that make
 //! one appear in the desktop's application menu: the profile's `config.json`,
-//! and a `.desktop` entry that launches instaCache against it.
+//! and a `.desktop` entry that launches instaCache against it — on Windows, a
+//! shortcut in the Start menu, whose path the profile keeps in
+//! `start-menu-entry` because a shortcut is named after the site, not after
+//! the profile.
 //!
 //! Nothing here is Instagram-specific. The result is the same binary, the same
 //! engine and the same window, pointed somewhere else — which is why it is
@@ -16,11 +19,14 @@ use qttypes::QString;
 
 use crate::config::Config;
 use crate::paths::{sanitize_profile, Paths};
-use crate::{ICON_NAME, PROGRAM_NAME};
+#[cfg(not(windows))]
+use crate::ICON_NAME;
+use crate::PROGRAM_NAME;
 
 /// Where a site's menu entry goes. User-level on purpose: a site somebody
 /// added is their data, not part of the installation, and it must survive an
 /// upgrade that rewrites the shared files.
+#[cfg(not(windows))]
 pub fn applications_dir() -> PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -36,6 +42,7 @@ pub fn applications_dir() -> PathBuf {
 /// application goes through the icon theme, and an absolute path is not
 /// reliably honoured there. A wrong icon in the task bar with the right one in
 /// the menu is what that looks like.
+#[cfg(not(windows))]
 pub fn icon_theme_dir() -> PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -72,6 +79,7 @@ pub fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 /// Installs a site's icon into the icon theme and returns the name to put in
 /// `Icon=`. Falls back to the absolute path when the image is one the theme
 /// cannot file away — an `.ico` has no single size to sort it under.
+#[cfg(not(windows))]
 fn install_theme_icon(profile: &str, bytes: &[u8], ext: &str, fallback: &Path) -> String {
     let name = icon_name(profile);
     let dir = match ext {
@@ -94,6 +102,7 @@ fn install_theme_icon(profile: &str, bytes: &[u8], ext: &str, fallback: &Path) -
 
 /// Removes every copy of a site's icon from the theme, whatever size it went
 /// in under.
+#[cfg(not(windows))]
 fn remove_theme_icon(profile: &str) {
     let name = icon_name(profile);
     let Ok(sizes) = std::fs::read_dir(icon_theme_dir()) else {
@@ -106,12 +115,14 @@ fn remove_theme_icon(profile: &str) {
     }
 }
 
+#[cfg(not(windows))]
 pub fn desktop_file(profile: &str) -> PathBuf {
     applications_dir().join(format!("{PROGRAM_NAME}-{profile}.desktop"))
 }
 
 cpp! {{
     #include <QtGui/QGuiApplication>
+    #include <QtGui/QIcon>
     #include <QtCore/QString>
 }}
 
@@ -132,6 +143,30 @@ pub fn announce_desktop_file(name: &str) {
     cpp!(unsafe [name as "QString"] {
         QGuiApplication::setDesktopFileName(name);
     });
+}
+
+/// Gives every window of this process `icon`. Needs the application object,
+/// so it runs after the engine is made and before the scene is loaded.
+#[cfg(windows)]
+pub fn set_window_icon(icon: &Path) {
+    let path = QString::from(icon.to_string_lossy().as_ref());
+    cpp!(unsafe [path as "QString"] {
+        QGuiApplication::setWindowIcon(QIcon(path));
+    });
+}
+
+/// The icon a site's window should wear on Windows: the one the site keeps,
+/// in a format Qt reads without an extra plugin. `None` for instaCache
+/// itself, whose icon is inside the executable.
+#[cfg(windows)]
+pub fn window_icon(paths: &Paths) -> Option<PathBuf> {
+    if paths.is_default_profile() {
+        return None;
+    }
+    saved_icon(paths).filter(|icon| {
+        icon.extension()
+            .is_some_and(|ext| ["png", "ico", "jpg"].iter().any(|known| ext == *known))
+    })
 }
 
 /// What the window reports as its Wayland `app_id` and X11 `WM_CLASS`.
@@ -165,6 +200,7 @@ pub fn default_domain(url: &str) -> Option<String> {
 /// `icon` is either an absolute path to the site's own icon or a plain theme
 /// name; the desktop entry specification allows both, which is what lets a
 /// site keep its icon without installing anything into the icon theme.
+#[cfg(not(windows))]
 pub fn desktop_entry(name: &str, profile: &str, exec: &str, icon: &str) -> String {
     // Anything from the user is quoted out of the Exec line by construction:
     // the profile name is already restricted to `[a-z0-9_-]`, and the display
@@ -438,18 +474,7 @@ pub fn add(
         Some(path) => Some(install_icon_file(&paths, Path::new(path))?),
         None => fetch_site_icon(&paths, url),
     };
-    let icon_entry = theme_icon_entry(&profile, icon_path.as_deref());
-
-    let entry = desktop_file(&profile);
-    if let Some(parent) = entry.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-    std::fs::write(
-        &entry,
-        desktop_entry(name.trim(), &profile, &exec_command(), &icon_entry),
-    )
-    .map_err(|err| err.to_string())?;
-    refresh_desktop_database(&applications_dir());
+    let entry = write_entry(name.trim(), &paths, icon_path.as_deref())?;
 
     Ok(Added {
         profile,
@@ -479,8 +504,27 @@ fn saved_icon(paths: &Paths) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// Writes the desktop entry for a site and tells the desktop about it.
+#[cfg(not(windows))]
+fn write_entry(name: &str, paths: &Paths, icon: Option<&Path>) -> Result<PathBuf, String> {
+    let profile = &paths.profile;
+    let icon_entry = theme_icon_entry(profile, icon);
+    let entry = desktop_file(profile);
+    if let Some(parent) = entry.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    std::fs::write(
+        &entry,
+        desktop_entry(name, profile, &exec_command(), &icon_entry),
+    )
+    .map_err(|err| err.to_string())?;
+    refresh_desktop_database(&applications_dir());
+    Ok(entry)
+}
+
 /// What `Icon=` says for a site: its own icon installed into the theme under
 /// the site's name, or instaCache's when it has none.
+#[cfg(not(windows))]
 fn theme_icon_entry(profile: &str, icon: Option<&Path>) -> String {
     match icon {
         Some(path) => {
@@ -497,6 +541,7 @@ fn theme_icon_entry(profile: &str, icon: Option<&Path>) -> String {
 
 /// The `Name=` of a menu entry, so rewriting it keeps what the user called
 /// the site.
+#[cfg(not(windows))]
 fn entry_name(entry: &str) -> Option<&str> {
     entry
         .lines()
@@ -514,6 +559,7 @@ fn entry_name(entry: &str) -> Option<&str> {
 /// version's entry for good, through every fix to how an entry and its icon
 /// are made. A site whose window sat in the task bar under instaCache's icon
 /// stayed that way. `install.sh` runs this at every install and update.
+#[cfg(not(windows))]
 pub fn refresh_existing() -> Vec<String> {
     let mut changed = Vec::new();
     for profile in list() {
@@ -555,6 +601,7 @@ fn install_icon_file(paths: &Paths, source: &Path) -> Result<PathBuf, String> {
 /// Removes the menu entry. The profile's session and cache are deliberately
 /// left alone — deleting an account's data is not what "remove from the menu"
 /// means, and `--clear-session` already exists for that.
+#[cfg(not(windows))]
 pub fn remove(name: &str) -> Result<PathBuf, String> {
     let profile = sanitize_profile(name);
     let entry = desktop_file(&profile);
@@ -574,6 +621,7 @@ pub fn remove(name: &str) -> Result<PathBuf, String> {
 }
 
 /// Every site currently in the menu.
+#[cfg(not(windows))]
 pub fn list() -> Vec<String> {
     let prefix = format!("{PROGRAM_NAME}-");
     let Ok(entries) = std::fs::read_dir(applications_dir()) else {
@@ -601,6 +649,7 @@ pub fn list() -> Vec<String> {
 /// consult. Both are best-effort — a stale cache
 /// only means the entry turns up at the next login rather than at once, which
 /// is not worth failing an install over.
+#[cfg(not(windows))]
 fn refresh_desktop_database(dir: &Path) {
     let quiet = |mut command: std::process::Command| {
         let _ = command
@@ -625,6 +674,224 @@ fn refresh_desktop_database(dir: &Path) {
             break;
         }
     }
+}
+
+// --------------------------------------------------------------- Windows ---
+
+/// The user's own Start menu, where a site's shortcut goes.
+#[cfg(windows)]
+fn start_menu_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+}
+
+/// The file in a profile that names its shortcut.
+#[cfg(windows)]
+fn entry_record(paths: &Paths) -> PathBuf {
+    paths.config.join("start-menu-entry")
+}
+
+#[cfg(windows)]
+fn recorded_entry(paths: &Paths) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(entry_record(paths)).ok()?;
+    let path = text.trim();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+/// A site's name as a file name. The Start menu shows a shortcut under its
+/// file name, so the name is kept as typed, minus what Windows forbids.
+#[cfg(any(windows, test))]
+fn shortcut_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches('.').trim().to_string();
+    if cleaned.is_empty() {
+        "Site".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// A one-image `.ico` around a PNG, which every Windows since Vista reads.
+/// A shortcut's icon has to be an `.ico`, and a site's icon is most often a
+/// PNG; wrapping it is twenty-two bytes, where converting it would be an
+/// image library.
+#[cfg(any(windows, test))]
+fn ico_from_png(png: &[u8]) -> Option<Vec<u8>> {
+    let (width, height) = png_dimensions(png)?;
+    let size = u32::try_from(png.len()).ok()?;
+    // 0 means 256, and is what a larger image says too.
+    let side = |pixels: u32| u8::try_from(pixels).unwrap_or(0);
+    let mut ico = Vec::with_capacity(22 + png.len());
+    ico.extend_from_slice(&[0, 0, 1, 0, 1, 0]);
+    ico.extend_from_slice(&[side(width), side(height), 0, 0]);
+    ico.extend_from_slice(&1u16.to_le_bytes());
+    ico.extend_from_slice(&32u16.to_le_bytes());
+    ico.extend_from_slice(&size.to_le_bytes());
+    ico.extend_from_slice(&22u32.to_le_bytes());
+    ico.extend_from_slice(png);
+    Some(ico)
+}
+
+/// The `.ico` a site's shortcut shows, made from the icon it keeps. `None`
+/// leaves the shortcut with instaCache's own.
+#[cfg(windows)]
+fn shortcut_icon(paths: &Paths, icon: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(icon).ok()?;
+    match icon_extension(&bytes)? {
+        "ico" => Some(icon.to_path_buf()),
+        "png" => {
+            let target = paths.config.join("shortcut.ico");
+            std::fs::write(&target, ico_from_png(&bytes)?).ok()?;
+            Some(target)
+        }
+        _ => None,
+    }
+}
+
+/// Writes a shortcut through the Windows Script Host, which every Windows
+/// has; the alternative is the shell's COM interfaces from Rust. The values
+/// travel in the environment, never in the script's text, so a site's name
+/// cannot become PowerShell.
+#[cfg(windows)]
+fn create_shortcut(
+    link: &Path,
+    arguments: &str,
+    icon: &str,
+    description: &str,
+) -> Result<(), String> {
+    const SCRIPT: &str =
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:INSTACACHE_LINK); \
+$s.TargetPath = $env:INSTACACHE_TARGET; \
+$s.Arguments = $env:INSTACACHE_ARGUMENTS; \
+$s.IconLocation = $env:INSTACACHE_ICON; \
+$s.Description = $env:INSTACACHE_DESCRIPTION; \
+$s.WorkingDirectory = Split-Path -Parent $env:INSTACACHE_TARGET; \
+$s.Save()";
+    let mut command = std::process::Command::new("powershell.exe");
+    command
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            SCRIPT,
+        ])
+        .env("INSTACACHE_LINK", link)
+        .env("INSTACACHE_TARGET", exec_command())
+        .env("INSTACACHE_ARGUMENTS", arguments)
+        .env("INSTACACHE_ICON", icon)
+        .env("INSTACACHE_DESCRIPTION", description)
+        .stdout(std::process::Stdio::null());
+    crate::windows::no_console(&mut command);
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!(
+            "could not write {}: PowerShell exited with {status}",
+            link.display()
+        )),
+        Err(error) => Err(format!("could not run PowerShell: {error}")),
+    }
+}
+
+/// Writes the Start menu shortcut for a site, replacing the one it had under
+/// another name.
+#[cfg(windows)]
+fn write_entry(name: &str, paths: &Paths, icon: Option<&Path>) -> Result<PathBuf, String> {
+    let dir = start_menu_dir();
+    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    let link = dir.join(format!("{}.lnk", shortcut_name(name)));
+    if let Some(old) = recorded_entry(paths).filter(|old| *old != link) {
+        let _ = std::fs::remove_file(old);
+    }
+    let icon = icon
+        .and_then(|icon| shortcut_icon(paths, icon))
+        .map(|icon| icon.to_string_lossy().into_owned())
+        .unwrap_or_else(|| format!("{},0", exec_command()));
+    create_shortcut(
+        &link,
+        &format!("--profile {}", paths.profile),
+        &icon,
+        "Opened in its own instaCache window, with its own session",
+    )?;
+    std::fs::write(entry_record(paths), link.to_string_lossy().as_bytes())
+        .map_err(|err| err.to_string())?;
+    Ok(link)
+}
+
+/// Rewrites every site's shortcut, so one written by an older version, or
+/// pointing at an executable that moved, is brought up to date. `install.ps1`
+/// runs this at every install and update.
+#[cfg(windows)]
+pub fn refresh_existing() -> Vec<String> {
+    let mut changed = Vec::new();
+    for profile in list() {
+        let paths = Paths::for_profile(&profile);
+        let Some(link) = recorded_entry(&paths) else {
+            continue;
+        };
+        let name = link
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| profile.clone());
+        let icon = saved_icon(&paths).or_else(|| {
+            let home = Config::load_or_create(&paths).home_url;
+            fetch_site_icon(&paths, &home)
+        });
+        match write_entry(&name, &paths, icon.as_deref()) {
+            Ok(_) => changed.push(profile),
+            Err(error) => eprintln!("instacache: {error}"),
+        }
+    }
+    changed
+}
+
+/// Removes the shortcut. The profile's session and cache are left alone,
+/// for the same reason as on Linux.
+#[cfg(windows)]
+pub fn remove(name: &str) -> Result<PathBuf, String> {
+    let profile = sanitize_profile(name);
+    let paths = Paths::for_profile(&profile);
+    let Some(link) = recorded_entry(&paths) else {
+        return Err(format!("no site named `{profile}` is in the menu"));
+    };
+    match std::fs::remove_file(&link) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err.to_string()),
+    }
+    let _ = std::fs::remove_file(entry_record(&paths));
+    let _ = std::fs::remove_file(paths.config.join("shortcut.ico"));
+    Ok(link)
+}
+
+/// Every site with a shortcut in the Start menu.
+#[cfg(windows)]
+pub fn list() -> Vec<String> {
+    let root = Paths::for_profile(crate::paths::DEFAULT_PROFILE)
+        .config
+        .join("profiles");
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|profile| {
+            recorded_entry(&Paths::for_profile(profile)).is_some_and(|link| link.is_file())
+        })
+        .collect();
+    names.sort();
+    names
 }
 
 #[cfg(test)]
@@ -655,6 +922,33 @@ mod tests {
         assert_eq!(default_domain("not a url"), None);
     }
 
+    #[test]
+    fn a_shortcut_is_named_as_the_site_was() {
+        assert_eq!(shortcut_name("XCache"), "XCache");
+        assert_eq!(shortcut_name("My: X?"), "My X");
+        assert_eq!(shortcut_name("..\\..\\evil"), "....evil");
+        assert_eq!(shortcut_name("  ...  "), "Site");
+    }
+
+    #[test]
+    fn a_png_becomes_an_icon_windows_reads() {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&[0, 0, 0, 13]);
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&48u32.to_be_bytes());
+        png.extend_from_slice(&512u32.to_be_bytes());
+        let ico = ico_from_png(&png).unwrap();
+        assert_eq!(&ico[..6], &[0, 0, 1, 0, 1, 0], "one icon");
+        assert_eq!(ico[6], 48);
+        assert_eq!(ico[7], 0, "larger than 255 is written as 0");
+        assert_eq!(&ico[14..18], &(png.len() as u32).to_le_bytes());
+        assert_eq!(&ico[18..22], &22u32.to_le_bytes());
+        assert_eq!(&ico[22..], &png[..]);
+        assert_eq!(icon_extension(&ico), Some("ico"));
+        assert!(ico_from_png(b"not a png").is_none());
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn the_entry_launches_the_right_profile_and_names_its_class() {
         let entry = desktop_entry("X", "x", "/usr/bin/instacache", "instacache");
@@ -740,8 +1034,18 @@ mod tests {
 
     #[test]
     fn an_entry_prefers_the_installed_binary_over_a_build_tree() {
-        let installed = PathBuf::from("/home/someone/.local/bin/instacache");
-        let built = PathBuf::from("/src/instaCache/target/debug/instacache");
+        // Absolute on the system the test runs on, which is what is checked.
+        let (installed, built) = if cfg!(windows) {
+            (
+                PathBuf::from(r"C:\Users\someone\AppData\Local\Programs\instaCache\instacache.exe"),
+                PathBuf::from(r"C:\src\instaCache\target\debug\instacache.exe"),
+            )
+        } else {
+            (
+                PathBuf::from("/home/someone/.local/bin/instacache"),
+                PathBuf::from("/src/instaCache/target/debug/instacache"),
+            )
+        };
 
         // The case this exists for: writing the entry from a build tree.
         assert_eq!(
@@ -777,6 +1081,7 @@ mod tests {
         assert_eq!(png_dimensions(&[0u8; 4]), None);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn rewriting_an_entry_keeps_the_name_it_was_given() {
         let entry = desktop_entry("My X", "xcache", "/usr/bin/instacache", "instacache-xcache");

@@ -3,17 +3,28 @@
 //! Everything of substance lives in the library crate; this file only parses
 //! arguments and starts the Qt application.
 
+// A windowed program on Windows, so starting it from the Start menu does not
+// open a console beside the window. `windows::attach_console` gives a
+// terminal launch its output back.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+#[cfg(unix)]
 use std::io::Read;
+#[cfg(unix)]
 use std::os::fd::IntoRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 use std::rc::Rc;
+#[cfg(unix)]
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use qmetaobject::qtcore::core_application::QCoreApplication;
 use qmetaobject::{QObjectPinned, QmlEngine};
 
-use instacache::bridge::{Shell, SHUTDOWN};
+use instacache::bridge::Shell;
+#[cfg(unix)]
+use instacache::bridge::SHUTDOWN;
 use instacache::{autostart, chromium, config, instance, paths, sites, updates, urls};
 use instacache::{APP_NAME, LICENSE_NOTICE, VERSION};
 
@@ -23,6 +34,9 @@ use instacache::{APP_NAME, LICENSE_NOTICE, VERSION};
 const SCENE: &str = include_str!("qml/main.qml");
 
 fn main() -> ExitCode {
+    #[cfg(windows)]
+    instacache::windows::attach_console();
+
     let options = match Options::parse(std::env::args().skip(1)) {
         Ok(options) => options,
         Err(message) => {
@@ -158,8 +172,11 @@ instacache --profile {}",
     autostart::apply_default_once(&paths.config, &paths.profile, config.start_with_session);
 
     let profile = paths.profile.clone();
+    #[cfg(windows)]
+    let window_icon = sites::window_icon(&paths);
     let paths = Rc::new(paths);
 
+    #[cfg(unix)]
     let signalled = install_termination_handlers();
 
     // Both of these must run before any QGuiApplication exists, which is why
@@ -183,8 +200,22 @@ instacache --profile {}",
     // The one that actually reaches the compositor. See the function's own
     // comment for why the line above is not enough on its own.
     sites::announce_desktop_file(&class);
+    // Windows groups task bar buttons by an id of its own, not by any name Qt
+    // sets: a site gets one, so its window has its own button and icon.
+    // instaCache itself keeps the default, which is what ties its window to
+    // the Start menu shortcut it was pinned from.
+    #[cfg(windows)]
+    if profile != paths::DEFAULT_PROFILE {
+        instacache::windows::set_app_id(&format!("LightZirconite.instaCache.{class}"));
+    }
 
     let mut engine = QmlEngine::new();
+    // A site's window wears the site's icon. On Linux the desktop entry says
+    // which; on Windows nothing does but the window itself.
+    #[cfg(windows)]
+    if let Some(icon) = window_icon.as_deref() {
+        sites::set_window_icon(icon);
+    }
 
     let shell = std::cell::RefCell::new(Shell::new(
         config,
@@ -198,6 +229,7 @@ instacache --profile {}",
     // Exposing the object is what created its C++ side, which the wake-up
     // needs to reach it.
     shell.borrow().attach_wake();
+    #[cfg(unix)]
     if let Some(signalled) = signalled {
         watch_termination(signalled, shell.borrow().waker());
     }
@@ -238,15 +270,23 @@ fn start_updated(executable: Option<&std::path::Path>, arguments: &[String]) {
 /// libc constants and the one libc call this needs, declared here rather than
 /// pulled in as a dependency. Both signal numbers are the same on every Linux
 /// architecture instaCache targets.
+///
+/// None of this exists on Windows, where nothing sends a windowed program a
+/// termination signal: the session ending closes its windows, which is the
+/// ordinary close path already.
+#[cfg(unix)]
 const SIGINT: i32 = 2;
+#[cfg(unix)]
 const SIGTERM: i32 = 15;
 
+#[cfg(unix)]
 extern "C" {
     fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
     fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
 }
 
 /// Where the handler writes its one byte. `-1` until the pair exists.
+#[cfg(unix)]
 static SIGNAL_FD: AtomicI32 = AtomicI32::new(-1);
 
 /// Sets a flag and writes a byte, both of which a signal handler may do: it
@@ -254,6 +294,7 @@ static SIGNAL_FD: AtomicI32 = AtomicI32::new(-1);
 /// inside one would be writing a file from an interrupted allocation. The
 /// byte wakes `watch_termination`, which wakes the scene, which shuts down
 /// through the ordinary path.
+#[cfg(unix)]
 extern "C" fn on_terminate(_signum: i32) {
     SHUTDOWN.store(true, Ordering::SeqCst);
     let fd = SIGNAL_FD.load(Ordering::SeqCst);
@@ -272,6 +313,7 @@ extern "C" fn on_terminate(_signum: i32) {
 ///
 /// Returns the end the handler's byte arrives on. Without one — no socket pair
 /// could be made — the flag is still set and the scene's slow timer finds it.
+#[cfg(unix)]
 fn install_termination_handlers() -> Option<UnixStream> {
     let pair = UnixStream::pair()
         .and_then(|(reader, writer)| writer.set_nonblocking(true).map(|()| (reader, writer)));
@@ -294,6 +336,7 @@ fn install_termination_handlers() -> Option<UnixStream> {
 }
 
 /// Wakes the scene for every byte the signal handler writes.
+#[cfg(unix)]
 fn watch_termination(mut signalled: UnixStream, waker: instacache::wake::Wake) {
     std::thread::spawn(move || {
         let mut byte = [0u8; 1];
@@ -458,10 +501,28 @@ fn clear(paths: &paths::Paths, what: Clearable) -> ExitCode {
     }
 }
 
+#[cfg(not(windows))]
+const FILES: &str = "\
+    ~/.config/instacache/config.json   Settings (created on first run).
+    ~/.config/instacache/user.css      Optional user stylesheet.
+    ~/.config/instacache/user.js       Optional user script, run after each load.
+    ~/.local/share/instacache/         Session: cookies, local storage.
+    ~/.cache/instacache/               Resource cache (safe to delete).
+";
+
+#[cfg(windows)]
+const FILES: &str = "\
+    %APPDATA%\\instacache\\config.json        Settings (created on first run).
+    %APPDATA%\\instacache\\user.css           Optional user stylesheet.
+    %APPDATA%\\instacache\\user.js            Optional user script, run after each load.
+    %LOCALAPPDATA%\\instacache\\data\\        Session: cookies, local storage.
+    %LOCALAPPDATA%\\instacache\\cache\\       Resource cache (safe to delete).
+";
+
 fn usage() -> String {
     format!(
         "\
-{APP_NAME} {VERSION} — a native, ultra-light Instagram client for Linux.
+{APP_NAME} {VERSION} — a native, ultra-light Instagram client for Linux and Windows.
 
 USAGE:
     instacache [OPTIONS] [URL]
@@ -495,12 +556,7 @@ OPTIONS:
     -V, --version          Show the version.
 
 FILES:
-    ~/.config/instacache/config.json   Settings (created on first run).
-    ~/.config/instacache/user.css      Optional user stylesheet.
-    ~/.config/instacache/user.js       Optional user script, run after each load.
-    ~/.local/share/instacache/         Session: cookies, local storage.
-    ~/.cache/instacache/               Resource cache (safe to delete).
-
+{FILES}
 SHORTCUTS:
     Ctrl+R / F5            Reload            Alt+Left / Alt+Right   Back / Forward
     Ctrl+Shift+R           Reload, no cache  Ctrl+H                 Home

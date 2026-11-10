@@ -4,12 +4,13 @@
 
 # instaCache
 
-**Instagram as a real Linux app.**<br>
-Messages and calls ring, it starts with your session, and it weighs 2 MB.
+**Instagram as a real desktop app, on Linux and Windows.**<br>
+Messages and calls ring, it starts with your session, and on Linux it weighs 2 MB.
 
 [![Release](https://img.shields.io/github/v/release/LightZirconite/instaCache?style=flat-square&color=e4405f)](https://github.com/LightZirconite/instaCache/releases)
 [![Licence](https://img.shields.io/badge/licence-AGPL--3.0-brightgreen?style=flat-square)](LICENSE)
 ![Linux](https://img.shields.io/badge/Linux-Qt%206-41cd52?style=flat-square)
+![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?style=flat-square)
 
 <br>
 
@@ -20,6 +21,8 @@ Messages and calls ring, it starts with your session, and it weighs 2 MB.
 
 ## Install
 
+**Linux:**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.sh | sh
 ```
@@ -27,6 +30,21 @@ curl -fsSL https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.
 No root, nothing bundled. It installs into `~/.local`, adds itself to your
 application menu and offers to install the Qt packages it needs. To remove it:
 `~/.local/share/instacache/uninstall.sh`.
+
+**Windows** 10 (1803 or later) or 11, 64-bit, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/LightZirconite/instaCache/main/get.ps1 | iex
+```
+
+No administrator rights. It downloads the release, checks it against its
+checksum, installs it into `%LOCALAPPDATA%\Programs\instaCache` and adds it to
+the Start menu. Or download the `.zip` from the
+[releases](https://github.com/LightZirconite/instaCache/releases), unpack it
+and double-click `install.cmd`. To remove it: Settings › Apps, like any other
+application. Windows has no system Qt to share, so the Windows download
+carries its own (about 100 MB); the first start may show a SmartScreen
+warning, because the build is not signed — *More info › Run anyway*.
 
 > **AUR:** an `instacache-bin` package is on its way but **not published
 > yet**. Until it is, use the command above on Arch too.
@@ -44,7 +62,7 @@ application menu and offers to install the Qt packages it needs. To remove it:
 - **Instant.** Your session and cache stay on disk, and the window comes back
   where, how big and on the page you left it.
 - **2 MB, no Electron.** One Qt window over the Qt WebEngine your distribution
-  already ships. Video is smooth: Reels play without the stutter of a
+  already ships (on Windows, over the Qt WebEngine in its own folder). Video is smooth: Reels play without the stutter of a
   WebKit-based client ([measured](bench/README.md)).
 - **One app, not a browser.** Links and popups open over Instagram with a back
   button; anything that is not Meta's goes to your real browser.
@@ -52,7 +70,8 @@ application menu and offers to install the Qt packages it needs. To remove it:
   you open the window it says so and restarts into it.
 - **Several accounts, other sites.** `instacache --profile work` is a separate
   session and window. `instacache --add-site x https://x.com/` does the same
-  for any site, with its own menu entry and icon.
+  for any site, with its own menu entry — a Start menu shortcut on Windows —
+  and icon.
 
 ## Shortcuts
 
@@ -87,7 +106,8 @@ The `?` in the bottom corner, `F1` and the tray menu all open the same card.
 ## Opening Instagram from your browser
 
 instaCache answers to `instacache:` links: `instacache:https://www.instagram.com/reels/`
-opens that page in the app, from any link, a terminal (`xdg-open`) or a bookmark.
+opens that page in the app, from any link, a terminal (`xdg-open`, or `start` on
+Windows) or a bookmark.
 
 An *Open in instaCache* button on instagram.com itself, for the times you
 forgot the app was there, needs a userscript manager in your browser:
@@ -106,8 +126,8 @@ sounds, ringing, keep running when closed, and the mods: videos with sound,
 Instagram's colours instead of black, colours that follow the post, animations,
 shortcuts, and hiding "Also from Meta".
 
-Everything else lives in `~/.config/instacache/config.json`, written with its
-defaults on first run. A `user.css` or `user.js` beside it is applied to every
+Everything else lives in `~/.config/instacache/config.json` — on Windows
+`%APPDATA%\instacache\config.json` — written with its defaults on first run. A `user.css` or `user.js` beside it is applied to every
 page.
 
 <details>
@@ -120,7 +140,7 @@ page.
 | `home_url` | `https://www.instagram.com/` | Page opened at startup and by `Ctrl+H`. |
 | `user_agent` | `auto` | What Instagram is told. `auto` is Chrome on Linux at the engine's real version; empty keeps Qt WebEngine's own; anything else is sent as written. |
 | `hardware_acceleration` | `always` | `never` turns GPU compositing off — only if the window renders wrong. |
-| `video_decoding` | `gpu` | `gpu` (VA-API), `software` or `auto`. Change it only if playback misbehaves. |
+| `video_decoding` | `gpu` | `gpu` (VA-API on Linux; Windows decodes on the GPU by itself), `software` or `auto`. Change it only if playback misbehaves. |
 | `allow_autoplay_with_sound` | `true` | Let videos start with sound. |
 | `videos_with_sound` | `true`¹ | Unmute Instagram's videos as they start, instead of waiting for its speaker button. Muting one by hand stops it until the next load. |
 | `video_volume` | `75` | The volume, from 0 to 100, that `videos_with_sound` starts a video at until you set one with `+` and `-`, which is remembered. |
@@ -140,9 +160,9 @@ page.
 | `freeze_in_background` | `true` | Freeze the page ten seconds after the window closes. Messages then arrive through Web Push and the unread badge waits. |
 | `discard_in_background_after_minutes` | `30` | Free the page's memory after this long closed; it reloads when you open the window. `0` never does. |
 | `http_cache_size_mb` | `1024` | Disk space for the resource cache, so Instagram's scripts survive an evening of video. `0` leaves it to Chromium, which chose about 300 MB. |
-| `start_with_session` | `true`¹ | Start at login, in the background. Your desktop's startup settings win after the first run. |
+| `start_with_session` | `true`¹ | Start at login, in the background. Your desktop's startup settings — Task Manager's Startup tab on Windows — win after the first run. |
 | `unread_badge` | `true` | Unread count on the task bar icon. |
-| `tray_icon` | `true`¹ | Tray icon. GNOME needs the AppIndicator extension. |
+| `tray_icon` | `true`¹ | Tray icon. GNOME needs the AppIndicator extension. On Windows, notifications are shown from it, so without it there are none. |
 | `open_external_links_in_browser` | `true` | Send non-Meta links to your browser. |
 | `internal_domains` | Instagram and Meta's login hosts | Hosts allowed inside the window. Add `threads.com` to keep Threads in. |
 | `spell_checking_languages` | `[]` | e.g. `["en_US", "fr_FR"]`. |
@@ -195,6 +215,13 @@ INSTACACHE_LOG_NOTIFICATIONS=1 instacache
 journalctl --user -f | grep 'instacache: notification'
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+$env:INSTACACHE_LOG_NOTIFICATIONS = 1
+& "$env:LOCALAPPDATA\Programs\instaCache\instacache.exe" 2> notifications.log
+```
+
 It is off by default and stays off: what a notification says is nobody's
 business. Send the line for a call that did not ring and it is a quick fix.
 
@@ -213,6 +240,10 @@ business. Send the line for a call that did not ring and it is a quick fix.
 
 Every path follows `XDG_*_HOME`, and nothing is written anywhere else.
 
+On Windows the same three are `%APPDATA%\instacache\`,
+`%LOCALAPPDATA%\instacache\data\` and `%LOCALAPPDATA%\instacache\cache\`; the
+application itself is in `%LOCALAPPDATA%\Programs\instaCache\`.
+
 </details>
 
 ## Requirements
@@ -220,6 +251,9 @@ Every path follows `XDG_*_HOME`, and nothing is written anywhere else.
 Qt 6.4 or newer with `qt6-webengine`; `get.sh` installs it on Arch, Debian,
 Ubuntu, Fedora, openSUSE and their derivatives. On Fedora, video also needs
 `qt6-qtwebengine-freeworld`, which the installer adds.
+
+On Windows, nothing: the download carries Qt and the Visual C++ runtime.
+Windows 10 1803 or later, 64-bit (it also runs on Windows 11 on ARM, emulated).
 
 ## Build from source
 
@@ -230,7 +264,13 @@ cargo build --release
 ```
 
 Needs Rust 1.82+ and the Qt 6 development packages (`qt6-base`,
-`qt6-declarative`, `qt6-webengine`). Contributing? Start with
+`qt6-declarative`, `qt6-webengine`).
+
+On Windows: Visual Studio's C++ build tools, and Qt 6.8 for MSVC 2022 with
+Qt WebEngine (the Qt installer, or `aqt install-qt windows desktop 6.8.3
+win64_msvc2022_64 -m qtwebengine qtpositioning qtwebchannel`). Set `QMAKE` to
+its `qmake.exe`, build, then `scripts\package-windows.ps1 -Version <version>`
+gathers the DLLs into an archive. Contributing? Start with
 [`AGENTS.md`](AGENTS.md).
 
 ## Licence

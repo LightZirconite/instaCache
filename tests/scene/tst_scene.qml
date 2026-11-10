@@ -86,6 +86,15 @@ Item {
             win.refreshStartsWithSession();
         }
 
+        // Windows shows a notification from the tray icon: the scene puts up
+        // what poll hands it, and gives a click back with that one's id.
+        function test_01c2_a_tray_notification_comes_back_when_clicked() {
+            win.shell.pollResult = JSON.stringify({show: [{id: 7, title: "Ana", body: "hi"}]});
+            waitFor(function () { return win.trayMessage === 7; }, 3000, "the notification is shown");
+            win.tray.messageClicked();
+            compare(win.shell.trayClicks, [7], "the click goes back with its id");
+        }
+
         // The mods are a user script on the profile, and the point of that is
         // running before the page's own code: at document creation the
         // document is still loading. Switching one off takes effect at the

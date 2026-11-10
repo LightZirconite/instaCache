@@ -13,10 +13,9 @@
 //! happens. See `wake.rs`.
 
 use std::cell::{Cell, RefCell};
-use std::os::unix::net::UnixListener;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use qmetaobject::*;
@@ -43,6 +42,7 @@ const UPDATE_RECHECK: Duration = Duration::from_secs(3600);
 
 /// How often a running instance looks whether its binary was replaced. It is
 /// one `readlink`.
+#[cfg(not(windows))]
 const REPLACED_CHECK: Duration = Duration::from_secs(20);
 
 /// How long after a page load a rising unread count means "this is what was
@@ -118,6 +118,9 @@ pub struct Shell {
     own_title_bar: qt_property!(bool; READ own_title_bar),
     /// The icon theme name this profile's entry uses, for the tray icon.
     icon_name: qt_property!(QString; READ icon_name),
+    /// The tray icon as a file, for Windows, which has no icon theme to look
+    /// a name up in. Empty elsewhere.
+    icon_source: qt_property!(QString; READ icon_source),
     /// Started with `--background`: the window begins hidden. What a quiet
     /// restart for an update uses, so nothing appears on screen.
     start_hidden: qt_property!(bool; READ starts_hidden),
@@ -241,6 +244,15 @@ pub struct Shell {
             self.page_notification(title, body, tag, key, window_active)
         }
     ),
+    /// A notification the scene showed from the tray icon, the way Windows
+    /// shows them, was clicked. `id` is the one `poll` handed over with it.
+    notification_clicked: qt_method!(
+        fn notification_clicked(&self, id: u32) {
+            if let Some(alerts) = self.alerts.as_ref() {
+                alerts.clicked(id);
+            }
+        }
+    ),
     /// The page closed its notification itself. It leaves the desktop, and
     /// a call stops ringing.
     page_notification_closed: qt_method!(
@@ -320,7 +332,10 @@ pub struct Shell {
     wake: qt_signal!(),
     /// Drains everything that happened off the UI thread, as JSON:
     /// `{"present": bool, "urls": [...], "quit": bool, "clicked": [...],
-    /// "closed": [...], "forgotten": [...], "update": ..., "update_version": ...}`.
+    /// "closed": [...], "forgotten": [...], "show": [...], "update": ...,
+    /// "update_version": ...}`. `show` is only ever filled on Windows: the
+    /// notifications for the scene to put up from the tray icon, each
+    /// `{"id", "title", "body"}`, oldest first.
     ///
     /// One call rather than several because each is a crossing into Rust and
     /// back, and the scene makes it on `wake` and on a slow timer.
@@ -395,13 +410,14 @@ pub struct Shell {
     waker: Wake,
     updates: RefCell<Option<Receiver<updates::Outcome>>>,
     update_asked: Cell<Option<Instant>>,
+    #[cfg(not(windows))]
     replaced_checked: Cell<Option<Instant>>,
     update: RefCell<UpdateState>,
     restart: RefCell<Option<Restart>>,
     hidden_at_start: bool,
     updated_from_version: String,
     alerts: Option<alerts::Alerts>,
-    badge: Option<Sender<u32>>,
+    badge: Option<badge::Badge>,
     unread: Cell<u32>,
     /// Until when a rising unread count is Instagram catching up with what was
     /// already there, rather than something new. See `UNREAD_SETTLE`.
@@ -423,7 +439,7 @@ impl Shell {
     pub fn new(
         config: Config,
         paths: Rc<Paths>,
-        listener: Option<UnixListener>,
+        listener: Option<instance::Listener>,
         start_url: Option<String>,
         start_hidden: bool,
     ) -> Self {
@@ -475,7 +491,7 @@ impl Shell {
         }
         let badge = config
             .unread_badge
-            .then(|| badge::spawn(sites::window_class(&paths.profile)));
+            .then(|| badge::Badge::new(sites::window_class(&paths.profile)));
 
         Self {
             config: Some(Rc::new(RefCell::new(config))),
@@ -693,6 +709,27 @@ impl Shell {
         profile_icon_name(&profile).into()
     }
 
+    #[cfg(not(windows))]
+    fn icon_source(&self) -> QString {
+        QString::default()
+    }
+
+    /// A site's own icon, or the one installed beside `instacache.exe`.
+    #[cfg(windows)]
+    fn icon_source(&self) -> QString {
+        let own = self.paths.as_deref().and_then(sites::window_icon);
+        let shipped = || {
+            std::env::current_exe()
+                .ok()?
+                .parent()
+                .map(|dir| dir.join("instacache.ico"))
+        };
+        own.or_else(shipped)
+            .map(|path| file_url(&path))
+            .unwrap_or_default()
+            .into()
+    }
+
     fn instagram_shortcuts(&self) -> bool {
         crate::config::is_instagram(&self.config().home_url)
     }
@@ -717,6 +754,14 @@ impl Shell {
     /// or from the pill. Without this, a window closed to the background kept
     /// running the old version after `instacache --update`, and every launch
     /// from the menu was handed to that old copy.
+    ///
+    /// Windows says nothing of the kind about a running executable that was
+    /// renamed aside, and there an update is only ever installed by this
+    /// copy or by `instacache --update`, which tells nothing to this one.
+    #[cfg(windows)]
+    fn notice_replaced_binary(&self) {}
+
+    #[cfg(not(windows))]
     fn notice_replaced_binary(&self) {
         let now = Instant::now();
         if self
@@ -869,7 +914,7 @@ impl Shell {
             return;
         }
         if let Some(badge) = self.badge.as_ref() {
-            let _ = badge.send(count);
+            badge.show(count);
         }
     }
 
@@ -1040,6 +1085,9 @@ impl Shell {
         let mut clicked: Vec<u32> = Vec::new();
         let mut closed: Vec<u32> = Vec::new();
         let mut forgotten: Vec<u32> = Vec::new();
+        // Filled only on Windows; see `alerts::Outcome::Show`.
+        #[cfg_attr(not(windows), allow(unused_mut))]
+        let mut show: Vec<serde_json::Value> = Vec::new();
 
         if let Some(launches) = self.launches.as_ref() {
             for launch in launches.try_iter() {
@@ -1061,6 +1109,10 @@ impl Shell {
                     }
                     alerts::Outcome::Closed(key) => closed.push(key),
                     alerts::Outcome::Forgotten(key) => forgotten.push(key),
+                    #[cfg(windows)]
+                    alerts::Outcome::Show { id, title, body } => {
+                        show.push(serde_json::json!({ "id": id, "title": title, "body": body }));
+                    }
                 }
             }
         }
@@ -1109,6 +1161,7 @@ impl Shell {
             "clicked": clicked,
             "closed": closed,
             "forgotten": forgotten,
+            "show": show,
             "update": update,
             "update_version": version,
         })
@@ -1206,11 +1259,19 @@ fn describe_update(before: &UpdateState, after: &UpdateState, can_elevate: bool)
             "{APP_NAME} {version} is available. Install it from the window."
         )),
         UpdateState::Available(version) => Some(format!(
-            "{APP_NAME} {version} is available. Run `sudo instacache --update` to install it."
+            "{APP_NAME} {version} is available. {}",
+            MANUAL_UPDATE
         )),
         UpdateState::Idle | UpdateState::Installing(_) => None,
     }
 }
+
+/// What to do about an update this copy could not install by itself.
+#[cfg(not(windows))]
+const MANUAL_UPDATE: &str = "Run `sudo instacache --update` to install it.";
+#[cfg(windows)]
+const MANUAL_UPDATE: &str =
+    "Download it from https://github.com/LightZirconite/instaCache/releases/latest.";
 
 /// Whether an update may take over without the user seeing it happen.
 ///
@@ -1354,6 +1415,9 @@ fn background_notice(tray: bool) -> (String, String) {
     let body = if tray {
         "Messages and notifications keep arriving. Click its icon in the system \
          tray to open it again, or right-click the icon to quit."
+    } else if cfg!(windows) {
+        "Messages and notifications keep arriving. Open it again from the \
+         Start menu, or press Ctrl+Q in its window to quit."
     } else {
         "Messages and notifications keep arriving. Open it again from the \
          application menu, or press Ctrl+Q in its window to quit."
@@ -1376,6 +1440,7 @@ fn should_sound(kind: alerts::Kind, sounds_enabled: bool, window_active: bool) -
 /// Whether `/proc/self/exe` says the running binary's file was replaced —
 /// by `instacache --update`, `install.sh` or a package manager — which the
 /// kernel reports by appending ` (deleted)` to the link.
+#[cfg(not(windows))]
 fn binary_replaced(exe_link: &str) -> bool {
     exe_link.ends_with(" (deleted)")
 }
@@ -1427,6 +1492,17 @@ fn unread_summary(arrived: u32) -> String {
         "New message".to_string()
     } else {
         format!("{arrived} new messages")
+    }
+}
+
+/// `C:\\Apps\\x.ico` as the `file:` URL QML wants.
+#[cfg(any(windows, test))]
+fn file_url(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
     }
 }
 
@@ -1695,6 +1771,19 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_path_becomes_a_file_url() {
+        assert_eq!(
+            file_url(std::path::Path::new(r"C:\Apps\instaCache\instacache.ico")),
+            "file:///C:/Apps/instaCache/instacache.ico"
+        );
+        assert_eq!(
+            file_url(std::path::Path::new("/usr/share/x.png")),
+            "file:///usr/share/x.png"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn a_binary_replaced_on_disk_is_noticed() {
         assert!(binary_replaced("/home/u/.local/bin/instacache (deleted)"));
         assert!(!binary_replaced("/home/u/.local/bin/instacache"));
@@ -1710,7 +1799,7 @@ mod tests {
         assert!(describe_update(&ready, &ready, false).is_none());
         assert!(describe_update(&idle, &available, false)
             .unwrap()
-            .contains("sudo instacache --update"));
+            .ends_with(MANUAL_UPDATE));
         assert!(describe_update(&idle, &available, true)
             .unwrap()
             .contains("from the window"));
@@ -1735,11 +1824,12 @@ mod tests {
         assert_eq!(profile_icon_name("xcache"), "instacache-xcache");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_count_that_did_not_change_is_not_sent_again() {
         let (tx, rx) = std::sync::mpsc::channel();
         let shell = Shell {
-            badge: Some(tx),
+            badge: Some(badge::Badge::sending_to(tx)),
             ..shell()
         };
         shell.update_badge(0);
@@ -1780,11 +1870,12 @@ mod tests {
         assert!(shell.announces_unread(2), "long enough ago to be news");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn only_a_count_that_went_up_is_a_message() {
         let (tx, rx) = std::sync::mpsc::channel();
         let shell = Shell {
-            badge: Some(tx),
+            badge: Some(badge::Badge::sending_to(tx)),
             ..shell()
         };
         shell.unread_settles_at.set(None);

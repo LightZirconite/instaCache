@@ -18,8 +18,14 @@ use crate::config::Config;
 /// Qt WebEngine embeds. `VaapiVideoDecodeLinuxGL` is the flag that covers the
 /// GL-backed path Qt uses; `VaapiIgnoreDriverChecks` keeps drivers that
 /// Chromium's allow-list has not heard of from being refused outright.
+#[cfg(not(windows))]
 const GPU_DECODING: &str = "--enable-features=VaapiVideoDecodeLinuxGL,VaapiIgnoreDriverChecks \
 --ignore-gpu-blocklist";
+
+/// On Windows Chromium decodes through D3D11 by itself, and its GPU blocklist
+/// is what keeps a bad driver from taking the page down, so nothing is asked.
+#[cfg(windows)]
+const GPU_DECODING: &str = "";
 
 /// Leaves decoding to the CPU without switching off compositing as well.
 const SOFTWARE_DECODING: &str = "--disable-accelerated-video-decode";
@@ -56,6 +62,7 @@ pub fn flags(config: &Config, inherited: Option<&str>) -> String {
             // `auto`, and anything unrecognised, which is the safe reading of
             // a typo in a config file.
             "auto" | "default" => {}
+            _ if GPU_DECODING.is_empty() => {}
             _ => parts.push(GPU_DECODING),
         }
     }
@@ -93,6 +100,8 @@ mod tests {
     #[test]
     fn the_default_asks_for_gpu_decoding() {
         let flags = flags(&Config::default(), None);
+        assert_eq!(flags, GPU_DECODING);
+        #[cfg(not(windows))]
         assert!(flags.contains("VaapiVideoDecodeLinuxGL"), "{flags}");
     }
 
@@ -122,12 +131,14 @@ mod tests {
     fn the_environment_is_kept_and_placed_last() {
         let flags = flags(&Config::default(), Some("--single-process"));
         assert!(flags.ends_with("--single-process"), "{flags}");
-        assert!(flags.contains("Vaapi"), "{flags}");
+        assert!(flags.starts_with(GPU_DECODING), "{flags}");
     }
 
     #[test]
     fn a_typo_falls_back_to_the_default_rather_than_to_nothing() {
-        let flags = flags(&config("always", "gpuu"), None);
-        assert!(flags.contains("Vaapi"), "{flags}");
+        assert_eq!(
+            flags(&config("always", "gpuu"), None),
+            flags(&Config::default(), None)
+        );
     }
 }

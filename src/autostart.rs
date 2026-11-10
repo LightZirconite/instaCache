@@ -13,11 +13,20 @@
 //!
 //! The entry starts instaCache with `--background`, so logging in does not
 //! throw a window at you — it leaves a tray icon and a page already warm.
+//!
+//! Windows has no such directory. Its equivalent is a value under the user's
+//! `Run` key, and the rule is the same one: Task Manager's Startup tab turns
+//! an entry off by writing to `StartupApproved\Run` rather than deleting it,
+//! so that is read too, and believed.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(not(windows))]
+use std::path::PathBuf;
 
 use crate::paths::DEFAULT_PROFILE;
-use crate::{sites, APP_NAME, PROGRAM_NAME};
+#[cfg(not(windows))]
+use crate::PROGRAM_NAME;
+use crate::{sites, APP_NAME};
 
 /// `~/.config/autostart`, from the real XDG config home.
 ///
@@ -25,6 +34,7 @@ use crate::{sites, APP_NAME, PROGRAM_NAME};
 /// test install keeps its own settings out of the way, and redirecting the
 /// session's autostart directory with it would write nothing the session ever
 /// reads.
+#[cfg(not(windows))]
 pub fn autostart_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -36,6 +46,7 @@ pub fn autostart_dir() -> PathBuf {
 
 /// The entry for a profile. A site added with `--add-site` gets its own, named
 /// after it, so turning one on never turns another on.
+#[cfg(not(windows))]
 pub fn entry_name(profile: &str) -> String {
     if profile == DEFAULT_PROFILE {
         format!("{PROGRAM_NAME}.desktop")
@@ -44,6 +55,7 @@ pub fn entry_name(profile: &str) -> String {
     }
 }
 
+#[cfg(not(windows))]
 pub fn entry_path(profile: &str) -> PathBuf {
     autostart_dir().join(entry_name(profile))
 }
@@ -53,10 +65,12 @@ pub fn entry_path(profile: &str) -> PathBuf {
 /// A desktop that disables an entry through its own panel writes
 /// `Hidden=true` or `X-GNOME-Autostart-enabled=false` into the file rather
 /// than deleting it, so the contents decide, not the file's existence.
+#[cfg(not(windows))]
 pub fn is_enabled(profile: &str) -> bool {
     enabled_in(std::fs::read_to_string(entry_path(profile)).ok().as_deref())
 }
 
+#[cfg(not(windows))]
 fn enabled_in(entry: Option<&str>) -> bool {
     let Some(entry) = entry else {
         return false;
@@ -69,6 +83,7 @@ fn enabled_in(entry: Option<&str>) -> bool {
 }
 
 /// Turns it on or off. Returns what the user should be told when it failed.
+#[cfg(not(windows))]
 pub fn set(profile: &str, enabled: bool) -> Result<(), String> {
     let path = entry_path(profile);
     if !enabled {
@@ -110,6 +125,7 @@ pub fn apply_default_once(config_dir: &Path, profile: &str, wanted: bool) {
 
 /// The text of the entry. Separate from writing it so it can be tested without
 /// touching the session.
+#[cfg(not(windows))]
 pub fn entry(profile: &str, exec: &str) -> String {
     // `--background` rather than a plain launch: logging in should leave a
     // warm page behind a tray icon, not a window over whatever you opened the
@@ -142,16 +158,147 @@ pub fn entry(profile: &str, exec: &str) -> String {
     )
 }
 
+/// Where Windows reads what to start at login, and where Task Manager writes
+/// what it was told not to start.
+#[cfg(windows)]
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
+const APPROVED_KEY: &str =
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+/// The name of a profile's value under the `Run` key, which is also what
+/// Task Manager shows when it cannot read the executable's own description.
+#[cfg(any(windows, test))]
+fn value_name(profile: &str) -> String {
+    if profile == DEFAULT_PROFILE {
+        APP_NAME.to_string()
+    } else {
+        format!("{APP_NAME} ({profile})")
+    }
+}
+
+/// The command line Windows runs at login.
+#[cfg(any(windows, test))]
+fn run_command(profile: &str, exec: &str) -> String {
+    if profile == DEFAULT_PROFILE {
+        format!("\"{exec}\" --background")
+    } else {
+        format!("\"{exec}\" --profile {profile} --background")
+    }
+}
+
+/// Whether what `reg query` printed for a `StartupApproved` value says the
+/// entry is switched off: its first byte is odd — 3 or 7 — when it is.
+#[cfg(any(windows, test))]
+fn switched_off(query: &str, name: &str) -> bool {
+    query
+        .lines()
+        .find(|line| line.trim_start().starts_with(name) && line.contains("REG_BINARY"))
+        .and_then(|line| line.split_whitespace().last())
+        .and_then(|data| u8::from_str_radix(data.get(..2)?, 16).ok())
+        .is_some_and(|first| first & 1 == 1)
+}
+
+/// `reg.exe` with these arguments, its output when it succeeded.
+#[cfg(windows)]
+fn reg(arguments: &[&str]) -> Option<String> {
+    let mut command = std::process::Command::new("reg.exe");
+    command.args(arguments);
+    crate::windows::no_console(&mut command);
+    let output = command.output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Whether instaCache starts with the session.
+#[cfg(windows)]
+pub fn is_enabled(profile: &str) -> bool {
+    let name = value_name(profile);
+    if reg(&["query", RUN_KEY, "/v", &name]).is_none() {
+        return false;
+    }
+    !reg(&["query", APPROVED_KEY, "/v", &name]).is_some_and(|query| switched_off(&query, &name))
+}
+
+/// Turns it on or off. Returns what the user should be told when it failed.
+///
+/// Turning it on also clears what Task Manager recorded, because the user
+/// has just asked for it, here, by name.
+#[cfg(windows)]
+pub fn set(profile: &str, enabled: bool) -> Result<(), String> {
+    let name = value_name(profile);
+    if !enabled {
+        // A value that is not there is the state that was asked for.
+        let _ = reg(&["delete", RUN_KEY, "/v", &name, "/f"]);
+        return if reg(&["query", RUN_KEY, "/v", &name]).is_none() {
+            Ok(())
+        } else {
+            Err(format!("could not remove {name} from {RUN_KEY}"))
+        };
+    }
+    let command = run_command(profile, &sites::exec_command());
+    reg(&[
+        "add", RUN_KEY, "/v", &name, "/t", "REG_SZ", "/d", &command, "/f",
+    ])
+    .ok_or_else(|| format!("could not write {name} into {RUN_KEY}"))?;
+    let _ = reg(&["delete", APPROVED_KEY, "/v", &name, "/f"]);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn windows_starts_the_right_profile_hidden() {
+        assert_eq!(value_name("default"), "instaCache");
+        assert_eq!(value_name("xcache"), "instaCache (xcache)");
+        assert_eq!(
+            run_command("default", r"C:\Apps\instacache.exe"),
+            r#""C:\Apps\instacache.exe" --background"#
+        );
+        assert_eq!(
+            run_command("xcache", r"C:\Apps\instacache.exe"),
+            r#""C:\Apps\instacache.exe" --profile xcache --background"#
+        );
+    }
+
+    #[test]
+    fn task_managers_switch_is_believed() {
+        let query = |data: &str| {
+            format!(
+                "\r\nHKEY_CURRENT_USER\\Software\\...\\StartupApproved\\Run\r\n    instaCache    REG_BINARY    {data}\r\n"
+            )
+        };
+        assert!(switched_off(
+            &query("030000000000000000000000"),
+            "instaCache"
+        ));
+        assert!(switched_off(
+            &query("070000001234567890ABCDEF"),
+            "instaCache"
+        ));
+        assert!(!switched_off(
+            &query("020000000000000000000000"),
+            "instaCache"
+        ));
+        assert!(!switched_off(
+            &query("060000000000000000000000"),
+            "instaCache"
+        ));
+        assert!(!switched_off("", "instaCache"), "no record is on");
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn the_default_profile_owns_the_plain_name() {
         assert_eq!(entry_name("default"), "instacache.desktop");
         assert_eq!(entry_name("xcache"), "instacache-xcache.desktop");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn the_entry_starts_hidden_and_names_its_profile() {
         let default = entry("default", "/usr/bin/instacache");
@@ -173,6 +320,7 @@ mod tests {
         assert!(site.contains("Icon=instacache-xcache"), "{site}");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_desktop_that_switched_it_off_is_believed() {
         assert!(!enabled_in(None), "no file at all is off");
